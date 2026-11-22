@@ -1231,6 +1231,27 @@ small,
   background: var(--row-color, var(--scope-system));
 }
 
+.agent-navigation-item.skill-row {
+  grid-template-columns: 6px minmax(0, 1fr) auto;
+}
+
+.agent-navigation-item[data-scope] .row-strip {
+  background: var(--scope-color);
+}
+
+[data-scope="system"] {
+  --scope-color: var(--scope-system);
+}
+[data-scope="profile"] {
+  --scope-color: var(--scope-profile);
+}
+[data-scope="project"] {
+  --scope-color: var(--scope-project);
+}
+[data-scope="session"] {
+  --scope-color: var(--scope-session);
+}
+
 .agent-navigation-item .row-marks {
   display: inline-flex;
   align-items: center;

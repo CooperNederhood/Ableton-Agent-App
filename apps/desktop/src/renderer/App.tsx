@@ -1134,6 +1134,11 @@ export function App(): React.JSX.Element {
             <SkillsView
               state={state}
               dispatch={dispatch}
+              profileRefreshToken={profileRefreshToken}
+              onUseInChat={(command) => {
+                setComposerValue(command);
+                dispatch({ type: "view", view: "workspace" });
+              }}
               onProfilesChanged={() =>
                 setProfileRefreshToken((current) => current + 1)
               }
@@ -3887,12 +3892,17 @@ export function SkillsView({
   state,
   dispatch,
   onProfilesChanged,
+  onUseInChat,
+  profileRefreshToken = 0,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
   onProfilesChanged?: (() => void) | undefined;
+  onUseInChat?: ((command: string) => void) | undefined;
+  profileRefreshToken?: number;
 }): React.JSX.Element {
   const session = activeSession(state);
+  const profiles = useProfileSnapshot(profileRefreshToken);
   const [selectedKey, setSelectedKey] = useState<string | undefined>(
     state.agentCatalog.skills[0]?.name,
   );
@@ -3912,6 +3922,14 @@ export function SkillsView({
   );
   const selectedCatalogSkill = catalogSkills.find(
     ({ name }) => name === selectedKey,
+  );
+  const visibleSkills = catalogSkills.filter(
+    ({ origin }) =>
+      state.libraryScope === "all" ||
+      libraryScopeOf(origin) === state.libraryScope,
+  );
+  const skillScopeCounts = countByScope(
+    catalogSkills.map(({ origin }) => libraryScopeOf(origin)),
   );
   const selectedDraft =
     selectedKey === undefined ? undefined : drafts[selectedKey];
@@ -4105,22 +4123,22 @@ export function SkillsView({
       className="agents-view skills-view"
       aria-labelledby="skills-heading"
     >
-      <div className="panel-heading">
-        <div>
-          <h2 id="skills-heading">Skills</h2>
-          <p>
-            Scoped Markdown instructions available to agents and Workspace slash
-            commands.
-          </p>
-        </div>
-        <div className="agent-header-actions">
-          <button type="button" onClick={createDraft}>
-            New skill
-          </button>
-          <button disabled={refreshing} onClick={() => void refresh()}>
-            {refreshing ? "Refreshing…" : "Refresh skills"}
-          </button>
-        </div>
+      <div className="library-bar">
+        <h2 className="library-title" id="skills-heading">
+          Skills
+        </h2>
+        <ScopeFilterBar
+          value={state.libraryScope}
+          counts={skillScopeCounts}
+          onChange={(scope) => dispatch({ type: "library-scope", scope })}
+        />
+        <span className="spacer" />
+        <button disabled={refreshing} onClick={() => void refresh()}>
+          {refreshing ? "Refreshing…" : "Refresh skills"}
+        </button>
+        <button type="button" className="primary" onClick={createDraft}>
+          New skill
+        </button>
       </div>
       {session === undefined && (
         <div className="notice" role="status">
@@ -4130,28 +4148,37 @@ export function SkillsView({
       )}
       {catalogSkills.length === 0 && !selectedKey?.startsWith("new:") ? (
         <EmptyState
-          title="No valid skills found"
-          detail="Create a Session-defined Skill to add reusable instructions."
+          title="No skills yet"
+          detail="Skills are reusable instructions you can call with /name in chat. Create one with New skill."
         />
       ) : (
         <div className="agents-workspace">
           <nav className="agent-navigation" aria-label="Skills">
             <div className="agent-navigation-list">
-              {catalogSkills.map((skill) => (
+              {visibleSkills.map((skill) => (
                 <button
                   type="button"
-                  className={`agent-navigation-item ${selectedKey === skill.name ? "active" : ""}`}
+                  className={`agent-navigation-item skill-row ${selectedKey === skill.name ? "active" : ""}`}
                   aria-current={selectedKey === skill.name ? "page" : undefined}
+                  title={skill.description}
+                  data-scope={libraryScopeOf(skill.origin)}
                   onClick={() => setSelectedKey(skill.name)}
                   key={skill.name}
                 >
-                  <span
-                    className={`skill-scope-light is-${skill.origin ?? "bundled"}`}
-                    aria-hidden="true"
-                  />
+                  <span className="row-strip" aria-hidden="true" />
                   <span className="agent-navigation-label">
-                    <strong>{skill.name}</strong>
-                    <small>{skill.description}</small>
+                    <strong>/{skill.name}</strong>
+                  </span>
+                  <span className="row-marks">
+                    {libraryScopeOf(skill.origin) === "system" && (
+                      <span
+                        role="img"
+                        aria-label="Bundled"
+                        title="Bundled with the app"
+                      >
+                        <Icon name="lock" />
+                      </span>
+                    )}
                   </span>
                 </button>
               ))}
@@ -4160,21 +4187,19 @@ export function SkillsView({
                 .map((draft) => (
                   <button
                     type="button"
-                    className={`agent-navigation-item ${selectedKey === draft.key ? "active" : ""}`}
+                    className={`agent-navigation-item skill-row ${selectedKey === draft.key ? "active" : ""}`}
                     aria-current={
                       selectedKey === draft.key ? "page" : undefined
                     }
+                    data-scope="session"
                     onClick={() => setSelectedKey(draft.key)}
                     key={draft.key}
                   >
-                    <span
-                      className="skill-scope-light is-new"
-                      aria-hidden="true"
-                    />
+                    <span className="row-strip" aria-hidden="true" />
                     <span className="agent-navigation-label">
                       <strong>{draft.name || "Untitled skill"}</strong>
-                      <small>New Session skill</small>
                     </span>
+                    <span className="row-marks">New</span>
                   </button>
                 ))}
             </div>
@@ -4190,19 +4215,39 @@ export function SkillsView({
                 <header className="agent-detail-header">
                   <div>
                     <div className="agent-title-line">
-                      <h3>{selectedDraft.name || "New skill"}</h3>
-                      <span className="scope-badge">
-                        {selectedDraft.published
-                          ? selectedDraft.origin
-                          : "new session"}
-                      </span>
+                      <h3>/{selectedDraft.name || "new-skill"}</h3>
+                      {selectedDraft.published ? (
+                        <ArtifactScopeActions
+                          profiles={profiles}
+                          kind="skill"
+                          name={selectedDraft.name}
+                          origin={selectedDraft.origin}
+                          onProfilesChanged={onProfilesChanged}
+                        />
+                      ) : (
+                        <ScopeChip origin="session" />
+                      )}
                       {selectedDraft.dirty && (
                         <span className="scope-badge">Unsaved</span>
                       )}
                     </div>
                     <p>{selectedDraft.description || "Add skill metadata."}</p>
+                    {selectedDraft.published && (
+                      <SkillUsedBy
+                        skillName={selectedDraft.name}
+                        definitions={state.agentCatalog.definitions}
+                      />
+                    )}
                   </div>
                   <div className="agent-header-actions">
+                    {selectedDraft.published && onUseInChat !== undefined && (
+                      <button
+                        type="button"
+                        onClick={() => onUseInChat(`/${selectedDraft.name} `)}
+                      >
+                        Use in chat
+                      </button>
+                    )}
                     <button
                       type="button"
                       disabled={!selectedDraft.dirty || saving}
@@ -4252,7 +4297,7 @@ export function SkillsView({
                     title="Overview"
                     onClick={() => setActivePanel("overview")}
                   >
-                    i
+                    About
                   </button>
                   <button
                     type="button"
@@ -4263,7 +4308,7 @@ export function SkillsView({
                     title="Instructions"
                     onClick={() => setActivePanel("instructions")}
                   >
-                    &lt;/&gt;
+                    Instructions
                   </button>
                 </div>
                 <div className="agent-detail-body">
@@ -4765,9 +4810,11 @@ export function AgentsView({
                 <ActiveAgentCard
                   definition={definition}
                   scopeActions={
-                    <AgentScopeActions
+                    <ArtifactScopeActions
                       profiles={profiles}
-                      definition={definition}
+                      kind="agent"
+                      name={definition.name}
+                      origin={definition.origin}
                       onProfilesChanged={onProfilesChanged}
                     />
                   }
@@ -4821,9 +4868,11 @@ export function AgentsView({
               <ActiveAgentCard
                 definition={definition}
                 scopeActions={
-                  <AgentScopeActions
+                  <ArtifactScopeActions
                     profiles={profiles}
-                    definition={definition}
+                    kind="agent"
+                    name={definition.name}
+                    origin={definition.origin}
                     onProfilesChanged={onProfilesChanged}
                   />
                 }
@@ -4919,24 +4968,56 @@ function AgentListRow({
   );
 }
 
-function AgentScopeActions({
+function SkillUsedBy({
+  skillName,
+  definitions,
+}: {
+  skillName: string;
+  definitions: readonly DesktopAgentDefinition[];
+}): React.JSX.Element {
+  const users = definitions.filter(({ skills }) => skills.includes(skillName));
+  return (
+    <div className="tag-list" aria-label="Used by">
+      <span className="behavior-label">Used by</span>
+      {users.length === 0 ? (
+        <span className="behavior-label">No agent preloads it yet</span>
+      ) : (
+        users.map((definition) => (
+          <span
+            key={definition.name}
+            className="tag"
+            style={
+              {
+                "--tag-color":
+                  definition.color ?? defaultAgentColor(definition.name),
+              } as CSSProperties
+            }
+          >
+            {definition.label ?? definition.name}
+          </span>
+        ))
+      )}
+    </div>
+  );
+}
+
+function ArtifactScopeActions({
   profiles,
-  definition,
+  kind,
+  name,
+  origin,
   onProfilesChanged,
 }: {
   profiles: ReturnType<typeof useProfileSnapshot>;
-  definition: DesktopAgentDefinition;
+  kind: "agent" | "skill";
+  name: string;
+  origin: DesktopAgentDefinition["origin"];
   onProfilesChanged?: (() => void) | undefined;
 }): React.JSX.Element {
-  const artifact = findContextArtifact(
-    profiles.snapshot,
-    "agent",
-    definition.name,
-    definition.origin,
-  );
+  const artifact = findContextArtifact(profiles.snapshot, kind, name, origin);
   return (
     <>
-      <ScopeChip origin={definition.origin} />
+      <ScopeChip origin={origin} />
       {profiles.snapshot !== undefined && artifact !== undefined && (
         <ScopeActions
           snapshot={profiles.snapshot}

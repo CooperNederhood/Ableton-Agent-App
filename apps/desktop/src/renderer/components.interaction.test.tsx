@@ -867,7 +867,7 @@ describe("desktop component interactions", () => {
 
     expect(read).not.toHaveBeenCalled();
     expect(container.textContent).not.toContain("interview-me");
-    expect(container.textContent).toContain("No valid skills found");
+    expect(container.textContent).toContain("No skills yet");
   });
 
   it("publishes new skill metadata and adds the skill to the navigator", async () => {

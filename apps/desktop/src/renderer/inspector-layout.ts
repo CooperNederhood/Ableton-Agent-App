@@ -1,4 +1,4 @@
-export type InspectorModuleId = "selection" | "plan" | "approval";
+export type InspectorModuleId = "selection" | "plan" | "approval" | "artifact";
 
 export interface InspectorPane {
   readonly id: string;

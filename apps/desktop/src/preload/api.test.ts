@@ -821,6 +821,7 @@ describe("preload API", () => {
         modified: false,
       },
       "agents:resolve-plan": { resolved: true },
+      "agents:resolve-artifact-review": { outcome: "discarded" },
       "agents:cancel": { cancelled: true },
     });
 
@@ -843,6 +844,13 @@ describe("preload API", () => {
         selectedAction: "interactive",
       }),
     ).resolves.toBe(true);
+    await expect(
+      api.agents.resolveArtifactReview(instanceId, {
+        requestId: "review-1",
+        revision: 1,
+        decision: "discard",
+      }),
+    ).resolves.toEqual({ outcome: "discarded" });
     await expect(api.agents.cancel(instanceId)).resolves.toEqual({
       cancelled: true,
     });
@@ -872,6 +880,10 @@ describe("preload API", () => {
           approved: true,
           selectedAction: "interactive",
         },
+      ],
+      [
+        "agents:resolve-artifact-review",
+        { instanceId, requestId: "review-1", revision: 1, decision: "discard" },
       ],
       ["agents:cancel", { instanceId }],
     ]);

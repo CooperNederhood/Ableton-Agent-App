@@ -186,6 +186,21 @@ export function createIpcHandlers(
         ...(feedback === undefined ? {} : { feedback }),
       }),
     }),
+    "agents:resolve-artifact-review": ({
+      instanceId,
+      requestId,
+      revision,
+      decision,
+      feedback,
+      targets,
+    }) =>
+      service.resolveActiveAgentArtifactReview(instanceId, {
+        requestId,
+        revision,
+        decision,
+        ...(feedback === undefined ? {} : { feedback }),
+        ...(targets === undefined ? {} : { targets }),
+      }),
     "agents:read-plan": ({ instanceId }) =>
       service.readActiveAgentPlan(instanceId),
     "agents:write-plan": ({ instanceId, content, expectedRevision }) =>

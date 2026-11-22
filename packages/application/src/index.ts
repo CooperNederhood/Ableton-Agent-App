@@ -4,7 +4,9 @@ import { readFileSync } from "node:fs";
 
 import type { AbletonService } from "@ableton-agent/ableton-contracts";
 import {
+  formatMemorySystemSection,
   formatSkillInvocation,
+  parseArtifactScopeToken,
   parseSkillInvocation,
   readSkillDocument,
   resolveToolPatterns,
@@ -161,6 +163,15 @@ import {
   sanitizePersistedText,
   sanitizeTelemetryAttributes,
 } from "@ableton-agent/observability";
+import {
+  ARTIFACT_AUTHORING_TOOL_NAMES,
+  ArtifactDraft,
+  authoringKindForSkill,
+  createArtifactAuthoringTools,
+  type ArtifactAuthoringContext,
+  type ArtifactAuthoringPort,
+  type ArtifactPublicationResult,
+} from "./artifact-authoring.js";
 import type {
   AppEvent,
   AgentMode,
@@ -170,6 +181,10 @@ import type {
   AgentElicitationResolution,
   AgentElicitationValue,
   AgentPlanExitAction,
+  AgentArtifactReviewDecision,
+  AgentArtifactReviewOutcome,
+  AgentArtifactReviewRequest,
+  AgentArtifactReviewTarget,
   ConnectionStatus,
   EventPublisher,
   LifecycleState,
@@ -442,6 +457,11 @@ export interface AgentService
       feedback?: string;
     },
   ): Promise<boolean>;
+  /** Resolves a pending memory or skill draft review for one managed instance. */
+  resolveManagedAgentArtifactReview?(
+    instanceId: string,
+    request: ArtifactReviewResolution,
+  ): Promise<ArtifactReviewResolutionResult>;
   readManagedAgentPlan?(instanceId: string): Promise<PlanArtifactSnapshot>;
   writeManagedAgentPlan?(
     instanceId: string,
@@ -644,6 +664,7 @@ function validateElicitationContent(
 }
 
 export type { AbletonService } from "@ableton-agent/ableton-contracts";
+export * from "./artifact-authoring.js";
 export * from "./listening-coordinator.js";
 export {
   readConnectedListenerBinding,
@@ -903,6 +924,8 @@ export interface CopilotAgentServiceOptions {
     productionSessionId: string,
     skillName: string,
   ) => Promise<AgentSkillDescriptor | undefined>;
+  /** Host storage for reviewed memory and skill drafts. */
+  artifactAuthoring?: ArtifactAuthoringPort;
   /**
    * Non-blocking ingress for exact, application-level runtime records. The
    * receiver owns buffering and persistence; agent execution never awaits it.
@@ -1146,7 +1169,32 @@ export class AgentTurnTimeoutError extends Error {
   }
 }
 
-type HumanGateReason = "elicitation" | "plan_approval" | "tool_approval";
+type HumanGateReason =
+  "artifact_review" | "elicitation" | "plan_approval" | "tool_approval";
+
+export interface ArtifactReviewResolution {
+  readonly requestId: string;
+  readonly revision: number;
+  readonly decision: AgentArtifactReviewDecision;
+  readonly feedback?: string;
+  readonly targets?: readonly AgentArtifactReviewTarget[];
+}
+
+export interface ArtifactReviewResolutionResult {
+  readonly outcome: AgentArtifactReviewOutcome;
+  readonly published?: ArtifactPublicationResult["published"];
+  readonly error?: string;
+}
+
+interface PendingArtifactReview {
+  readonly sessionId: string;
+  readonly startedAt: number;
+  readonly draft: ArtifactDraft;
+  readonly review: AgentArtifactReviewRequest;
+  resolve: (
+    result: ArtifactReviewResolutionResult & { feedback?: string },
+  ) => void;
+}
 
 interface TurnTimeoutPause {
   readonly token: symbol;
@@ -1438,6 +1486,9 @@ interface ManagedSessionState {
       resolve: (result: ElicitationResult) => void;
     }
   >;
+  /** Open memory or skill draft; lives for one turn. */
+  artifactDraft: ArtifactDraft | undefined;
+  readonly artifactReviewRequests: Map<string, PendingArtifactReview>;
 }
 
 function dedupeStrings(values: readonly string[]): string[] {
@@ -1454,17 +1505,28 @@ function bareToolNames(toolNames: readonly string[]): string[] {
 
 function enabledSkillDescriptors(
   configuration: AgentSessionConfiguration,
+  includeAuthoringSkills: boolean,
 ): AgentSkillDescriptor[] {
   const availableByName = new Map(
     (configuration.availableSkills ?? []).map((skill) => [skill.name, skill]),
   );
-  return configuration.skills.map((name) => {
+  const enabled = configuration.skills.map((name) => {
     const skill = availableByName.get(name);
     if (skill === undefined) {
       throw new Error(`Configured skill '${name}' is unavailable`);
     }
     return skill;
   });
+  if (!includeAuthoringSkills) return enabled;
+  const names = new Set(configuration.skills);
+  return [
+    ...enabled,
+    ...(configuration.availableSkills ?? []).filter(
+      (skill) =>
+        !names.has(skill.name) &&
+        authoringKindForSkill(skill.name) !== undefined,
+    ),
+  ];
 }
 
 function yamlString(value: string): string {
@@ -2952,6 +3014,8 @@ export class CopilotAgentService implements AgentService {
       listeningApprovals: new Map(),
       permissionRejections: new Map(),
       directPlanRequests: new Map(),
+      artifactDraft: undefined,
+      artifactReviewRequests: new Map(),
       elicitationRequests: new Map(),
     };
   }
@@ -3232,7 +3296,10 @@ export class CopilotAgentService implements AgentService {
     skillName: string,
     requireEnabled: boolean,
   ): Promise<string> {
-    if (requireEnabled && !state.configuration.skills.includes(skillName)) {
+    if (
+      requireEnabled &&
+      !this.#enabledSkills(state).some((skill) => skill.name === skillName)
+    ) {
       throw new Error(
         `Skill '${skillName}' is not enabled for managed agent '${state.configuration.instanceId}'.`,
       );
@@ -3290,12 +3357,278 @@ export class CopilotAgentService implements AgentService {
       );
     }
     const skillName = skillNameSchema.parse(invocation.skillName);
+    const authoring =
+      this.options.artifactAuthoring === undefined
+        ? undefined
+        : authoringKindForSkill(skillName);
+    const parsed =
+      authoring === undefined
+        ? { request: invocation.request }
+        : parseArtifactScopeToken(invocation.request);
     const body = await this.#readSkillBody(state, skillName, false);
-    return formatDirectSkillPrompt(skillName, body, invocation.request);
+    const draftNote =
+      authoring === undefined
+        ? undefined
+        : await this.#openArtifactDraft(state, skillName, parsed.scope);
+    return formatDirectSkillPrompt(
+      skillName,
+      draftNote === undefined ? body : `${body}\n\n${draftNote}`,
+      parsed.request,
+    );
+  }
+
+  #enabledSkills(state: ManagedSessionState): AgentSkillDescriptor[] {
+    return enabledSkillDescriptors(
+      state.configuration,
+      this.options.artifactAuthoring !== undefined,
+    );
+  }
+
+  async #openArtifactDraft(
+    state: ManagedSessionState,
+    skillName: string,
+    scope: ArtifactDraft["requestedScope"],
+  ): Promise<string> {
+    const kind = authoringKindForSkill(skillName)!;
+    const port = this.options.artifactAuthoring!;
+    const existing = state.artifactDraft;
+    if (existing !== undefined) {
+      if (existing.kind === kind && scope === undefined) {
+        return existing.describe();
+      }
+      if (existing.changeCount > 0 || state.artifactReviewRequests.size > 0) {
+        throw new Error(
+          `A ${existing.kind} draft is already open; submit or discard it before starting another.`,
+        );
+      }
+      this.#closeArtifactDraft(state, "replaced");
+    }
+    const startedAt = Date.now();
+    this.#recordRuntime(state, "agent.artifact_draft.queued", {
+      kind,
+      skillName,
+      requestedScope: scope,
+    });
+    this.#recordRuntime(state, "agent.artifact_draft.started", {
+      kind,
+      skillName,
+    });
+    try {
+      const context = await port.loadContext(
+        state.configuration.productionSessionId,
+      );
+      const draft = new ArtifactDraft(kind, skillName, context, scope);
+      state.artifactDraft = draft;
+      this.#recordRuntime(state, "agent.artifact_draft.completed", {
+        draftId: draft.id,
+        kind,
+        targetScope: draft.targetScope,
+        unavailableScopes: (kind === "memory"
+          ? context.memory
+          : context.skillScopes
+        )
+          .filter(({ available }) => !available)
+          .map(({ scope: unavailable }) => unavailable),
+        durationMs: Date.now() - startedAt,
+      });
+      return draft.describe();
+    } catch (error) {
+      this.#recordRuntime(state, "agent.artifact_draft.failed", {
+        kind,
+        skillName,
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
+
+  #closeArtifactDraft(state: ManagedSessionState, reason: string): void {
+    const draft = state.artifactDraft;
+    if (draft === undefined) return;
+    state.artifactDraft = undefined;
+    if (reason === "published" || reason === "discarded") return;
+    this.#recordRuntime(state, "agent.artifact_draft.cancelled", {
+      draftId: draft.id,
+      kind: draft.kind,
+      reason,
+      changes: draft.changeCount,
+      durationMs: Date.now() - draft.openedAt,
+    });
+  }
+
+  async #artifactReadView(state: ManagedSessionState): Promise<ArtifactDraft> {
+    if (state.artifactDraft !== undefined) return state.artifactDraft;
+    const context = await this.options.artifactAuthoring!.loadContext(
+      state.configuration.productionSessionId,
+    );
+    return new ArtifactDraft("memory", "update-memory", context, undefined);
+  }
+
+  #requireArtifactDraft(state: ManagedSessionState): ArtifactDraft {
+    const draft = state.artifactDraft;
+    if (draft === undefined) {
+      throw new Error(
+        "No draft is open. Load the update-memory or learn-skill skill first.",
+      );
+    }
+    if (state.artifactReviewRequests.size > 0) {
+      throw new Error("The draft is waiting for the user's review.");
+    }
+    return draft;
+  }
+
+  #artifactTools(state: ManagedSessionState): Tool[] {
+    if (this.options.artifactAuthoring === undefined) return [];
+    return createArtifactAuthoringTools({
+      list: async () => (await this.#artifactReadView(state)).list(),
+      read: async (path) => (await this.#artifactReadView(state)).read(path),
+      write: async (path, content) => {
+        const draft = this.#requireArtifactDraft(state);
+        const result = draft.write(path, content);
+        this.#recordRuntime(state, "agent.artifact_draft.progress", {
+          draftId: draft.id,
+          action: "write",
+          path,
+          status: result.status,
+          characters: content.length,
+        });
+        return result;
+      },
+      delete: async (path) => {
+        const draft = this.#requireArtifactDraft(state);
+        const result = draft.delete(path);
+        this.#recordRuntime(state, "agent.artifact_draft.progress", {
+          draftId: draft.id,
+          action: "delete",
+          path,
+          status: result.status,
+        });
+        return result;
+      },
+      submit: async (summary) => this.#submitArtifactDraft(state, summary),
+    });
+  }
+
+  async #submitArtifactDraft(
+    state: ManagedSessionState,
+    summary: string,
+  ): Promise<string> {
+    const draft = this.#requireArtifactDraft(state);
+    const requestId = randomUUID();
+    const review = draft.review(requestId, summary);
+    const sessionId = state.session?.sessionId ?? "";
+    this.#recordRuntime(
+      state,
+      "agent.artifact_review.requested",
+      {
+        requestId,
+        draftId: draft.id,
+        kind: draft.kind,
+        revision: review.revision,
+        files: review.files.map(({ id, change, scope }) => ({
+          id,
+          change,
+          scope,
+        })),
+      },
+      { sessionId },
+    );
+    this.options.events.publish({
+      type: "agent.artifact_review_requested",
+      request: review,
+      ...this.#eventAttribution(state),
+    });
+    const resumeTimeout = this.#pauseActiveTurnTimeout(
+      state,
+      "artifact_review",
+      requestId,
+    );
+    const result = await new Promise<
+      ArtifactReviewResolutionResult & { feedback?: string }
+    >((resolve) => {
+      state.artifactReviewRequests.set(requestId, {
+        sessionId,
+        startedAt: Date.now(),
+        draft,
+        review,
+        resolve: (value) => {
+          resumeTimeout();
+          resolve(value);
+        },
+      });
+    });
+    switch (result.outcome) {
+      case "published":
+        return `Published: ${(result.published ?? [])
+          .map(({ scope, path, change }) => `${change} ${path} (${scope})`)
+          .join("; ")}. The draft is closed.`;
+      case "changes_requested":
+        return `The user requested changes${
+          result.feedback === undefined ? "." : `: ${result.feedback}`
+        } Revise the draft with artifact_file_write or artifact_file_delete, then call submit_artifact_draft again.`;
+      case "discarded":
+        return `The user discarded the draft${
+          result.feedback === undefined ? "." : `: ${result.feedback}`
+        } Nothing was saved. Do not resubmit unless asked.`;
+      case "publish_failed":
+        return `Publishing failed and nothing was saved: ${result.error ?? "unknown error"}. Load the skill again, re-read the current files, and resubmit if the change is still wanted.`;
+      case "cancelled":
+        return "The review was cancelled. Nothing was saved.";
+    }
+  }
+
+  #cancelPendingArtifactReviews(
+    state: ManagedSessionState,
+    reason: string,
+  ): void {
+    for (const [requestId, pending] of state.artifactReviewRequests) {
+      pending.resolve({ outcome: "cancelled" });
+      this.#recordRuntime(
+        state,
+        "agent.artifact_review.cancelled",
+        {
+          requestId,
+          draftId: pending.draft.id,
+          reason,
+          durationMs: Date.now() - pending.startedAt,
+        },
+        { sessionId: pending.sessionId },
+      );
+      this.options.events.publish({
+        type: "agent.artifact_review_completed",
+        requestId,
+        draftId: pending.draft.id,
+        kind: pending.draft.kind,
+        outcome: "cancelled",
+        ...this.#eventAttribution(state),
+      });
+    }
+    state.artifactReviewRequests.clear();
+    this.#closeArtifactDraft(state, reason);
+  }
+
+  async #memoryIndexText(
+    state: ManagedSessionState,
+  ): Promise<string | undefined> {
+    const port = this.options.artifactAuthoring;
+    if (port === undefined) return undefined;
+    let context: ArtifactAuthoringContext;
+    try {
+      context = await port.loadContext(state.configuration.productionSessionId);
+    } catch (error) {
+      this.#recordRuntime(state, "agent.memory_index.failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    }
+    return formatMemorySystemSection(
+      context.memory.filter(({ available }) => available),
+    );
   }
 
   #skillTool(state: ManagedSessionState): Tool | undefined {
-    if (state.configuration.skills.length === 0) return undefined;
+    if (this.#enabledSkills(state).length === 0) return undefined;
     return defineTool(SKILL_TOOL_NAME, {
       description:
         "Loads the instructions for one skill enabled for the active agent. Call this when an enabled skill description is relevant to the current work.",
@@ -3306,8 +3639,20 @@ export class CopilotAgentService implements AgentService {
           ),
         })
         .strict(),
-      handler: async ({ skill_name }) =>
-        this.#readSkillBody(state, skill_name, true),
+      handler: async ({ skill_name }) => {
+        const body = await this.#readSkillBody(state, skill_name, true);
+        if (
+          this.options.artifactAuthoring === undefined ||
+          authoringKindForSkill(skill_name) === undefined
+        ) {
+          return body;
+        }
+        return `${body}\n\n${await this.#openArtifactDraft(
+          state,
+          skill_name,
+          undefined,
+        )}`;
+      },
     }) as Tool;
   }
 
@@ -3664,6 +4009,7 @@ export class CopilotAgentService implements AgentService {
     const tools = [
       ...(await this.#scopedAbletonTools(state)),
       ...this.#planTools(state),
+      ...this.#artifactTools(state),
       ...(skillTool === undefined ? [] : [skillTool]),
     ];
     const configuredToolNames = dedupeStrings([
@@ -3673,10 +4019,11 @@ export class CopilotAgentService implements AgentService {
       ),
     ]);
     const skillInstructions = formatSkillSystemInstructions(
-      enabledSkillDescriptors(state.configuration),
+      this.#enabledSkills(state),
     );
     const scopedSignalContext = this.#scopedSignalContext(state);
     const scopedLiveEventContext = this.#scopedLiveEventContext(state);
+    const initialMemoryIndex = await this.#memoryIndexText(state);
     const currentIdentityContext = (): AgentIdentityContext | undefined => {
       const identity = this.options.currentIdentityContext?.();
       return identity === undefined
@@ -3694,6 +4041,18 @@ export class CopilotAgentService implements AgentService {
       });
     }
     const agentPolicy = createAgentPolicy({
+      ...(this.options.artifactAuthoring === undefined
+        ? {}
+        : {
+            memoryContext: {
+              initial: initialMemoryIndex,
+              current: () => this.#memoryIndexText(state),
+              delivered: (context) =>
+                this.#recordRuntime(state, "agent.memory_index.delivered", {
+                  characters: context?.length ?? 0,
+                }),
+            },
+          }),
       getAbletonStatus: this.options.getAbletonStatus,
       inspectSession: this.options.inspectSession,
       ...(this.options.getSessionContextInventory === undefined
@@ -4040,9 +4399,12 @@ export class CopilotAgentService implements AgentService {
           result = shellEvaluation.result;
         } else if (
           request.kind === "custom-tool" &&
-          [SKILL_TOOL_NAME, READ_PLAN_TOOL_NAME, WRITE_PLAN_TOOL_NAME].includes(
-            request.toolName,
-          )
+          [
+            SKILL_TOOL_NAME,
+            READ_PLAN_TOOL_NAME,
+            WRITE_PLAN_TOOL_NAME,
+            ...ARTIFACT_AUTHORING_TOOL_NAMES,
+          ].includes(request.toolName)
         ) {
           result = { kind: "approve-once" } as const;
         } else {
@@ -4216,6 +4578,7 @@ export class CopilotAgentService implements AgentService {
             ? undefined
             : formatAgentIdentityContext(initialIdentityContext, "initial"),
           skillInstructions,
+          initialMemoryIndex,
         ]
           .filter((value): value is string => value !== undefined)
           .join("\n\n"),
@@ -4242,7 +4605,7 @@ export class CopilotAgentService implements AgentService {
         sdkSystemMessage: config.systemMessage,
         customAgentPrompt: state.configuration.systemPrompt,
         customAgent: config.customAgents?.[0],
-        skills: enabledSkillDescriptors(state.configuration).map((skill) => ({
+        skills: this.#enabledSkills(state).map((skill) => ({
           name: skill.name,
           description: skill.description,
           sourcePath: skill.sourcePath,
@@ -5014,6 +5377,7 @@ export class CopilotAgentService implements AgentService {
     state.listeningApprovals.clear();
     this.#cancelPendingPlans(state, "session_disconnected");
     this.#cancelPendingElicitations(state, "session_disconnected");
+    this.#cancelPendingArtifactReviews(state, "session_disconnected");
     this.#rejectPendingAutomatic(
       state,
       options.reason ?? new Error("Copilot session disconnected"),
@@ -5348,6 +5712,7 @@ export class CopilotAgentService implements AgentService {
     try {
       this.#cancelPendingPlans(state, "turn_timed_out");
       this.#cancelPendingElicitations(state, "turn_timed_out");
+      this.#cancelPendingArtifactReviews(state, "turn_timed_out");
       await Promise.all([
         session.abort(),
         this.#cancelListeningWork(state, "turn_timed_out"),
@@ -5717,6 +6082,7 @@ export class CopilotAgentService implements AgentService {
       this.#cancelActiveTurnTimeout(state, "user_cancelled");
       this.#cancelPendingPlans(state, "user_cancelled");
       this.#cancelPendingElicitations(state, "user_cancelled");
+      this.#cancelPendingArtifactReviews(state, "user_cancelled");
       await Promise.all([
         state.inFlightTurns === 0 ? Promise.resolve() : session.abort(),
         this.#cancelListeningWork(state, "user_cancelled"),
@@ -5771,6 +6137,7 @@ export class CopilotAgentService implements AgentService {
       this.#cancelActiveTurnTimeout(state, "user_cancelled");
       this.#cancelPendingPlans(state, "user_cancelled");
       this.#cancelPendingElicitations(state, "user_cancelled");
+      this.#cancelPendingArtifactReviews(state, "user_cancelled");
       await Promise.all([
         state.inFlightTurns === 0 ? Promise.resolve() : session.abort(),
         this.#cancelListeningWork(state, "user_cancelled"),
@@ -6008,6 +6375,7 @@ export class CopilotAgentService implements AgentService {
       state.turnKind = undefined;
       state.activeAgentMode = undefined;
       state.activeTurn = undefined;
+      this.#cancelPendingArtifactReviews(state, "turn_ended");
     }
     if (!response) {
       this.#recordRuntime(
@@ -6258,6 +6626,135 @@ export class CopilotAgentService implements AgentService {
       },
       turn,
     );
+  }
+
+  public async resolveManagedAgentArtifactReview(
+    instanceId: string,
+    request: ArtifactReviewResolution,
+  ): Promise<ArtifactReviewResolutionResult> {
+    const state = this.#requireManagedState(instanceId);
+    const pending = state.artifactReviewRequests.get(request.requestId);
+    if (pending === undefined) {
+      throw new Error("This review is no longer pending.");
+    }
+    if (pending.review.revision !== request.revision) {
+      throw new Error(
+        "The draft changed while it was being reviewed. Review the latest revision.",
+      );
+    }
+    const { draft, review } = pending;
+    const attributes = {
+      requestId: request.requestId,
+      draftId: draft.id,
+      kind: draft.kind,
+      revision: review.revision,
+    };
+    const trace = { sessionId: pending.sessionId };
+    const feedback =
+      request.feedback === undefined || request.feedback.trim() === ""
+        ? undefined
+        : request.feedback.trim().slice(0, MAX_PLAN_FEEDBACK_LENGTH);
+    const moved = (request.targets ?? []).filter(
+      (target) =>
+        review.files.find(({ id }) => id === target.fileId)?.scope !==
+        target.scope,
+    );
+    if (moved.length > 0) {
+      this.#recordRuntime(
+        state,
+        "agent.artifact_review.scope_changed",
+        { ...attributes, targets: moved },
+        trace,
+      );
+    }
+    const finish = (
+      result: ArtifactReviewResolutionResult,
+    ): ArtifactReviewResolutionResult => {
+      state.artifactReviewRequests.delete(request.requestId);
+      if (result.outcome !== "changes_requested") {
+        this.#closeArtifactDraft(
+          state,
+          result.outcome === "published" ? "published" : "discarded",
+        );
+      }
+      this.options.events.publish({
+        type: "agent.artifact_review_completed",
+        requestId: request.requestId,
+        draftId: draft.id,
+        kind: draft.kind,
+        outcome: result.outcome,
+        ...(feedback === undefined ? {} : { feedback }),
+        ...(result.error === undefined ? {} : { error: result.error }),
+        ...(result.published === undefined
+          ? {}
+          : { published: result.published }),
+        ...this.#eventAttribution(state),
+      });
+      pending.resolve({
+        ...result,
+        ...(feedback === undefined ? {} : { feedback }),
+      });
+      return result;
+    };
+    if (request.decision === "request_changes") {
+      this.#recordRuntime(
+        state,
+        "agent.artifact_review.changes_requested",
+        { ...attributes, feedbackCharacters: feedback?.length ?? 0 },
+        trace,
+      );
+      return finish({ outcome: "changes_requested" });
+    }
+    if (request.decision === "discard") {
+      this.#recordRuntime(
+        state,
+        "agent.artifact_review.discarded",
+        { ...attributes, durationMs: Date.now() - pending.startedAt },
+        trace,
+      );
+      return finish({ outcome: "discarded" });
+    }
+    // Invalid scope choices go back to the reviewer; the draft stays pending.
+    const publication = draft.publication(review, request.targets);
+    this.#recordRuntime(
+      state,
+      "agent.artifact_review.approved",
+      { ...attributes, durationMs: Date.now() - pending.startedAt },
+      trace,
+    );
+    const startedAt = Date.now();
+    this.#recordRuntime(
+      state,
+      "agent.artifact_publish.started",
+      attributes,
+      trace,
+    );
+    try {
+      const result = await this.options.artifactAuthoring!.publish(
+        state.configuration.productionSessionId,
+        publication,
+      );
+      this.#recordRuntime(
+        state,
+        "agent.artifact_publish.completed",
+        {
+          ...attributes,
+          published: result.published,
+          durationMs: Date.now() - startedAt,
+        },
+        trace,
+      );
+      return finish({ outcome: "published", published: result.published });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.#recordRuntime(
+        state,
+        "agent.artifact_publish.failed",
+        { ...attributes, error: message, durationMs: Date.now() - startedAt },
+        trace,
+      );
+      return finish({ outcome: "publish_failed", error: message });
+    }
   }
 
   public async resolveManagedAgentPlan(
@@ -6656,6 +7153,7 @@ export class HeadlessApplication {
       | "getManagedAgentSessionId"
       | "getManagedAgentHistory"
       | "resolveManagedAgentPlan"
+      | "resolveManagedAgentArtifactReview"
       | "readManagedAgentPlan"
       | "writeManagedAgentPlan"
       | "resolveManagedAgentElicitation"
@@ -6859,6 +7357,21 @@ export class HeadlessApplication {
       );
     }
     return this.#requireManagedAgentMethod("resolveManagedAgentPlan")(
+      instanceId,
+      request,
+    );
+  }
+
+  public resolveManagedAgentArtifactReview(
+    instanceId: string,
+    request: ArtifactReviewResolution,
+  ): Promise<ArtifactReviewResolutionResult> {
+    if (this.#state !== "ready" && this.#state !== "degraded") {
+      return Promise.reject(
+        new Error(`Application is not running (${this.#state})`),
+      );
+    }
+    return this.#requireManagedAgentMethod("resolveManagedAgentArtifactReview")(
       instanceId,
       request,
     );

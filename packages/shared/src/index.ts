@@ -91,6 +91,65 @@ export interface AgentPlanApprovalRequest {
   readonly actions: readonly AgentPlanExitAction[];
 }
 
+export type AgentArtifactKind = "memory" | "skill";
+/** Broadest first. Skills have no Live Set scope. */
+export type AgentArtifactScope =
+  "system" | "profile" | "project" | "live-set" | "session";
+
+export interface AgentArtifactReviewScope {
+  readonly scope: AgentArtifactScope;
+  readonly label: string;
+  readonly meaning: string;
+  readonly available: boolean;
+  readonly unavailableReason?: string;
+  /** Topics currently published in this scope (memory drafts only). */
+  readonly topicCount?: number;
+}
+
+export interface AgentArtifactReviewFile {
+  /** Stable per draft: `memory:{topic}@{scope}` or `skill:{name}`. */
+  readonly id: string;
+  readonly kind: "memory_topic" | "skill";
+  readonly name: string;
+  readonly change: "added" | "modified" | "deleted";
+  /** Scope the agent proposed. */
+  readonly scope: AgentArtifactScope;
+  /** Deleted topics are locked to the scope they are deleted from. */
+  readonly movable: boolean;
+  readonly after: string | null;
+  /** Current content per scope, so the pane can re-diff on a scope change. */
+  readonly currentByScope: Partial<Record<AgentArtifactScope, string>>;
+  /** Scope that currently resolves this skill, when one exists. */
+  readonly existingOrigin?: AgentArtifactScope | "bundled";
+}
+
+export interface AgentArtifactReviewRequest {
+  readonly requestId: string;
+  readonly draftId: string;
+  readonly kind: AgentArtifactKind;
+  readonly summary: string;
+  /** Increments each time the agent resubmits the same draft. */
+  readonly revision: number;
+  readonly scopes: readonly AgentArtifactReviewScope[];
+  readonly files: readonly AgentArtifactReviewFile[];
+  readonly maxTopicsPerScope: number;
+}
+
+export type AgentArtifactReviewDecision =
+  "approve" | "request_changes" | "discard";
+
+export interface AgentArtifactReviewTarget {
+  readonly fileId: string;
+  readonly scope: AgentArtifactScope;
+}
+
+export type AgentArtifactReviewOutcome =
+  | "published"
+  | "changes_requested"
+  | "discarded"
+  | "publish_failed"
+  | "cancelled";
+
 export type PlanArtifactSnapshot =
   | {
       readonly exists: false;
@@ -274,6 +333,24 @@ export type AppEvent =
       approved: boolean;
       selectedAction?: AgentPlanExitAction;
       feedback?: string;
+    } & AgentEventAttribution)
+  | ({
+      type: "agent.artifact_review_requested";
+      request: AgentArtifactReviewRequest;
+    } & AgentEventAttribution)
+  | ({
+      type: "agent.artifact_review_completed";
+      requestId: string;
+      draftId: string;
+      kind: AgentArtifactKind;
+      outcome: AgentArtifactReviewOutcome;
+      feedback?: string;
+      error?: string;
+      published?: readonly {
+        readonly scope: AgentArtifactScope;
+        readonly path: string;
+        readonly change: "added" | "modified" | "deleted";
+      }[];
     } & AgentEventAttribution)
   | ({
       type: "agent.plan_artifact_changed";

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -6,6 +6,7 @@ import {
   ensureLiveAgentStorage,
   resolveArtifactScopePaths,
   resolveLiveAgentStorage,
+  resolveMemoryScopeDirectory,
 } from "@ableton-agent/storage";
 
 import { AgentCatalogService } from "./agent-catalog.js";
@@ -252,6 +253,182 @@ describe("desktop agent catalog", () => {
     ).resolves.toMatchObject({
       name: "mix-review",
       sourcePath: projectPath,
+    });
+  });
+
+  it("loads authoring context and publishes reviewed memory and skills into owned scopes", async () => {
+    const root = await temporaryRoot();
+    const agentsDirectory = join(root, "bundled", "agents");
+    const skillsDirectory = join(root, "bundled", "skills");
+    await mkdir(agentsDirectory, { recursive: true });
+    await mkdir(skillsDirectory, { recursive: true });
+    const storage = resolveLiveAgentStorage({
+      environment: { LIVE_AGENT_HOME: join(root, "storage") },
+    });
+    await ensureLiveAgentStorage(storage);
+    const owned = {
+      liveSetId: "live-set-1",
+      liveProjectId: "live-project-1",
+      sessionId: "session-1",
+    };
+    const ownership = new Map<
+      string,
+      typeof owned | { liveSetId: string; sessionId: string }
+    >([
+      ["session-1", owned],
+      ["loose", { liveSetId: "live-set-2", sessionId: "loose" }],
+    ]);
+    const service = new AgentCatalogService({
+      agentsDirectory,
+      skillsDirectory,
+      availableTools: [],
+      storage,
+      resolveSessionOwnership: async (sessionId) => ownership.get(sessionId),
+    });
+    const port = service.artifactAuthoring!;
+    const topic = (description: string) =>
+      `---\nname: mixing\ndescription: ${description}\n---\n\nKeep the low end mono.\n`;
+
+    const unsaved = await port.loadContext("unsaved");
+    expect(
+      unsaved.memory.map(({ scope, available }) => [scope, available]),
+    ).toEqual([
+      ["system", true],
+      ["profile", true],
+      ["project", false],
+      ["live-set", false],
+      ["session", false],
+    ]);
+    const loose = await port.loadContext("loose");
+    expect(loose.skillScopes).toEqual([
+      { scope: "system", available: true },
+      { scope: "profile", available: true },
+      {
+        scope: "project",
+        available: false,
+        unavailableReason: "the Live Set is not in a verified Live Project",
+      },
+      { scope: "session", available: true },
+    ]);
+
+    const published = await port.publish("session-1", {
+      kind: "memory",
+      scopes: [
+        {
+          scope: "profile",
+          writes: [
+            {
+              name: "mixing",
+              content: topic("Mix habits."),
+              baseFingerprint: null,
+            },
+          ],
+          deletes: [],
+        },
+      ],
+    });
+    const profileDirectory = resolveMemoryScopeDirectory(storage, "profile");
+    expect(published.published).toEqual([
+      {
+        scope: "profile",
+        path: join(profileDirectory, "mixing.md"),
+        change: "added",
+      },
+    ]);
+    await expect(
+      readFile(join(profileDirectory, "INDEX.md"), "utf8"),
+    ).resolves.toContain("mixing");
+    const context = await port.loadContext("session-1");
+    const profileTopic = context.memory
+      .find(({ scope }) => scope === "profile")!
+      .topics.find(({ name }) => name === "mixing")!;
+    expect(profileTopic.description).toBe("Mix habits.");
+    await expect(
+      port.publish("session-1", {
+        kind: "memory",
+        scopes: [
+          {
+            scope: "profile",
+            writes: [
+              {
+                name: "mixing",
+                content: topic("Stale."),
+                baseFingerprint: null,
+              },
+            ],
+            deletes: [],
+          },
+        ],
+      }),
+    ).rejects.toThrow(/changed since the draft/u);
+    await expect(
+      port.publish("unsaved", {
+        kind: "memory",
+        scopes: [
+          {
+            scope: "session",
+            writes: [
+              {
+                name: "mixing",
+                content: topic("Nope."),
+                baseFingerprint: null,
+              },
+            ],
+            deletes: [],
+          },
+        ],
+      }),
+    ).rejects.toThrow();
+
+    const skill = {
+      kind: "skill" as const,
+      name: "low-end-check",
+      description: "Check the low end.",
+      body: "Solo the bass and kick.",
+    };
+    await expect(
+      port.publish("loose", {
+        ...skill,
+        scope: "project",
+        baseFingerprint: null,
+      }),
+    ).rejects.toThrow(/verified Live Project/u);
+    const savedSkill = await port.publish("session-1", {
+      ...skill,
+      scope: "project",
+      baseFingerprint: null,
+    });
+    const projectSkills = resolveArtifactScopePaths(storage, "project", {
+      liveProjectId: owned.liveProjectId,
+    }).skillsDirectory;
+    expect(savedSkill.published).toEqual([
+      {
+        scope: "project",
+        path: join(projectSkills, "low-end-check", "SKILL.md"),
+        change: "added",
+      },
+    ]);
+    const loaded = (await port.loadContext("session-1")).skills.find(
+      ({ name }) => name === "low-end-check",
+    )!;
+    expect(loaded).toMatchObject({ origin: "project" });
+    expect(loaded.content).toContain("Solo the bass and kick.");
+    await expect(
+      port.publish("session-1", {
+        ...skill,
+        scope: "project",
+        baseFingerprint: null,
+      }),
+    ).rejects.toThrow(/changed since the draft/u);
+    await expect(
+      port.publish("session-1", {
+        ...skill,
+        body: "Solo the bass, kick, and sub.",
+        scope: "project",
+        baseFingerprint: loaded.fingerprint,
+      }),
+    ).resolves.toMatchObject({
+      published: [{ scope: "project", change: "modified" }],
     });
   });
 });

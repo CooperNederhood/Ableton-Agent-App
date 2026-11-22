@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import {
+  memoryFingerprint,
   readSkillDocument,
   type AgentEventListener,
 } from "@ableton-agent/agent-config";
@@ -36,6 +37,8 @@ import {
   PLAN_REMINDER_VERSION,
   type AgentRuntimeEvent,
   type AgentSkillDescriptor,
+  type ArtifactAuthoringContext,
+  type ArtifactAuthoringPort,
   type AgentSessionConfiguration,
   type CopilotAgentServiceOptions,
 } from "./index.js";
@@ -4327,6 +4330,178 @@ describe("CopilotAgentService managed sessions", () => {
     ).resolves.toContain("use the revised instructions");
     expect(midiSession.prompts.at(-1)).toContain("# Changed");
 
+    await service.stop();
+  });
+
+  it("drafts memory through the authoring skill and publishes only after review", async () => {
+    const events = new InMemoryEventPublisher();
+    const received: AppEvent[] = [];
+    const runtimeEvents: AgentRuntimeEvent[] = [];
+    events.subscribe((event) => received.push(event));
+    const root = await mkdtemp(join(tmpdir(), "ableton-agent-authoring-"));
+    const updateMemory = await createSkillDescriptor(
+      root,
+      "update-memory",
+      "# Update memory\n\nChoose a scope.",
+    );
+    const existing =
+      "---\nname: mixing\ndescription: Mix habits\n---\n\nKeep headroom.\n";
+    const context: ArtifactAuthoringContext = {
+      memory: [
+        {
+          scope: "profile",
+          available: true,
+          topics: [
+            {
+              name: "mixing",
+              description: "Mix habits",
+              content: existing,
+              fingerprint: memoryFingerprint(existing),
+            },
+          ],
+        },
+        { scope: "session", available: true, topics: [] },
+      ],
+      skillScopes: [{ scope: "profile", available: true }],
+      skills: [],
+    };
+    const publish = vi.fn<ArtifactAuthoringPort["publish"]>(async () => ({
+      published: [
+        { scope: "profile", path: "/memory/genres.md", change: "added" },
+      ],
+    }));
+    const session = createFakeSession("authoring-session");
+    let config: SessionConfig | undefined;
+    const service = new CopilotAgentService(
+      baseOptions({
+        events,
+        artifactAuthoring: { loadContext: async () => context, publish },
+        runtimeObserver: { enqueue: (event) => runtimeEvents.push(event) },
+        clientFactory: () => ({
+          createSession: vi.fn(async (next: SessionConfig) => {
+            config = next;
+            return session;
+          }),
+          resumeSession: vi.fn(async () => {
+            throw new Error("resume not expected");
+          }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    await service.start();
+    await service.createManagedAgent(
+      configuration("writer", { skills: [], availableSkills: [updateMemory] }),
+    );
+    expect(config?.systemMessage?.content).toContain("name: update-memory");
+    expect(config?.systemMessage?.content).toContain(
+      "mixing | Mix habits | ./mixing.md",
+    );
+    const tool = (name: string) => {
+      const found = config?.tools?.find((candidate) => candidate.name === name);
+      if (found?.handler === undefined) throw new Error(`missing ${name}`);
+      return (args: Record<string, unknown>) =>
+        found.handler!(args, {
+          sessionId: "authoring-session",
+          toolCallId: `${name}-call`,
+          toolName: name,
+          arguments: args,
+        });
+    };
+    await expect(
+      tool("artifact_file_write")({
+        path: "memory/profile/genres.md",
+        content: "x",
+      }),
+    ).rejects.toThrow("No draft is open");
+    await expect(
+      tool("skill")({ skill_name: "update-memory" }),
+    ).resolves.toContain("<artifact_draft");
+    await tool("artifact_file_write")({
+      path: "memory/session/genres.md",
+      content:
+        "---\nname: genres\ndescription: Genres the user makes\n---\n\nDrum and bass only.\n",
+    });
+    const submitted = tool("submit_artifact_draft")({
+      summary: "Remember the user's genre",
+    });
+    await vi.waitFor(() =>
+      expect(
+        received.some(
+          (event) => event.type === "agent.artifact_review_requested",
+        ),
+      ).toBe(true),
+    );
+    const requested = received.find(
+      (event) => event.type === "agent.artifact_review_requested",
+    );
+    if (requested?.type !== "agent.artifact_review_requested") {
+      throw new Error("missing review");
+    }
+    await expect(
+      tool("artifact_file_write")({
+        path: "memory/session/other.md",
+        content: "---\nname: other\ndescription: O\n---\n\nO.\n",
+      }),
+    ).rejects.toThrow("waiting for the user's review");
+    await expect(
+      service.resolveManagedAgentArtifactReview("writer", {
+        requestId: requested.request.requestId,
+        revision: requested.request.revision + 1,
+        decision: "approve",
+      }),
+    ).rejects.toThrow("changed while it was being reviewed");
+    await expect(
+      service.resolveManagedAgentArtifactReview("writer", {
+        requestId: requested.request.requestId,
+        revision: requested.request.revision,
+        decision: "approve",
+        targets: [{ fileId: "memory:genres@session", scope: "profile" }],
+      }),
+    ).resolves.toMatchObject({ outcome: "published" });
+    await expect(submitted).resolves.toContain("Published");
+    expect(publish).toHaveBeenCalledWith(
+      "production-writer",
+      expect.objectContaining({
+        kind: "memory",
+        scopes: [
+          expect.objectContaining({
+            scope: "profile",
+            writes: [expect.objectContaining({ name: "genres" })],
+          }),
+        ],
+      }),
+    );
+    expect(received).toContainEqual(
+      expect.objectContaining({
+        type: "agent.artifact_review_completed",
+        outcome: "published",
+      }),
+    );
+    expect(runtimeEvents.map(({ type }) => type)).toEqual(
+      expect.arrayContaining([
+        "agent.artifact_draft.started",
+        "agent.artifact_review.scope_changed",
+        "agent.artifact_publish.completed",
+      ]),
+    );
+    expect(JSON.stringify(runtimeEvents)).not.toContain("Drum and bass only.");
+
+    const prompt = await service.sendToManagedAgent(
+      "writer",
+      "/update-memory remember sidechain --scope session",
+    );
+    expect(prompt).toContain("remember sidechain");
+    expect(session.prompts.at(-1)).toContain(
+      "Write every topic to memory/session/",
+    );
+    expect(session.prompts.at(-1)).not.toContain("--scope");
+    await expect(
+      tool("artifact_file_write")({
+        path: "memory/session/genres.md",
+        content: "x",
+      }),
+    ).rejects.toThrow("No draft is open");
     await service.stop();
   });
 

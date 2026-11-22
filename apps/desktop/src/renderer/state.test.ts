@@ -164,6 +164,91 @@ describe("desktop reducer", () => {
     expect(selectedAgentWorkspace(completed).planApproval).toBeUndefined();
   });
 
+  it("stores and clears an artifact review for its owning agent", () => {
+    const request = {
+      requestId: "review-1",
+      draftId: "draft-1",
+      kind: "skill" as const,
+      summary: "Low-end check skill",
+      revision: 1,
+      maxTopicsPerScope: 19,
+      scopes: [
+        {
+          scope: "profile" as const,
+          label: "Profile",
+          meaning: "Everything you make",
+          available: true,
+        },
+      ],
+      files: [
+        {
+          id: "skill:low-end-check",
+          kind: "skill" as const,
+          name: "low-end-check",
+          change: "added" as const,
+          scope: "profile" as const,
+          movable: true,
+          after: "---\nname: low-end-check\ndescription: Check.\n---\n",
+          currentByScope: {},
+        },
+      ],
+    };
+    const requested = desktopReducer(stateWithAgents(), {
+      type: "event",
+      event: {
+        type: "agent.artifact_review_requested",
+        agentInstanceId: firstAgentId,
+        request,
+      },
+    });
+    expect(selectedAgentWorkspace(requested).artifactReview).toEqual(request);
+    const unrelated = desktopReducer(requested, {
+      type: "event",
+      event: {
+        type: "agent.artifact_review_completed",
+        agentInstanceId: firstAgentId,
+        requestId: "review-0",
+        draftId: "draft-1",
+        kind: "skill",
+        outcome: "cancelled",
+      },
+    });
+    expect(selectedAgentWorkspace(unrelated).artifactReview).toEqual(request);
+    const target = (scope: "profile" | "session", requestId = "review-1") =>
+      ({
+        type: "artifact-review-target",
+        agentInstanceId: firstAgentId,
+        requestId,
+        fileId: "skill:low-end-check",
+        scope,
+      }) as const;
+    expect(
+      selectedAgentWorkspace(desktopReducer(requested, target("session")))
+        .artifactReviewTargets,
+    ).toEqual({});
+    expect(
+      selectedAgentWorkspace(
+        desktopReducer(requested, target("profile", "review-0")),
+      ).artifactReviewTargets,
+    ).toEqual({});
+    expect(
+      selectedAgentWorkspace(desktopReducer(requested, target("profile")))
+        .artifactReviewTargets,
+    ).toEqual({ "skill:low-end-check": "profile" });
+    const completed = desktopReducer(requested, {
+      type: "event",
+      event: {
+        type: "agent.artifact_review_completed",
+        agentInstanceId: firstAgentId,
+        requestId: "review-1",
+        draftId: "draft-1",
+        kind: "skill",
+        outcome: "published",
+      },
+    });
+    expect(selectedAgentWorkspace(completed).artifactReview).toBeUndefined();
+  });
+
   it("stores plan artifacts and structured elicitation per agent", () => {
     const withPlan = desktopReducer(stateWithAgents(), {
       type: "event",

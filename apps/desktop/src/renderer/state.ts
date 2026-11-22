@@ -8,6 +8,8 @@ import type {
   DesktopAgentCatalog,
   DesktopAgentMode,
   DesktopAgentElicitationRequest,
+  DesktopAgentArtifactReviewRequest,
+  DesktopAgentArtifactScope,
   DesktopAgentPlanApproval,
   DesktopPlanArtifactSnapshot,
   DesktopActiveAgent,
@@ -67,6 +69,10 @@ export interface AgentWorkspaceState {
   approval?: ApprovalRequest | undefined;
   planApproval?: DesktopAgentPlanApproval | undefined;
   planArtifact?: DesktopPlanArtifactSnapshot | undefined;
+  artifactReview?: DesktopAgentArtifactReviewRequest | undefined;
+  /** Reviewer-chosen scope per draft file, keyed by file id. */
+  artifactReviewTargets?:
+    Readonly<Record<string, DesktopAgentArtifactScope>> | undefined;
   elicitation?: DesktopAgentElicitationRequest | undefined;
 }
 
@@ -206,6 +212,13 @@ export type DesktopAction =
   | { type: "select-clip"; id: string; trackId: string }
   | { type: "select-device"; id: string; trackId: string }
   | { type: "dismiss-approval"; agentInstanceId?: string }
+  | {
+      type: "artifact-review-target";
+      agentInstanceId: string;
+      requestId: string;
+      fileId: string;
+      scope: DesktopAgentArtifactScope;
+    }
   | { type: "update-plan"; section: PlanSection }
   | { type: "browser-query"; value: string }
   | { type: "diagnostics-loaded"; report: DesktopDiagnosticsReport }
@@ -346,6 +359,33 @@ export function desktopReducer(
             approval: undefined,
           }));
     }
+    case "artifact-review-target":
+      return updateAgentWorkspace(
+        state,
+        action.agentInstanceId,
+        (workspace) => {
+          const file = workspace.artifactReview?.files.find(
+            ({ id }) => id === action.fileId,
+          );
+          if (
+            workspace.artifactReview?.requestId !== action.requestId ||
+            file === undefined ||
+            !file.movable ||
+            !workspace.artifactReview.scopes.some(
+              ({ scope, available }) => scope === action.scope && available,
+            )
+          ) {
+            return workspace;
+          }
+          return {
+            ...workspace,
+            artifactReviewTargets: {
+              ...workspace.artifactReviewTargets,
+              [action.fileId]: action.scope,
+            },
+          };
+        },
+      );
     case "update-plan":
       return {
         ...state,
@@ -575,6 +615,28 @@ function reduceEvent(
       return updateAgentWorkspace(state, event.agentInstanceId, (workspace) =>
         workspace.planApproval?.requestId === event.requestId
           ? { ...workspace, planApproval: undefined }
+          : workspace,
+      );
+    case "agent.artifact_review_requested":
+      if (event.agentInstanceId === undefined) return state;
+      return updateAgentWorkspace(
+        state,
+        event.agentInstanceId,
+        (workspace) => ({
+          ...workspace,
+          artifactReview: event.request,
+          artifactReviewTargets: {},
+        }),
+      );
+    case "agent.artifact_review_completed":
+      if (event.agentInstanceId === undefined) return state;
+      return updateAgentWorkspace(state, event.agentInstanceId, (workspace) =>
+        workspace.artifactReview?.requestId === event.requestId
+          ? {
+              ...workspace,
+              artifactReview: undefined,
+              artifactReviewTargets: undefined,
+            }
           : workspace,
       );
     case "agent.elicitation_requested":
@@ -814,6 +876,8 @@ const emptyAgentWorkspace = (): AgentWorkspaceState => ({
   triggers: [],
   planApproval: undefined,
   planArtifact: undefined,
+  artifactReview: undefined,
+  artifactReviewTargets: undefined,
   elicitation: undefined,
 });
 

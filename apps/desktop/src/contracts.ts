@@ -852,6 +852,109 @@ export const agentPlanApprovalSchema = z
   .strict();
 export type DesktopAgentPlanApproval = z.infer<typeof agentPlanApprovalSchema>;
 
+export const agentArtifactScopeSchema = z.enum([
+  "system",
+  "profile",
+  "project",
+  "live-set",
+  "session",
+]);
+export type DesktopAgentArtifactScope = z.infer<
+  typeof agentArtifactScopeSchema
+>;
+export const agentArtifactKindSchema = z.enum(["memory", "skill"]);
+const agentArtifactContentSchema = z.string().max(512 * 1024);
+const agentArtifactChangeSchema = z.enum(["added", "modified", "deleted"]);
+
+export const agentArtifactReviewRequestSchema = z
+  .object({
+    requestId: z.string().min(1).max(256),
+    draftId: z.string().min(1).max(256),
+    kind: agentArtifactKindSchema,
+    summary: z.string().max(2_000),
+    revision: z.number().int().min(1),
+    scopes: z
+      .array(
+        z
+          .object({
+            scope: agentArtifactScopeSchema,
+            label: z.string().min(1).max(64),
+            meaning: z.string().max(512),
+            available: z.boolean(),
+            unavailableReason: z.string().max(512).optional(),
+            topicCount: z.number().int().min(0).optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(5),
+    files: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1).max(256),
+            kind: z.enum(["memory_topic", "skill"]),
+            name: z.string().min(1).max(128),
+            change: agentArtifactChangeSchema,
+            scope: agentArtifactScopeSchema,
+            movable: z.boolean(),
+            after: agentArtifactContentSchema.nullable(),
+            currentByScope: z
+              .partialRecord(
+                agentArtifactScopeSchema,
+                agentArtifactContentSchema,
+              )
+              .readonly(),
+            existingOrigin: z
+              .union([agentArtifactScopeSchema, z.literal("bundled")])
+              .optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(100),
+    maxTopicsPerScope: z.number().int().min(1),
+  })
+  .strict();
+export type DesktopAgentArtifactReviewRequest = z.infer<
+  typeof agentArtifactReviewRequestSchema
+>;
+export const agentArtifactReviewOutcomeSchema = z.enum([
+  "published",
+  "changes_requested",
+  "discarded",
+  "publish_failed",
+  "cancelled",
+]);
+const agentArtifactPublishedSchema = z
+  .array(
+    z
+      .object({
+        scope: agentArtifactScopeSchema,
+        path: z.string().min(1).max(4_096),
+        change: agentArtifactChangeSchema,
+      })
+      .strict(),
+  )
+  .max(100);
+export const agentArtifactReviewResultSchema = z
+  .object({
+    outcome: agentArtifactReviewOutcomeSchema,
+    published: agentArtifactPublishedSchema.optional(),
+    error: z.string().max(8_192).optional(),
+  })
+  .strict();
+export type DesktopAgentArtifactReviewResult = z.infer<
+  typeof agentArtifactReviewResultSchema
+>;
+export interface DesktopAgentArtifactReviewResolution {
+  requestId: string;
+  revision: number;
+  decision: "approve" | "request_changes" | "discard";
+  feedback?: string;
+  targets?: { fileId: string; scope: DesktopAgentArtifactScope }[];
+}
+
 export const planArtifactSnapshotSchema = z.discriminatedUnion("exists", [
   z
     .object({
@@ -1709,6 +1812,24 @@ export const appEventSchema = z.discriminatedUnion("type", [
     sdkSessionId: z.string().min(1).optional(),
   }),
   z.object({
+    type: z.literal("agent.artifact_review_requested"),
+    request: agentArtifactReviewRequestSchema,
+    agentInstanceId: z.string().uuid().optional(),
+    sdkSessionId: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("agent.artifact_review_completed"),
+    requestId: z.string().min(1).max(256),
+    draftId: z.string().min(1).max(256),
+    kind: agentArtifactKindSchema,
+    outcome: agentArtifactReviewOutcomeSchema,
+    feedback: z.string().max(8_192).optional(),
+    error: z.string().max(8_192).optional(),
+    published: agentArtifactPublishedSchema.optional(),
+    agentInstanceId: z.string().uuid().optional(),
+    sdkSessionId: z.string().min(1).optional(),
+  }),
+  z.object({
     type: z.literal("agent.elicitation_requested"),
     request: agentElicitationRequestSchema,
     agentInstanceId: z.string().uuid().optional(),
@@ -2011,6 +2132,29 @@ export const ipcSchemas = {
       })
       .strict(),
     response: z.object({ resolved: z.boolean() }),
+  },
+  "agents:resolve-artifact-review": {
+    request: z
+      .object({
+        instanceId: z.string().uuid(),
+        requestId: z.string().min(1).max(256),
+        revision: z.number().int().min(1),
+        decision: z.enum(["approve", "request_changes", "discard"]),
+        feedback: z.string().trim().max(8_192).optional(),
+        targets: z
+          .array(
+            z
+              .object({
+                fileId: z.string().min(1).max(256),
+                scope: agentArtifactScopeSchema,
+              })
+              .strict(),
+          )
+          .max(100)
+          .optional(),
+      })
+      .strict(),
+    response: agentArtifactReviewResultSchema,
   },
   "agents:read-plan": {
     request: z.object({ instanceId: z.string().uuid() }).strict(),
@@ -2530,6 +2674,10 @@ export interface DesktopApi {
         feedback?: string;
       },
     ): Promise<boolean>;
+    resolveArtifactReview(
+      instanceId: string,
+      request: DesktopAgentArtifactReviewResolution,
+    ): Promise<DesktopAgentArtifactReviewResult>;
     readPlan(instanceId: string): Promise<DesktopPlanArtifactSnapshot>;
     writePlan(
       instanceId: string,

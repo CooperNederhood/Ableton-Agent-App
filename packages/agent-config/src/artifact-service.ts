@@ -23,6 +23,12 @@ import {
 import { parseDocument, stringify } from "yaml";
 
 import {
+  readSkillDocument,
+  type ArtifactOrigin,
+  type LayeredAgentCatalog,
+} from "./loader.js";
+
+import {
   agentDefinitionNameSchema,
   agentDefinitionSchema,
   currentAgentDefinitionSchema,
@@ -616,6 +622,74 @@ export async function replaceSkillInScope(options: {
     await rm(staged, { recursive: true, force: true });
     throw error;
   }
+}
+
+export interface PublishedScopedSkill {
+  readonly name: string;
+  readonly description: string;
+  readonly body: string;
+  readonly origin: ArtifactOrigin;
+  readonly sourcePath: string;
+  readonly fingerprint: string;
+}
+
+/**
+ * Writes one SKILL.md into a target scope, then proves the layered catalog
+ * resolves that skill from the same scope with the same body. Any mismatch
+ * rolls the write back.
+ */
+export async function publishSkillToScope(options: {
+  readonly scope: Exclude<ArtifactOrigin, "bundled">;
+  readonly skillsDirectory: string;
+  readonly metadata: SkillMetadata;
+  readonly body: string;
+  readonly loadCatalog: () => Promise<LayeredAgentCatalog>;
+  readonly onValidated?: (skill: PublishedScopedSkill) => Promise<void>;
+}): Promise<PublishedScopedSkill> {
+  let published: PublishedScopedSkill | undefined;
+  await replaceSkillInScope({
+    skillsDirectory: options.skillsDirectory,
+    metadata: options.metadata,
+    body: options.body,
+    validatePublishedCatalog: async () => {
+      const catalog = await options.loadCatalog();
+      const saved = catalog.skills.find(
+        ({ metadata }) => metadata.name === options.metadata.name,
+      );
+      if (
+        saved?.origin !== options.scope ||
+        saved.metadata.description !== options.metadata.description
+      ) {
+        throw new Error(
+          `Saved skill '${options.metadata.name}' did not resolve from ${options.scope} scope (${saved?.origin ?? "missing"}; ${catalog.diagnostics
+            .map(({ code, message }) => `${code}: ${message}`)
+            .join("; ")})`,
+        );
+      }
+      const document = await readSkillDocument(
+        saved.sourcePath,
+        options.metadata.name,
+      );
+      if (document.body !== options.body.trim()) {
+        throw new Error(
+          `Saved skill '${options.metadata.name}' body did not match`,
+        );
+      }
+      published = {
+        name: document.metadata.name,
+        description: document.metadata.description,
+        body: document.body,
+        origin: saved.origin,
+        sourcePath: saved.sourcePath,
+        fingerprint: document.fingerprint,
+      };
+      await options.onValidated?.(published);
+    },
+  });
+  if (published === undefined) {
+    throw new Error("Skill publish did not validate");
+  }
+  return published;
 }
 
 export async function deleteArtifact(options: {

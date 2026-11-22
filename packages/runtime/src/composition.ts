@@ -710,6 +710,7 @@ export interface AgentSettings {
   /** Replaces the Copilot client; used by tests and fakes. */
   clientFactory?: CopilotAgentServiceOptions["clientFactory"];
   resolveSkill?: CopilotAgentServiceOptions["resolveSkill"];
+  artifactAuthoring?: CopilotAgentServiceOptions["artifactAuthoring"];
 }
 
 export interface ListeningRuntimeHost {
@@ -1239,6 +1240,9 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     ...(agentSettings.resolveSkill === undefined
       ? {}
       : { resolveSkill: agentSettings.resolveSkill }),
+    ...(agentSettings.artifactAuthoring === undefined
+      ? {}
+      : { artifactAuthoring: agentSettings.artifactAuthoring }),
     ...(options.requestToolApproval === undefined
       ? {}
       : { requestToolApproval: options.requestToolApproval }),

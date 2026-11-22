@@ -769,7 +769,8 @@ export async function runCommand(
     if (
       command.name === "run" &&
       (event.type === "agent.elicitation_requested" ||
-        event.type === "agent.plan_approval_requested")
+        event.type === "agent.plan_approval_requested" ||
+        event.type === "agent.artifact_review_requested")
     ) {
       rejectHumanGate?.(
         new NoninteractiveHumanGateError(

@@ -1,15 +1,30 @@
 import { createHash } from "node:crypto";
-import { basename } from "node:path";
+
+import { basename, join } from "node:path";
+import { readFile } from "node:fs/promises";
 
 import {
   loadAgentCatalog,
   loadLayeredAgentCatalog,
+  MEMORY_SCOPE_ORDER,
+  publishMemoryChanges,
+  publishSkillToScope,
+  readMemoryScope,
   type AgentCatalog,
+  type LayeredAgentCatalog,
   type ToolOperationPatternEntry,
 } from "@ableton-agent/agent-config";
-import type { AgentSkillDescriptor } from "@ableton-agent/application";
+import type {
+  AgentSkillDescriptor,
+  ArtifactAuthoringContext,
+  ArtifactAuthoringPort,
+  ArtifactPublication,
+  ArtifactPublicationResult,
+} from "@ableton-agent/application";
 import {
+  ensureArtifactScopeDirectories,
   resolveArtifactScopePaths,
+  resolveMemoryScopeDirectory,
   type LiveAgentStorageLayout,
   type SessionStorageOwnershipContext,
 } from "@ableton-agent/storage";
@@ -164,7 +179,161 @@ export class AgentCatalogService {
         };
   }
 
-  async #loadScopedCatalog(sessionId?: string): Promise<AgentCatalog> {
+  /** Memory and skill storage for reviewed agent drafts. */
+  public get artifactAuthoring(): ArtifactAuthoringPort | undefined {
+    if (this.options.storage === undefined) return undefined;
+    return {
+      loadContext: (sessionId) => this.#authoringContext(sessionId),
+      publish: (sessionId, publication) =>
+        this.#publishArtifact(sessionId, publication),
+    };
+  }
+
+  async #ownership(
+    sessionId: string,
+  ): Promise<SessionStorageOwnershipContext | undefined> {
+    return this.options.resolveSessionOwnership?.(sessionId);
+  }
+
+  #unavailableReason(
+    scope: (typeof MEMORY_SCOPE_ORDER)[number],
+    ownership: SessionStorageOwnershipContext | undefined,
+  ): string | undefined {
+    if (scope === "system" || scope === "profile") return undefined;
+    if (ownership === undefined) {
+      return "this production session is not saved to a Live Set yet";
+    }
+    if (scope === "project" && ownership.liveProjectId === undefined) {
+      return "the Live Set is not in a verified Live Project";
+    }
+    return undefined;
+  }
+
+  async #authoringContext(
+    sessionId: string,
+  ): Promise<ArtifactAuthoringContext> {
+    const storage = this.options.storage!;
+    const ownership = await this.#ownership(sessionId);
+    const memory = await Promise.all(
+      MEMORY_SCOPE_ORDER.map(async (scope) => {
+        const unavailableReason = this.#unavailableReason(scope, ownership);
+        if (unavailableReason !== undefined) {
+          return { scope, available: false, unavailableReason, topics: [] };
+        }
+        const contents = await readMemoryScope(
+          resolveMemoryScopeDirectory(storage, scope, ownership),
+        );
+        return { scope, available: true, topics: contents.topics };
+      }),
+    );
+    const catalog = await this.#loadScopedCatalog(sessionId);
+    const skills = await Promise.all(
+      catalog.skills.map(async (skill) => ({
+        name: skill.metadata.name,
+        description: skill.metadata.description,
+        origin: skill.origin,
+        content: await readFile(skill.sourcePath, "utf8"),
+        fingerprint: skill.fingerprint,
+      })),
+    );
+    return {
+      memory,
+      skillScopes: MEMORY_SCOPE_ORDER.filter(
+        (scope) => scope !== "live-set",
+      ).map((scope) => {
+        const unavailableReason = this.#unavailableReason(scope, ownership);
+        return unavailableReason === undefined
+          ? { scope, available: true }
+          : { scope, available: false, unavailableReason };
+      }),
+      skills,
+    };
+  }
+
+  async #publishArtifact(
+    sessionId: string,
+    publication: ArtifactPublication,
+  ): Promise<ArtifactPublicationResult> {
+    const storage = this.options.storage!;
+    const ownership = await this.#ownership(sessionId);
+    if (publication.kind === "memory") {
+      const published = await publishMemoryChanges(
+        publication.scopes.map((change) => ({
+          ...change,
+          directory: resolveMemoryScopeDirectory(
+            storage,
+            change.scope,
+            ownership,
+          ),
+        })),
+      );
+      return {
+        published: published.flatMap((scope) => {
+          const change = publication.scopes.find(
+            (candidate) => candidate.scope === scope.scope,
+          )!;
+          return [
+            ...change.writes.map((write) => ({
+              scope: scope.scope,
+              path: join(scope.directory, `${write.name}.md`),
+              change:
+                write.baseFingerprint === null
+                  ? ("added" as const)
+                  : ("modified" as const),
+            })),
+            ...change.deletes.map((removed) => ({
+              scope: scope.scope,
+              path: join(scope.directory, `${removed.name}.md`),
+              change: "deleted" as const,
+            })),
+          ];
+        }),
+      };
+    }
+    const reason = this.#unavailableReason(publication.scope, ownership);
+    if (reason !== undefined) {
+      throw new Error(`Cannot publish a ${publication.scope} skill: ${reason}`);
+    }
+    const paths =
+      publication.scope === "system" || publication.scope === "profile"
+        ? resolveArtifactScopePaths(storage, publication.scope)
+        : publication.scope === "project"
+          ? resolveArtifactScopePaths(storage, "project", {
+              liveProjectId: ownership!.liveProjectId!,
+            })
+          : resolveArtifactScopePaths(storage, "session", ownership!);
+    await ensureArtifactScopeDirectories(paths);
+    const load = () => this.#loadScopedCatalog(sessionId);
+    const current = (await load()).skills.find(
+      ({ metadata }) => metadata.name === publication.name,
+    );
+    if ((current?.fingerprint ?? null) !== publication.baseFingerprint) {
+      throw new Error(
+        `Skill '${publication.name}' changed since the draft was made; re-read it and resubmit`,
+      );
+    }
+    const saved = await publishSkillToScope({
+      scope: publication.scope,
+      skillsDirectory: paths.skillsDirectory,
+      metadata: {
+        name: publication.name,
+        description: publication.description,
+      },
+      body: publication.body,
+      loadCatalog: load,
+    });
+    return {
+      published: [
+        {
+          scope: publication.scope,
+          path: saved.sourcePath,
+          change: current?.origin === publication.scope ? "modified" : "added",
+        },
+      ],
+    };
+  }
+
+  async #loadScopedCatalog(sessionId?: string): Promise<LayeredAgentCatalog> {
     const storage = this.options.storage!;
     const system = resolveArtifactScopePaths(storage, "system");
     const profile = resolveArtifactScopePaths(storage, "profile");

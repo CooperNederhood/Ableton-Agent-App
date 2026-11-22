@@ -236,6 +236,38 @@ describe("agent policy", () => {
     expect(repeated?.additionalContext).not.toContain("identity_changed");
   });
 
+  it("re-delivers the memory index only after it changes", async () => {
+    let memory: string | undefined = "<memory_index>a</memory_index>";
+    const hooks = createAgentHooks({
+      getAbletonStatus: async () => connected,
+      preparedContext: { getPreparedContext: () => "project-context" },
+      memoryContext: { initial: memory, current: async () => memory },
+    });
+    const submit = async (prompt: string) =>
+      (
+        await hooks.onUserPromptSubmitted?.(
+          {
+            sessionId: "session-1",
+            timestamp: new Date(),
+            workingDirectory: "/tmp",
+            prompt,
+          },
+          { sessionId: "session-1" },
+        )
+      )?.additionalContext;
+
+    expect(await submit("unchanged")).not.toContain("<memory_index>");
+    memory = "<memory_index>b</memory_index>";
+    expect(await submit("changed")).toContain(
+      "Memory changed since the last index you saw",
+    );
+    expect(await submit("repeat")).not.toContain("<memory_index>");
+    memory = undefined;
+    expect(await submit("cleared")).toContain(
+      "All reviewed memory was removed",
+    );
+  });
+
   it("bounds project action identities and reports truncation", () => {
     const tracks = Array.from({ length: 17 }, (_, index) => ({
       ...snapshot.tracks[0]!,

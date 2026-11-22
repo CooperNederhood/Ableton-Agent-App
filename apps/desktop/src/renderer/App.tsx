@@ -13,6 +13,7 @@ import {
   type PreparedContextConfiguration,
 } from "@ableton-agent/agent-config/schemas";
 import {
+  Fragment,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -30,6 +31,8 @@ import {
 import type {
   DesktopApi,
   DesktopActiveAgent,
+  DesktopAgentArtifactReviewRequest,
+  DesktopAgentArtifactScope,
   DesktopAgentDefinition,
   DesktopAgentModel,
   DesktopCopilotAuthStatus,
@@ -75,6 +78,17 @@ import {
   type InspectorModuleId,
 } from "./inspector-layout";
 import { parseYoloCommand, yoloCommandUsage } from "./yolo-command";
+import {
+  artifactFileChange,
+  artifactFileDiff,
+  artifactFileTarget,
+  artifactReviewBlocker,
+  artifactReviewTargets,
+  artifactScopeGlyph,
+  artifactScopeOrder,
+  artifactSkillShadow,
+  artifactTopicBudget,
+} from "./artifact-review";
 import { ProfileManagerView } from "./ProfileManagerView";
 import { EntityContextPanel } from "./EntityContextPanel";
 import { ListeningPassPanel } from "./ListeningPassPanel";
@@ -6621,8 +6635,14 @@ export function Inspector({
     if (track !== undefined) modules.push("selection");
     if (workspace.planArtifact?.exists === true) modules.push("plan");
     if (workspace.approval !== undefined) modules.push("approval");
+    if (workspace.artifactReview !== undefined) modules.push("artifact");
     return modules;
-  }, [track, workspace.approval, workspace.planArtifact]);
+  }, [
+    track,
+    workspace.approval,
+    workspace.artifactReview,
+    workspace.planArtifact,
+  ]);
   const [layout, updateLayout] = useReducer(
     inspectorLayoutReducer,
     available,
@@ -6668,6 +6688,9 @@ export function Inspector({
     if (moduleId === "approval") {
       return <ApprovalPanel state={state} dispatch={dispatch} embedded />;
     }
+    if (moduleId === "artifact") {
+      return <ArtifactReviewPanel state={state} dispatch={dispatch} />;
+    }
     return null;
   };
   const handleTabDragStart = (
@@ -6685,7 +6708,8 @@ export function Inspector({
     const moduleId = event.dataTransfer.getData("text/inspector-module");
     return moduleId === "selection" ||
       moduleId === "plan" ||
-      moduleId === "approval"
+      moduleId === "approval" ||
+      moduleId === "artifact"
       ? moduleId
       : undefined;
   };
@@ -6932,6 +6956,7 @@ export function Inspector({
 function inspectorModuleLabel(moduleId: InspectorModuleId): string {
   if (moduleId === "selection") return "Selection";
   if (moduleId === "plan") return "Plan";
+  if (moduleId === "artifact") return "Review draft";
   return "Approval";
 }
 
@@ -6951,6 +6976,11 @@ function InspectorModuleIcon({
         <>
           <path d="M5 4h9M5 9h9M5 14h9" />
           <path d="m2.5 4 .7.7 1.3-1.4M2.5 9l.7.7 1.3-1.4M2.5 14l.7.7 1.3-1.4" />
+        </>
+      ) : moduleId === "artifact" ? (
+        <>
+          <path d="M4 2.5h6.5L14 6v9.5H4Z" />
+          <path d="M10.5 2.5V6H14M6.5 9.5h5M6.5 12h3.5" />
         </>
       ) : (
         <>
@@ -7044,6 +7074,292 @@ export function PlanArtifactPreview({
         </p>
       )}
     </section>
+  );
+}
+
+type ArtifactReviewView = "diff" | "preview" | "source";
+
+function artifactScopeLabel(
+  review: DesktopAgentArtifactReviewRequest,
+  scope: DesktopAgentArtifactScope,
+): string {
+  return (
+    review.scopes.find((candidate) => candidate.scope === scope)?.label ?? scope
+  );
+}
+
+function ArtifactScopeChip({
+  review,
+  scope,
+}: {
+  review: DesktopAgentArtifactReviewRequest;
+  scope: DesktopAgentArtifactScope;
+}): React.JSX.Element {
+  return (
+    <span className={`artifact-scope-chip scope-${scope}`}>
+      <span aria-hidden="true">{artifactScopeGlyph[scope]}</span>
+      {artifactScopeLabel(review, scope)}
+    </span>
+  );
+}
+
+export function ArtifactReviewPanel({
+  state,
+  dispatch,
+}: {
+  state: DesktopState;
+  dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+}): React.JSX.Element {
+  const agent = selectedAgentInstance(state);
+  const workspace = selectedAgentWorkspace(state);
+  const review = workspace.artifactReview;
+  const targets = workspace.artifactReviewTargets;
+  const [selectedFileId, setSelectedFileId] = useState<string>();
+  const [view, setView] = useState<ArtifactReviewView>("diff");
+  if (review === undefined || agent === undefined) {
+    return <p className="muted">No draft is waiting for review.</p>;
+  }
+  const selected =
+    review.files.find(({ id }) => id === selectedFileId) ?? review.files[0];
+  const budget = artifactTopicBudget(review, targets);
+  const movable = review.files.filter(({ movable }) => movable);
+  const scopes = artifactScopeOrder.flatMap((scope) => {
+    const entry = review.scopes.find((candidate) => candidate.scope === scope);
+    return entry === undefined ? [] : [entry];
+  });
+  const moveFile = (fileId: string, scope: DesktopAgentArtifactScope): void =>
+    dispatch({
+      type: "artifact-review-target",
+      agentInstanceId: agent.id,
+      requestId: review.requestId,
+      fileId,
+      scope,
+    });
+  const allTarget =
+    movable.length > 0 &&
+    movable.every(
+      (file) =>
+        artifactFileTarget(file, targets) ===
+        artifactFileTarget(movable[0]!, targets),
+    )
+      ? artifactFileTarget(movable[0]!, targets)
+      : undefined;
+  const selectedScope =
+    selected === undefined ? undefined : artifactFileTarget(selected, targets);
+
+  return (
+    <section className="artifact-review" aria-label="Draft review">
+      <header className="artifact-review-heading">
+        <span className={`agent-mode-badge artifact-${review.kind}`}>
+          {review.kind === "memory" ? "memory" : "skill"}
+        </span>
+        <p>{review.summary}</p>
+        {review.revision > 1 && <small>Revision {review.revision}</small>}
+      </header>
+
+      <div
+        className="artifact-scope-ladder"
+        role="radiogroup"
+        aria-label={
+          movable.length > 1 ? "Move every movable file to" : "Publish to"
+        }
+      >
+        {scopes.map((entry) => {
+          const count = budget.get(entry.scope);
+          const checked = allTarget === entry.scope;
+          return (
+            <button
+              type="button"
+              role="radio"
+              aria-checked={checked}
+              key={entry.scope}
+              className={`artifact-scope-rung scope-${entry.scope} ${checked ? "selected" : ""}`}
+              disabled={!entry.available || movable.length === 0}
+              title={
+                entry.available
+                  ? entry.meaning
+                  : `${entry.label} is locked: ${entry.unavailableReason ?? "unavailable"}`
+              }
+              onClick={() => {
+                for (const file of movable) moveFile(file.id, entry.scope);
+              }}
+            >
+              <span className="artifact-scope-glyph" aria-hidden="true">
+                {entry.available ? artifactScopeGlyph[entry.scope] : "🔒"}
+              </span>
+              <span className="artifact-scope-text">
+                <strong>{entry.label}</strong>
+                <small>
+                  {entry.available
+                    ? entry.meaning
+                    : (entry.unavailableReason ?? "Unavailable")}
+                </small>
+              </span>
+              {review.kind === "memory" && count !== undefined && (
+                <meter
+                  className="artifact-topic-meter"
+                  min={0}
+                  max={review.maxTopicsPerScope}
+                  high={review.maxTopicsPerScope - 2}
+                  value={Math.min(count, review.maxTopicsPerScope)}
+                  aria-label={`${entry.label} topics`}
+                  title={`${count} of ${review.maxTopicsPerScope} topics after publish`}
+                />
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      <ul className="artifact-file-list" aria-label="Draft files">
+        {review.files.map((file) => {
+          const scope = artifactFileTarget(file, targets);
+          const change = artifactFileChange(file, scope);
+          const diff = artifactFileDiff(file, scope);
+          return (
+            <li
+              key={file.id}
+              className={file.id === selected?.id ? "selected" : ""}
+            >
+              <button
+                type="button"
+                className="artifact-file-open"
+                aria-pressed={file.id === selected?.id}
+                onClick={() => setSelectedFileId(file.id)}
+              >
+                <span className={`artifact-change-badge ${change}`}>
+                  {change}
+                </span>
+                <span className="artifact-file-name">
+                  {file.kind === "skill"
+                    ? `${file.name}/SKILL.md`
+                    : `${file.name}.md`}
+                </span>
+                <span className="artifact-file-counts">
+                  <span className="add">+{diff.added}</span>{" "}
+                  <span className="del">−{diff.removed}</span>
+                </span>
+              </button>
+              {file.movable ? (
+                <select
+                  aria-label={`Scope for ${file.name}`}
+                  className={`scope-${scope}`}
+                  value={scope}
+                  onChange={(event) =>
+                    moveFile(
+                      file.id,
+                      event.target.value as DesktopAgentArtifactScope,
+                    )
+                  }
+                >
+                  {scopes.map((entry) => (
+                    <option
+                      key={entry.scope}
+                      value={entry.scope}
+                      disabled={!entry.available}
+                    >
+                      {artifactScopeGlyph[entry.scope]} {entry.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <ArtifactScopeChip review={review} scope={scope} />
+              )}
+            </li>
+          );
+        })}
+      </ul>
+
+      {selected !== undefined && selectedScope !== undefined && (
+        <div className="artifact-file-view">
+          <div className="artifact-file-view-heading">
+            <ArtifactScopeChip review={review} scope={selectedScope} />
+            <div
+              className="artifact-view-toggle"
+              role="tablist"
+              aria-label="Draft view"
+            >
+              {(["diff", "preview", "source"] as const).map((option) => (
+                <button
+                  type="button"
+                  role="tab"
+                  key={option}
+                  aria-selected={view === option}
+                  onClick={() => setView(option)}
+                >
+                  {option === "diff"
+                    ? "Diff"
+                    : option === "preview"
+                      ? "Preview"
+                      : "Source"}
+                </button>
+              ))}
+            </div>
+          </div>
+          {selected.kind === "skill" &&
+            selected.existingOrigin !== undefined && (
+              <p className="artifact-review-note">
+                {artifactSkillShadowNote(review, selected, selectedScope)}
+              </p>
+            )}
+          {view === "diff" ? (
+            <ArtifactDiffView
+              diff={artifactFileDiff(selected, selectedScope)}
+            />
+          ) : selected.after === null ? (
+            <p className="muted">This topic is deleted.</p>
+          ) : view === "preview" ? (
+            <div className="artifact-preview">
+              <AssistantMarkdown content={selected.after} />
+            </div>
+          ) : (
+            <pre className="artifact-source">{selected.after}</pre>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function artifactSkillShadowNote(
+  review: DesktopAgentArtifactReviewRequest,
+  file: DesktopAgentArtifactReviewRequest["files"][number],
+  scope: DesktopAgentArtifactScope,
+): string {
+  const shadow = artifactSkillShadow(file, scope);
+  if (shadow !== undefined) return shadow;
+  if (file.existingOrigin === "bundled") {
+    return `Overrides the bundled '${file.name}' skill.`;
+  }
+  return file.existingOrigin === scope
+    ? `Updates the existing ${artifactScopeLabel(review, scope)} skill.`
+    : `Overrides the ${artifactScopeLabel(review, file.existingOrigin!)} skill of the same name.`;
+}
+
+function ArtifactDiffView({
+  diff,
+}: {
+  diff: ReturnType<typeof artifactFileDiff>;
+}): React.JSX.Element {
+  if (diff.lines.length === 0) return <p className="muted">Empty file.</p>;
+  return (
+    <div className="artifact-diff" role="table" aria-label="Draft diff">
+      {diff.coarse && (
+        <p className="muted">Large change: showing a whole-file replace.</p>
+      )}
+      {diff.lines.map((line, index) => (
+        <div
+          role="row"
+          key={index}
+          className={`artifact-diff-line ${line.kind}`}
+        >
+          <span aria-hidden="true">
+            {line.kind === "add" ? "+" : line.kind === "del" ? "−" : " "}
+          </span>
+          <code>{line.text || " "}</code>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -7951,6 +8267,15 @@ export function DesktopComposer({
       />
     );
   }
+  if (workspace.artifactReview !== undefined) {
+    return (
+      <ArtifactReviewComposer
+        key={`${workspace.artifactReview.requestId}:${workspace.artifactReview.revision}`}
+        state={state}
+        request={workspace.artifactReview}
+      />
+    );
+  }
   if (workspace.planApproval !== undefined) {
     return (
       <PlanApprovalComposer
@@ -8014,6 +8339,123 @@ export function DesktopComposer({
       onSubmit={submit}
       dispatch={dispatch}
     />
+  );
+}
+
+function ArtifactReviewComposer({
+  state,
+  request,
+}: {
+  state: DesktopState;
+  request: DesktopAgentArtifactReviewRequest;
+}): React.JSX.Element {
+  const agent = selectedAgentInstance(state);
+  const targets = selectedAgentWorkspace(state).artifactReviewTargets;
+  const [feedback, setFeedback] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const submittingRef = useRef(false);
+  const blocker = artifactReviewBlocker(request, targets);
+  const scopes = [
+    ...new Set(request.files.map((file) => artifactFileTarget(file, targets))),
+  ];
+  const tint = scopes.length === 1 ? `scope-${scopes[0]}` : "scope-mixed";
+
+  const resolve = async (
+    decision: "approve" | "request_changes" | "discard",
+  ): Promise<void> => {
+    if (agent === undefined || submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    setError("");
+    try {
+      const result = await window.desktop.agents.resolveArtifactReview(
+        agent.id,
+        {
+          requestId: request.requestId,
+          revision: request.revision,
+          decision,
+          ...(decision === "request_changes"
+            ? { feedback: feedback.trim() }
+            : {}),
+          ...(decision === "approve"
+            ? { targets: artifactReviewTargets(request, targets) }
+            : {}),
+        },
+      );
+      if (result.error !== undefined) setError(result.error);
+    } catch (resolveError) {
+      setError(
+        resolveError instanceof Error
+          ? resolveError.message
+          : "The review response could not be submitted.",
+      );
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <footer className="composer interaction-deck">
+      <section aria-label="Draft review decision">
+        <div className="interaction-deck-heading">
+          <div>
+            <span className={`agent-mode-badge artifact-${request.kind}`}>
+              {request.kind}
+            </span>
+            <h3>
+              {request.kind === "memory"
+                ? `Review ${request.files.length} memory ${request.files.length === 1 ? "change" : "changes"}`
+                : `Review skill '${request.files[0]?.name ?? ""}'`}
+            </h3>
+          </div>
+          <small>
+            Publishing to{" "}
+            {scopes.map((scope, index) => (
+              <Fragment key={scope}>
+                {index > 0 && ", "}
+                <ArtifactScopeChip review={request} scope={scope} />
+              </Fragment>
+            ))}
+            . Change scopes in the Inspector.
+          </small>
+        </div>
+        <label>
+          Request changes
+          <textarea
+            autoFocus
+            data-workspace-interaction-focus
+            rows={3}
+            maxLength={8_192}
+            value={feedback}
+            disabled={submitting}
+            onChange={(event) => setFeedback(event.target.value)}
+            placeholder="Describe what the agent should change in this draft…"
+          />
+        </label>
+        {blocker !== undefined && <p className="composer-error">{blocker}</p>}
+        {error && <p className="composer-error">{error}</p>}
+        <div className="interaction-actions">
+          <button
+            className={`primary artifact-publish ${tint}`}
+            disabled={submitting || blocker !== undefined}
+            onClick={() => void resolve("approve")}
+          >
+            Approve &amp; publish
+          </button>
+          <button
+            disabled={submitting || feedback.trim().length === 0}
+            onClick={() => void resolve("request_changes")}
+          >
+            Request changes
+          </button>
+          <button disabled={submitting} onClick={() => void resolve("discard")}>
+            Discard
+          </button>
+        </div>
+      </section>
+    </footer>
   );
 }
 

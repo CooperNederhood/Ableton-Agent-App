@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   InvalidSkillInvocationError,
   formatSkillInvocation,
+  parseArtifactScopeToken,
   parseSkillInvocation,
 } from "./skill-invocation.js";
 
@@ -33,4 +34,24 @@ describe("skill invocation parsing", () => {
       );
     },
   );
+
+  it.each([
+    ["i only do dnb --scope profile", "profile", "i only do dnb"],
+    ["--scope=set track roles", "live-set", "track roles"],
+    ["--scope Session", "session", ""],
+  ])("extracts the scope token from %s", (input, scope, request) => {
+    expect(parseArtifactScopeToken(input)).toEqual({ scope, request });
+  });
+
+  it("leaves requests without a scope token unchanged", () => {
+    expect(parseArtifactScopeToken("  remember sidechain ")).toEqual({
+      request: "remember sidechain",
+    });
+  });
+
+  it.each(["--scope", "x --scope galaxy"])("rejects %s", (input) => {
+    expect(() => parseArtifactScopeToken(input)).toThrow(
+      InvalidSkillInvocationError,
+    );
+  });
 });

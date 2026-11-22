@@ -11,7 +11,7 @@ import {
   loadLayeredAgentCatalog,
   moveArtifact,
   replaceAgentDefinitionInScope,
-  replaceSkillInScope,
+  publishSkillToScope,
   readArtifactTombstones,
   readSkillDocument,
   renameAgentInScope,
@@ -28,6 +28,7 @@ import {
 import {
   createProfile,
   deleteProfile,
+  ensureArtifactScopeDirectories,
   ensureLiveAgentStorage,
   loadProfileRegistry,
   readLiveProjectsRegistry,
@@ -225,21 +226,13 @@ function layer(paths: ArtifactScopePaths) {
   };
 }
 
-async function ensureScope(paths: ArtifactScopePaths): Promise<void> {
-  await Promise.all([
-    mkdir(paths.agentsDirectory, { recursive: true, mode: 0o700 }),
-    mkdir(paths.skillsDirectory, { recursive: true, mode: 0o700 }),
-    mkdir(paths.stateDirectory, { recursive: true, mode: 0o700 }),
-  ]);
-}
-
 async function physicalArtifact(
   kind: DesktopArtifactKind,
   directory: ArtifactScopePaths,
   name: string,
   ensureDirectories = true,
 ): Promise<string | undefined> {
-  if (ensureDirectories) await ensureScope(directory);
+  if (ensureDirectories) await ensureArtifactScopeDirectories(directory);
   return resolveArtifactPathInScope({
     kind,
     directory:
@@ -411,7 +404,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
           "session",
           sessionOwnership,
         );
-        await ensureScope(sessionPaths);
+        await ensureArtifactScopeDirectories(sessionPaths);
         const bundled = {
           agentsDirectory: this.options.bundledAgentsDirectory,
           skillsDirectory: this.options.bundledSkillsDirectory,
@@ -589,7 +582,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
             sessionId,
           },
         );
-        await ensureScope(sessionPaths);
+        await ensureArtifactScopeDirectories(sessionPaths);
         const load = () => this.#loadCatalog(snapshot.activeProfile, sessionId);
         const current = (await load()).skills.find(
           ({ metadata }) => metadata.name === request.name,
@@ -628,41 +621,20 @@ export class DesktopProfileManager implements ProfileManagerActions {
         let result:
           Awaited<ReturnType<ProfileManagerActions["saveSkill"]>> | undefined;
         try {
-          await replaceSkillInScope({
+          await publishSkillToScope({
+            scope: "session",
             skillsDirectory: sessionPaths.skillsDirectory,
             metadata,
             body: request.body,
-            validatePublishedCatalog: async () => {
-              const validated = await load();
-              const saved = validated.skills.find(
-                ({ metadata: candidate }) => candidate.name === request.name,
-              );
-              if (
-                saved?.origin !== "session" ||
-                saved.metadata.description !== metadata.description
-              ) {
-                throw new Error(
-                  `Saved skill '${request.name}' did not resolve from Session Scope (${saved?.origin ?? "missing"}; ${validated.diagnostics
-                    .map(({ code, message }) => `${code}: ${message}`)
-                    .join("; ")})`,
-                );
-              }
-              const document = await readSkillDocument(
-                saved.sourcePath,
-                request.name,
-              );
-              if (document.body !== request.body.trim()) {
-                throw new Error(
-                  `Saved skill '${request.name}' body did not match`,
-                );
-              }
+            loadCatalog: load,
+            onValidated: async (saved) => {
               result = {
                 document: {
-                  name: document.metadata.name,
-                  description: document.metadata.description,
-                  body: document.body,
+                  name: saved.name,
+                  description: saved.description,
+                  body: saved.body,
                   origin: saved.origin,
-                  fingerprint: document.fingerprint,
+                  fingerprint: saved.fingerprint,
                 },
                 catalog: await this.options.refreshActiveCatalog(),
                 profileSnapshot: await this.get(snapshot.activeProfile),
@@ -1085,7 +1057,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
       activeSessionCandidate?.id === currentActiveSessionId
         ? activeSessionCandidate
         : undefined;
-    await Promise.all([system, profile].map(ensureScope));
+    await Promise.all([system, profile].map(ensureArtifactScopeDirectories));
     const persistedSelectedSessions = await readSessions(selectedLayout);
     const persistedSelectedSessionIds = new Set(
       persistedSelectedSessions.map(({ id }) => id),
@@ -1125,7 +1097,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
             "project",
             { liveProjectId },
           );
-          await ensureScope(projectPaths);
+          await ensureArtifactScopeDirectories(projectPaths);
           const catalog = await loadLayeredAgentCatalog({
             bundled,
             system: layer(system),
@@ -1541,7 +1513,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
       const paths = resolveArtifactScopePaths(layout, "project", {
         liveProjectId: location.liveProjectId,
       });
-      await ensureScope(paths);
+      await ensureArtifactScopeDirectories(paths);
       return paths;
     }
     if (location.scope === "session") {
@@ -1585,11 +1557,11 @@ export class DesktopProfileManager implements ProfileManagerActions {
           : { liveProjectId: session.liveProjectId }),
         sessionId: location.sessionId,
       });
-      await ensureScope(paths);
+      await ensureArtifactScopeDirectories(paths);
       return paths;
     }
     const paths = resolveArtifactScopePaths(layout, location.scope);
-    await ensureScope(paths);
+    await ensureArtifactScopeDirectories(paths);
     return paths;
   }
 

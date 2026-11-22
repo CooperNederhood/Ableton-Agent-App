@@ -139,6 +139,8 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
             ...request,
           })
         ).resolved,
+      resolveArtifactReview: (instanceId, request) =>
+        invoke("agents:resolve-artifact-review", { instanceId, ...request }),
       readPlan: (instanceId) => invoke("agents:read-plan", { instanceId }),
       writePlan: (instanceId, input) =>
         invoke("agents:write-plan", { instanceId, ...input }),

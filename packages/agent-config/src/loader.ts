@@ -126,11 +126,31 @@ function parseSkillDocument(content: string): {
   };
 }
 
+/** Validates SKILL.md text that has not been written to disk yet. */
+export function parseSkillContent(
+  content: string,
+  expectedName?: string,
+): SkillDocument {
+  if (Buffer.byteLength(content, "utf8") > maximumSkillBytes) {
+    throw new Error(`SKILL.md exceeds ${maximumSkillBytes} bytes`);
+  }
+  return skillDocumentFromContent(content, expectedName);
+}
+
 export async function readSkillDocument(
   sourcePath: string,
   expectedName?: string,
 ): Promise<SkillDocument> {
-  const content = await boundedRead(sourcePath, maximumSkillBytes);
+  return skillDocumentFromContent(
+    await boundedRead(sourcePath, maximumSkillBytes),
+    expectedName,
+  );
+}
+
+function skillDocumentFromContent(
+  content: string,
+  expectedName?: string,
+): SkillDocument {
   const parsed = parseSkillDocument(content);
   const metadata = skillMetadataSchema.parse(parsed.frontmatter);
   if (expectedName !== undefined && metadata.name !== expectedName) {

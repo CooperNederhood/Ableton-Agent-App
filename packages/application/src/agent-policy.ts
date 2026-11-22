@@ -112,6 +112,12 @@ export interface AgentPolicyServices {
     current(): AgentIdentityContext | undefined;
     delivered?(kind: "changed", context: AgentIdentityContext): void;
   };
+  /** Memory index text: delivered when it differs from the last delivery. */
+  memoryContext?: {
+    readonly initial: string | undefined;
+    current(): Promise<string | undefined>;
+    delivered?(context: string | undefined): void;
+  };
 }
 
 export interface AgentPolicy {
@@ -273,6 +279,18 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
     return formatAgentIdentityContext(current, "changed");
   }
 
+  let deliveredMemory = services.memoryContext?.initial;
+  async function changedMemoryContext(): Promise<string | undefined> {
+    if (services.memoryContext === undefined) return undefined;
+    const current = await services.memoryContext.current();
+    if (current === deliveredMemory) return undefined;
+    deliveredMemory = current;
+    services.memoryContext.delivered?.(current);
+    return current === undefined
+      ? "<memory_index>\nAll reviewed memory was removed; ignore earlier memory indexes.\n</memory_index>"
+      : `Memory changed since the last index you saw; this replaces it.\n${current}`;
+  }
+
   async function context(): Promise<string> {
     const listener = services.preparedContext?.activeListener?.();
     if (services.preparedContext !== undefined) {
@@ -295,6 +313,7 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
       additionalContext: await (async () => {
         const parts = [
           changedIdentityContext(),
+          await changedMemoryContext(),
           await context(),
           services.sessionContext === undefined ||
           !(services.promptContextEnabled?.() ?? true)

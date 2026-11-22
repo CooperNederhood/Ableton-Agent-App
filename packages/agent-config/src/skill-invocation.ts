@@ -1,3 +1,4 @@
+import type { MemoryScopeName } from "./memory.js";
 import { skillNameSchema } from "./schemas.js";
 
 export interface SkillInvocation {
@@ -38,4 +39,46 @@ export function formatSkillInvocation(invocation: SkillInvocation): string {
   return invocation.request.length === 0
     ? `/${skillName}`
     : `/${skillName} ${invocation.request}`;
+}
+
+const scopeTokenAliases: Readonly<Record<string, MemoryScopeName>> = {
+  system: "system",
+  profile: "profile",
+  project: "project",
+  set: "live-set",
+  "live-set": "live-set",
+  session: "session",
+};
+
+/**
+ * Extracts an optional `--scope <scope>` token from an authoring request.
+ * `set` is accepted as shorthand for the Live Set scope.
+ */
+export function parseArtifactScopeToken(request: string): {
+  readonly scope?: MemoryScopeName;
+  readonly request: string;
+} {
+  const match = /(^|\s)--scope(?:=|\s+)(\S+)(?=\s|$)/u.exec(request);
+  if (match === null) {
+    if (/(^|\s)--scope(\s|=|$)/u.test(request)) {
+      throw new InvalidSkillInvocationError(
+        "--scope needs a value: system, profile, project, set, or session.",
+      );
+    }
+    return { request: request.trim() };
+  }
+  const scope = scopeTokenAliases[match[2]!.toLowerCase()];
+  if (scope === undefined) {
+    throw new InvalidSkillInvocationError(
+      `Unknown scope '${match[2]}'. Use system, profile, project, set, or session.`,
+    );
+  }
+  return {
+    scope,
+    request: `${request.slice(0, match.index)}${match[1]}${request.slice(
+      match.index + match[0].length,
+    )}`
+      .replace(/\s+/gu, " ")
+      .trim(),
+  };
 }

@@ -7,6 +7,7 @@ import {
   EXPLICIT_ONLY_BUILTIN_TOOL_NAMES,
   createSessionContextHost,
   ListeningFailure,
+  type ArtifactAuthoringPort,
 } from "@ableton-agent/application";
 import {
   createNonBlockingObservabilityRecorder,
@@ -913,6 +914,7 @@ export async function createDesktopComposition(
     },
   };
 
+  const artifactAuthoring = agentCatalog.artifactAuthoring;
   const runtimeOptions = {
     ableton: {
       port,
@@ -931,6 +933,24 @@ export async function createDesktopComposition(
       reasoningSummary: () => agentReasoningVisibility,
       resolveSkill: (sessionId: string, skillName: string) =>
         agentCatalog.resolveRuntimeSkill(sessionId, skillName),
+      ...(artifactAuthoring === undefined
+        ? {}
+        : {
+            artifactAuthoring: {
+              loadContext: (sessionId: string) =>
+                artifactAuthoring.loadContext(sessionId),
+              publish: async (sessionId: string, publication) => {
+                const result = await artifactAuthoring.publish(
+                  sessionId,
+                  publication,
+                );
+                if (publication.kind === "skill") {
+                  await desktopService.refreshAgentCatalog();
+                }
+                return result;
+              },
+            } satisfies ArtifactAuthoringPort,
+          }),
       ...(storage === undefined
         ? {}
         : {

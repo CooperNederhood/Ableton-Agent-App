@@ -3,6 +3,83 @@ import { describe, expect, it } from "vitest";
 import { normalizeSharedEvent } from "./shared-event-adapter.js";
 
 describe("shared application event adapter", () => {
+  it("validates artifact review requests and results for the renderer", () => {
+    const request = {
+      requestId: "review-1",
+      draftId: "draft-1",
+      kind: "memory" as const,
+      summary: "Remember the mixing habit",
+      revision: 1,
+      maxTopicsPerScope: 19,
+      scopes: [
+        {
+          scope: "profile" as const,
+          label: "Profile",
+          meaning: "Everything you make",
+          available: true,
+          topicCount: 0,
+        },
+        {
+          scope: "session" as const,
+          label: "Session",
+          meaning: "This conversation only",
+          available: false,
+          unavailableReason: "not saved",
+        },
+      ],
+      files: [
+        {
+          id: "memory:mixing@profile",
+          kind: "memory_topic" as const,
+          name: "mixing",
+          change: "added" as const,
+          scope: "profile" as const,
+          movable: true,
+          after: "---\nname: mixing\ndescription: Mix.\n---\n",
+          currentByScope: {},
+        },
+      ],
+    };
+    expect(
+      normalizeSharedEvent(
+        {
+          type: "agent.artifact_review_requested",
+          agentInstanceId: "00000000-0000-4000-8000-000000000001",
+          request,
+        },
+        () => "message-1",
+      ),
+    ).toEqual({
+      type: "agent.artifact_review_requested",
+      agentInstanceId: "00000000-0000-4000-8000-000000000001",
+      request,
+    });
+    expect(
+      normalizeSharedEvent(
+        {
+          type: "agent.artifact_review_completed",
+          requestId: "review-1",
+          draftId: "draft-1",
+          kind: "memory",
+          outcome: "published",
+          published: [
+            { scope: "profile", path: "/memory/mixing.md", change: "added" },
+          ],
+        },
+        () => "message-1",
+      ),
+    ).toMatchObject({ outcome: "published" });
+    expect(() =>
+      normalizeSharedEvent(
+        {
+          type: "agent.artifact_review_requested",
+          request: { ...request, files: [] },
+        },
+        () => "message-1",
+      ),
+    ).toThrow();
+  });
+
   it("maps shared operation events into stable desktop view models", () => {
     expect(
       normalizeSharedEvent(

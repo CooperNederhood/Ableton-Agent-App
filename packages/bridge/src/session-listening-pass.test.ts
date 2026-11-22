@@ -52,7 +52,6 @@ function params(action: (typeof actions)[number]): SessionListeningPassParams {
         expectedClassName: "MxDeviceAudioEffect",
       },
       durationBeats: 4,
-      timingAnchor: { globalBeat: 0 },
     };
   }
   return action === "release"
@@ -65,7 +64,7 @@ function receipt(request: RequestEnvelope): SessionListeningPassResult {
     status: request.command === commands.release ? "released" : "prepared",
     mutationState: "not-attempted",
     reason: null,
-    cleanupPolicy: "leave-running",
+    cleanupPolicy: "stop-owned",
     evidence: "message-rate-only",
     nativeAlignment: "unverified",
     lastObservedSource: {

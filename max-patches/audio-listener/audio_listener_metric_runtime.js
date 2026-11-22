@@ -549,7 +549,11 @@ function createMetricRuntime({
         }
         invalidate("sdk_publication_failed_requires_reload");
       },
-      onStatus: (_sink, state) => {
+      onStatus: (_sink, state, ...detail) => {
+        if (
+          ["socket_error", "invalid_response", "server_error"].includes(state)
+        )
+          output("diagnostic", `client_${state}`, ...detail);
         if (state === "disconnected")
           invalidate("disconnected_requires_reload");
       },

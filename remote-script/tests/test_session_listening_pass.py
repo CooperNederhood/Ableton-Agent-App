@@ -110,10 +110,10 @@ class SessionListeningPassTest(unittest.TestCase):
             "schemaVersion": 1, "action": "prepare", "ownerId": OWNER, "passId": PASS,
             "expectedLiveSetId": "set", "expectedProjectRevision": 5,
             "target": self.target, "listener": self.binding, "durationBeats": 4,
-            "timingAnchor": {"globalBeat": 12.0},
         }
         self.fires = 0
         self.clip.fire = self.fire
+        self.song.stop_playing = lambda: self.song.change("is_playing", False)
 
     def call(self, action="prepare", **changes):
         params = self.params if action == "prepare" else {
@@ -208,7 +208,7 @@ class SessionListeningPassTest(unittest.TestCase):
             self.assertEqual(self.call("inspect")["status"], "covered")
             self.assertEqual(self.fires, 1)
             self.call("release", reason="completed")
-            self.assertTrue(self.song.is_playing)
+            self.assertFalse(self.song.is_playing)
             self.assert_no_monitors()
         finally:
             clear_session_listening_pass(self.context)
@@ -249,7 +249,7 @@ class SessionListeningPassTest(unittest.TestCase):
         self.assertEqual(self.fires, 0)
         self.assert_no_monitors()
 
-    def test_prepare_launch_midi_and_warped_audio_origin_and_leave_running(self):
+    def test_prepare_launch_midi_and_warped_audio_origin_and_stop_on_release(self):
         for kind in ("midi", "audio"):
             with self.subTest(kind=kind):
                 self.setUp()
@@ -269,8 +269,8 @@ class SessionListeningPassTest(unittest.TestCase):
                 self.assertEqual(self.results[0]["nativeAlignment"], "unverified")
                 self.assertEqual(self.fires, 1)
                 released = self.call("release", reason="completed")
-                self.assertEqual(released["cleanupPolicy"], "leave-running")
-                self.assertTrue(self.song.is_playing)
+                self.assertEqual(released["cleanupPolicy"], "stop-owned")
+                self.assertFalse(self.song.is_playing)
                 self.assert_no_monitors()
 
     def test_stopped_remembered_clip_one_bar_launch_keeps_nonzero_transport(self):
@@ -279,7 +279,6 @@ class SessionListeningPassTest(unittest.TestCase):
                 self.setUp()
                 anchor = 2.059377861721612
                 self.song.current_song_time = anchor
-                self.params["timingAnchor"]["globalBeat"] = anchor
                 self.clip.launch_quantization = clip_quantization
                 self.clip.is_playing = True
                 self.clip.start_time = 0.0
@@ -299,10 +298,36 @@ class SessionListeningPassTest(unittest.TestCase):
                 self.assertEqual(self.fires, 1)
                 self.assertEqual(self.results[0]["sourceEpoch"]["startTimeBeats"], 0)
                 self.call("release", reason="completed")
-                self.assertTrue(self.song.is_playing)
+                self.assertFalse(self.song.is_playing)
                 self.assertEqual(self.song.clip_trigger_quantization, 4)
                 self.assertEqual(self.clip.launch_quantization, clip_quantization)
                 self.assert_no_monitors()
+
+    def test_stopped_off_bar_launch_accepts_live_snapping_back_to_the_bar(self):
+        # Observed in Live 11.3.43: stopped at 130.84 with One Bar quantization,
+        # Clip.fire() starts transport and clip together at the bar start (128).
+        stopped = 130.84
+        self.song.tempo = 128.0
+        self.song.current_song_time = stopped
+        self.clip.start_time = 96.0
+        self.assertEqual(self.call()["status"], "prepared")
+        self.launch()
+        self.clip.playing_position = 0.25
+        self.activate(origin=128.0)
+        self.song.current_song_time = 128.25
+        self.tick()
+        self.assertEqual(self.errors, [])
+        self.assertEqual(self.results[0]["status"], "playing")
+        self.assertEqual(self.results[0]["sourceEpoch"]["startTimeBeats"], 128.0)
+
+    def test_release_leaves_playback_running_after_another_clip_takes_over(self):
+        self.call()
+        self.launch()
+        self.activate()
+        self.tick()
+        self.track.playing_slot_index = 1
+        self.call("release", reason="cancelled")
+        self.assertTrue(self.song.is_playing)
 
     def test_remembered_clip_requires_matching_slot_and_stable_read_brackets(self):
         self.clip.is_playing = True
@@ -360,10 +385,9 @@ class SessionListeningPassTest(unittest.TestCase):
         self.clip.is_audio_clip, self.clip.is_midi_clip, self.clip.warping = True, False, False
         self.assert_denied()
 
-    def test_binding_revision_set_anchor_and_required_monitor_refusals(self):
+    def test_binding_revision_set_and_required_monitor_refusals(self):
         for change in (
             {"expectedLiveSetId": "other"}, {"expectedProjectRevision": 4},
-            {"timingAnchor": {"globalBeat": 11}},
             {"listener": {**self.binding, "expectedDeviceName": "Other"}},
         ):
             with self.subTest(change=change):
@@ -421,7 +445,7 @@ class SessionListeningPassTest(unittest.TestCase):
         self.tick()
         self.assertEqual(released["mutationState"], "indeterminate")
         self.assertEqual(self.fires, 1)
-        self.assertTrue(self.song.is_playing)
+        self.assertFalse(self.song.is_playing)
         self.assertEqual(len(self.results), 1)
         self.assert_no_monitors()
 
@@ -483,7 +507,7 @@ class SessionListeningPassTest(unittest.TestCase):
         self.assertEqual(second["sourceEpoch"], invalid["sourceEpoch"])
         self.assertEqual(second["reason"], invalid["reason"])
         self.assertEqual(self.fires, 1)
-        self.assertTrue(self.song.is_playing)
+        self.assertFalse(self.song.is_playing)
         self.assert_no_monitors()
 
     def test_release_before_deferred_dispatch_is_repeatable_and_fences_every_receipt(self):
@@ -634,7 +658,7 @@ class SessionListeningPassTest(unittest.TestCase):
         self.tick()
         self.assertEqual(self.results[0]["status"], "invalidated")
         self.assertEqual(self.results[0]["mutationState"], "indeterminate")
-        self.assertEqual(self.results[0]["cleanupPolicy"], "leave-running")
+        self.assertEqual(self.results[0]["cleanupPolicy"], "stop-owned")
         self.assertTrue(self.song.is_playing)
         self.assert_no_monitors()
 
@@ -670,7 +694,7 @@ class SessionListeningPassTest(unittest.TestCase):
         self.tick()
         self.assertEqual(self.results[0]["sourceEpoch"]["startTimeBeats"], 12)
         self.call("release", reason="completed")
-        self.assertTrue(self.song.is_playing)
+        self.assertFalse(self.song.is_playing)
 
     def test_exact_active_loop_and_nonlooping_end_are_admitted(self):
         for looping in (True, False):
@@ -704,7 +728,7 @@ class SessionListeningPassTest(unittest.TestCase):
                 self.assertEqual(covered["sourceEpoch"]["startTimeBeats"], 16)
                 self.assertEqual(covered["nativeAlignment"], "unverified")
                 self.call("release", reason="completed")
-                self.assertTrue(self.song.is_playing)
+                self.assertFalse(self.song.is_playing)
                 self.assert_no_monitors()
 
     def test_shorter_range_does_not_waive_early_wrap_stop_or_post_boundary_edit(self):
@@ -776,7 +800,7 @@ class SessionListeningPassTest(unittest.TestCase):
         self.call("release", reason="cancelled")
         self.tick()
         self.assert_no_monitors()
-        self.assertTrue(self.song.is_playing)
+        self.assertFalse(self.song.is_playing)
 
     def test_completed_nonlooping_clip_can_reset_origin_and_return_live_11_stop_slot(self):
         for kind in ("midi", "audio"):
@@ -789,7 +813,7 @@ class SessionListeningPassTest(unittest.TestCase):
                 self.assertEqual(result["sourceEpoch"]["startTimeBeats"], 16.0)
                 self.assertEqual(result["lastObservedSource"]["startTimeBeats"], 0.0)
                 self.call("release", reason="completed")
-                self.assertTrue(self.song.is_playing)
+                self.assertFalse(self.song.is_playing)
                 self.assert_no_monitors()
 
     def test_nonlooping_reset_before_end_or_with_foreign_origin_remains_invalid(self):
@@ -829,7 +853,7 @@ class SessionListeningPassTest(unittest.TestCase):
                     self.assertEqual(result["status"], "covered" if outcome == "coherent" else "invalidated")
                     self.assertEqual(result["sourceEpoch"]["startTimeBeats"], 16.0)
                     self.call("release", reason="completed" if outcome == "coherent" else "cancelled")
-                self.assertTrue(self.song.is_playing)
+                self.assertFalse(self.song.is_playing)
                 self.assert_no_monitors()
 
     def test_capability_requires_real_monitor_primitives_and_simulator_refuses(self):
@@ -872,7 +896,7 @@ class SessionListeningPassTest(unittest.TestCase):
         self.call("release", reason="cancelled")
         add.assert_not_called()
         remove.assert_not_called()
-        self.assertTrue(self.song.is_playing)
+        self.assertFalse(self.song.is_playing)
         self.assert_no_monitors()
 
     def test_explicit_inspect_detects_polled_epoch_change_without_any_source_callback(self):

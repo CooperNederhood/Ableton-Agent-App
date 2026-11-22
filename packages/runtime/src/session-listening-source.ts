@@ -113,9 +113,6 @@ export function attributeSessionRejection(
 
 export interface SessionSourceExpectation {
   readonly source: Readonly<Source>;
-  readonly startBeat: number;
-  readonly stoppedBeat: number;
-  readonly endBeat: number;
   readonly durationBeats: number;
   readonly firstIterationEndBeat: number;
   readonly fingerprint: string;
@@ -349,11 +346,6 @@ export function freezeSessionSourceExpectation(
         { unit: "beats" },
       ),
     ]);
-  const stoppedBeat = after.globalBeat!;
-  // A Session slot or Clip Stop (-2) retains zero-origin restart semantics,
-  // even when the next target is not playing. Only idle/Arrangement (-1)
-  // retains the stopped song position; neither is the clip-local coordinate.
-  const startBeat = after.playingSlotIndex === -1 ? stoppedBeat : 0;
   if (
     settings.tempoBpm === null ||
     settings.signatureNumerator !== 4 ||
@@ -454,9 +446,6 @@ export function freezeSessionSourceExpectation(
     settings.followActionEnabled === false ? "disabled" : "unknown";
   return Object.freeze({
     source,
-    startBeat,
-    stoppedBeat,
-    endBeat: startBeat + durationBeats,
     durationBeats,
     firstIterationEndBeat,
     fingerprint: fingerprint(source),
@@ -545,8 +534,8 @@ export function assertSessionFirstIterationCoverage(
   const actualBeats =
     geometry.totalSamples / ((geometry.sampleRate * 60) / geometry.tempoBpm);
   if (
-    geometry.startBeat !== expected.startBeat ||
-    geometry.endBeat !== expected.endBeat ||
+    geometry.startBeat !== 0 ||
+    geometry.endBeat !== expected.durationBeats ||
     geometry.tempoBpm !== expected.source.settings.tempoBpm ||
     actualBeats - expected.firstIterationEndBeat >
       geometry.tempoBpm / (120 * geometry.sampleRate) + 1e-10
@@ -555,15 +544,15 @@ export function assertSessionFirstIterationCoverage(
       "session_first_iteration_exceeded",
       "The native sample-rounded range would cross the first clip iteration; no clip was launched.",
       [
-        failureFact(
-          "geometry.startBeat",
-          geometry.startBeat,
-          expected.startBeat,
-          { unit: "beats" },
-        ),
-        failureFact("geometry.endBeat", geometry.endBeat, expected.endBeat, {
+        failureFact("geometry.startBeat", geometry.startBeat, 0, {
           unit: "beats",
         }),
+        failureFact(
+          "geometry.endBeat",
+          geometry.endBeat,
+          expected.durationBeats,
+          { unit: "beats" },
+        ),
         failureFact(
           "geometry.tempoBpm",
           geometry.tempoBpm,
@@ -583,23 +572,17 @@ export function assertSessionFirstIterationCoverage(
     );
 }
 
-export function assertTransportCoupledSessionOrigin(
+export function assertSessionOriginIdentity(
   expected: SessionSourceExpectation,
   origin: SessionSourceOrigin,
 ): void {
   if (
     origin.clipReference !== expected.source.target.expectedClipReference ||
-    origin.playingSlotIndex !== expected.source.target.sceneIndex ||
-    !Number.isFinite(origin.clipStartTimeBeats) ||
-    Math.abs(origin.clipStartTimeBeats - expected.startBeat) > 1e-8 ||
-    !Number.isFinite(origin.observedAtGlobalBeat) ||
-    origin.observedAtGlobalBeat < expected.startBeat ||
-    origin.observedAtGlobalBeat >=
-      expected.startBeat + expected.firstIterationEndBeat
+    origin.playingSlotIndex !== expected.source.target.sceneIndex
   )
     deny(
       "session_native_origin_mismatch",
-      "The observed clip/source epoch did not match the frozen native transport anchor. No context was published; playback is left running.",
+      "A different clip or slot started than the one requested. No context was published; playback was stopped.",
       [
         failureFact(
           "origin.clipReference",
@@ -610,27 +593,6 @@ export function assertTransportCoupledSessionOrigin(
           "origin.playingSlotIndex",
           origin.playingSlotIndex,
           expected.source.target.sceneIndex,
-        ),
-        failureFact(
-          "origin.clipStartTimeBeats",
-          origin.clipStartTimeBeats,
-          expected.startBeat,
-          { unit: "beats" },
-        ),
-        failureFact("origin.anchorToleranceBeats", 1e-8, undefined, {
-          unit: "beats",
-        }),
-        failureFact(
-          "origin.observedAtGlobalBeat",
-          origin.observedAtGlobalBeat,
-          expected.startBeat,
-          { comparison: "at-least", unit: "beats" },
-        ),
-        failureFact(
-          "origin.iterationEndBeatExclusive",
-          origin.observedAtGlobalBeat,
-          expected.startBeat + expected.firstIterationEndBeat,
-          { unit: "beats" },
         ),
       ],
     );

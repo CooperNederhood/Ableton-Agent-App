@@ -2917,7 +2917,7 @@ describe("CopilotAgentService managed sessions", () => {
         expect(params).toEqual({
           action: "read-captures",
           contextIds,
-          summaryBudgetBytes: expect.any(Number),
+          summaryBudgetBytes: expect.any(Number) as number,
         });
         // This would deadlock if analysis waiting retained the capture mutation lease.
         await queuedMutation;
@@ -3370,6 +3370,12 @@ describe("CopilotAgentService managed sessions", () => {
       recovery:
         "Inspect the Session again and use the exact track, slot, clip reference, and clip name before requesting a new capture.",
     },
+    {
+      code: "listener_not_found",
+      message: "listener_not_found",
+      recovery:
+        "Report this to the user; do not retry until they change the Live Set.",
+    },
   ])(
     "reports $code instead of a generic SDK permission denial",
     async ({ code, message, recovery }) => {
@@ -3669,16 +3675,19 @@ describe("CopilotAgentService managed sessions", () => {
           expect(approve).not.toHaveBeenCalled();
         } else if (
           outcome === "resolution-failed" ||
-          outcome === "missing-tool-call-id" ||
           outcome === "changed-action"
         ) {
-          await expect(permission).rejects.toThrow(
-            outcome === "resolution-failed"
-              ? "Source changed before approval"
-              : outcome === "changed-action"
-                ? "changed the requested action"
-                : "exact SDK tool call ID",
-          );
+          await expect(permission).resolves.toMatchObject({
+            kind: "reject",
+            feedback: expect.stringContaining(
+              outcome === "resolution-failed"
+                ? "Source changed before approval"
+                : "changed the requested action",
+            ) as string,
+          });
+          expect(approve).not.toHaveBeenCalled();
+        } else if (outcome === "missing-tool-call-id") {
+          await expect(permission).rejects.toThrow("exact SDK tool call ID");
           expect(approve).not.toHaveBeenCalled();
         } else {
           await expect(permission).resolves.toMatchObject({

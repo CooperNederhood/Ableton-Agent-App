@@ -94,7 +94,7 @@ describe("desktop packaging workflow ownership", () => {
       ".github/workflows/package-desktop.yml",
     ];
     expect(inputs.filter((path) => !selected(path))).toEqual([]);
-    expect(selected("docs/testing/test-strategy.md")).toBe(false);
+    expect(selected("docs/testing.md")).toBe(false);
   });
 
   it("builds integration payloads before the existing Electron and distribution steps", () => {

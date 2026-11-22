@@ -497,12 +497,5 @@ real LOM behavior.
 
 ## Documentation
 
-- [Project overview and architecture](docs/overview.md)
-- [System architecture](docs/architecture/system-architecture.md)
-- [Remote Script and LOM integration](docs/remote-script/remote-script.md)
-- [Tool design and safety model](docs/tools/tool-design.md)
-- [Packaging, installation, and release operations](docs/platform/packaging-and-operations.md)
-- [Implementation status](docs/implementation-workplan.md)
-
-Real Ableton behavior and signed installers still require manual validation
-across the supported Live and operating-system matrix.
+Start with the [docs guide](docs/README.md). It explains how the app works,
+one concept per page, for engineers new to the repo.

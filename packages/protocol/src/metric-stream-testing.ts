@@ -47,6 +47,7 @@ export function createSyntheticMetricRecordStreamTerminalProof(
     status?: MetricRecordStreamTerminalProof["status"];
     capturedSamples?: number;
     stoppedBeat?: number;
+    launchBeat?: number;
   } = {},
 ): MetricRecordStreamTerminalProof {
   const d = metricRecordStreamDescriptorSchema.parse(descriptor);
@@ -68,7 +69,8 @@ export function createSyntheticMetricRecordStreamTerminalProof(
   type Row = NativeMetricLaunchProof["clock"];
   const row = (counter: number, playing: boolean): Row => {
     const beat = playing
-      ? g.startBeat + (counter - origin) / samplesPerBeat
+      ? (options.launchBeat ?? g.startBeat) +
+        (counter - origin) / samplesPerBeat
       : (options.stoppedBeat ?? g.startBeat);
     return [
       playing ? 1 : 0,
@@ -378,7 +380,10 @@ export interface SyntheticMetricRecordStreamOptions {
   source?: MetricRecordStreamDescriptor["source"];
   ownership?: MetricRecordStreamDescriptor["ownership"];
   timingPolicy?: MetricRecordStreamDescriptor["timingPolicy"];
+  /** Song beat of the device's stopped clock frames (Session may differ from the clip-local start). */
   stoppedBeat?: number;
+  /** Song beat Live's transport starts playing from at the capture origin. */
+  launchBeat?: number;
   vectorSize?: number;
   gaps?: readonly (Pick<
     MetricRecordStreamGap,
@@ -546,6 +551,9 @@ export async function createSyntheticMetricRecordStreamFixture(
       ...(options.stoppedBeat === undefined
         ? {}
         : { stoppedBeat: options.stoppedBeat }),
+      ...(options.launchBeat === undefined
+        ? {}
+        : { launchBeat: options.launchBeat }),
     },
   );
   const config = nativeContinuousMetricListeningConfigSchema.parse({
@@ -560,7 +568,6 @@ export async function createSyntheticMetricRecordStreamFixture(
         : "transport-only",
     ...(descriptor.source.view === "session"
       ? {
-          stoppedBeat: options.stoppedBeat ?? startBeat,
           source: {
             mode: "session",
             synchronization: "transport-coupled-first-iteration",

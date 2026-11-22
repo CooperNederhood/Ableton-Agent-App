@@ -8,7 +8,7 @@ import {
 
 describe("EXIT_CODES", () => {
   it("matches the documented stable exit-code contract", () => {
-    // Kept in sync with docs/cli/terminal-client.md#output-formats-and-exit-codes.
+    // Kept in sync with docs/cli.md#exit-codes.
     expect(EXIT_CODES).toEqual({
       SUCCESS: 0,
       USAGE_ERROR: 2,

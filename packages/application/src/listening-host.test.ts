@@ -221,7 +221,7 @@ describe("owned listening tool host", () => {
     const f = selectionFixture([listener, other]);
     await expect(
       f.host.resolveListeningOperation(sessionRequest, context),
-    ).rejects.toThrow("found 2");
+    ).rejects.toThrow("Found 2 listeners on track");
     expect(
       await f.host.resolveListeningOperation(
         {
@@ -231,6 +231,20 @@ describe("owned listening tool host", () => {
         context,
       ),
     ).toMatchObject({ listenerIds: ["other"] });
+    expect(f.services.prepare).not.toHaveBeenCalled();
+    await f.host.shutdown();
+  });
+
+  it("tells the agent there is no listener on the track and how to add one", async () => {
+    const f = selectionFixture([]);
+    await expect(
+      f.host.resolveListeningOperation(sessionRequest, context),
+    ).rejects.toMatchObject({
+      code: "listener_not_found",
+      message: expect.stringMatching(
+        /^No listener is available on track .+\. Add the Machine-Listening-Development device/,
+      ) as string,
+    });
     expect(f.services.prepare).not.toHaveBeenCalled();
     await f.host.shutdown();
   });

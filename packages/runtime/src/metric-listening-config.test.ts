@@ -64,13 +64,13 @@ describe("application-owned metric capture configuration", () => {
     (mode, seconds) => {
       const { input } = fixture(mode);
       input.tempoBpm = 128;
-      input.source.transport.startBeat = mode === "session" ? 16 : 0;
+      input.source.transport.startBeat = mode === "session" ? 0 : 16;
       input.source.transport.endBeat =
         input.source.transport.startBeat + (seconds * input.tempoBpm) / 60;
       if (input.source.view === "session") {
         input.source.coordinate.startBeat = 0;
         input.source.coordinate.endBeat = (seconds * input.tempoBpm) / 60;
-        input.source.clipStartTimeBeats = 16;
+        input.source.clipStartTimeBeats = 0;
       }
       input.descriptor.registration = listenerRegistrationMetricSchema.parse({
         ...input.descriptor.registration,
@@ -94,10 +94,7 @@ describe("application-owned metric capture configuration", () => {
           streamCapability: METRIC_RECORD_STREAM_CAPABILITY,
         },
       });
-      const binding = createMetricCaptureBinding({
-        ...input,
-        ...(mode === "session" ? { stoppedBeat: 16 } : {}),
-      });
+      const binding = createMetricCaptureBinding(input);
       expect(binding.config.scope).toBe(
         NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
       );
@@ -110,7 +107,7 @@ describe("application-owned metric capture configuration", () => {
         input.source.transport.endBeat,
       );
       if (binding.config.mode === "session") {
-        expect(binding.config.stoppedBeat).toBe(16);
+        expect(binding.config.geometry.startBeat).toBe(0);
         expect(binding.config.sourceContext).toMatchObject({
           coordinate: {
             unit: "beats",
@@ -118,7 +115,7 @@ describe("application-owned metric capture configuration", () => {
             startBeat: 0,
             endBeat: (seconds * input.tempoBpm) / 60,
           },
-          clipStartTimeBeats: 16,
+          clipStartTimeBeats: 0,
           synchronization: "transport-coupled-first-iteration",
         });
       }

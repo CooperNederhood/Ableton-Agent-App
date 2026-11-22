@@ -2,7 +2,7 @@
  * Stable, documented CLI exit codes.
  *
  * These values are part of the CLI's contract with scripts and CI (see
- * docs/cli/terminal-client.md#output-formats-and-exit-codes) and must not be
+ * docs/cli.md#exit-codes) and must not be
  * renumbered without updating that document and its tests.
  */
 export const EXIT_CODES = {

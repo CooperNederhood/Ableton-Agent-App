@@ -1,4 +1,4 @@
-/* global Task, outlet, post, jsarguments, autowatch:writable, inlets:writable, outlets:writable */
+/* global Task, outlet, post, error, arrayfromargs, jsarguments, autowatch:writable, inlets:writable, outlets:writable */
 /* eslint no-unused-vars: "off" -- Max-JS invokes the named message/deletion handlers externally. */
 // Independent Max scheduler watchdog: a dead Node process cannot leave analysis on.
 autowatch = 1;
@@ -27,7 +27,10 @@ timer.repeat();
 
 function heartbeat() { age = 0; nativeAge = 0; }
 // Diagnostics are application/runtime evidence, never commands to the DSP gate.
-function diagnostic() {}
+// Print them so a self-shutdown reason reaches the Max console and Live's Log.txt.
+function diagnostic() {
+  error("audio-listener diagnostic " + arrayfromargs(arguments).join(" ") + "\n");
+}
 function native_diagnostic() {}
 // Generation-owned IO validates configuration; it cannot renew this monitor.
 function configure_v2() {}

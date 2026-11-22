@@ -1165,15 +1165,33 @@ function createMetricTimelines(input, options = {}) {
         elapsedMs: collectionEndedMs,
       });
       sealing = false;
+      // Each metric reports its own outcome so one stalled family does not
+      // mark healthy ones failed, and every failed stage names its reason.
+      let captureReason = status === "cancelled" ? "cancelled" : sharedFailure;
       for (const [metric, s] of states) {
         s.records.clear();
         s.fingerprints.clear();
-        emit(status, metric, {
-          acceptedRecords: s.acceptedRecords,
-          expectedRecords: expectedCount(metric),
-        });
+        const expectedRecords = expectedCount(metric);
+        const reason =
+          status === "cancelled"
+            ? "cancelled"
+            : (sharedFailure ??
+              s.failure ??
+              (s.acceptedRecords === expectedRecords
+                ? undefined
+                : "stalled"));
+        captureReason ??= reason;
+        emit(
+          status === "cancelled" ? "cancelled" : reason ? "failed" : "completed",
+          metric,
+          {
+            acceptedRecords: s.acceptedRecords,
+            expectedRecords,
+            ...(reason ? { reason } : {}),
+          },
+        );
       }
-      emit(status, "capture", { reason: sharedFailure });
+      emit(status, "capture", captureReason ? { reason: captureReason } : {});
       return sealed;
     }
     emit("queued", "assembly");

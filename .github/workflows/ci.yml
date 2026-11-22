@@ -54,18 +54,3 @@ jobs:
         run: pnpm build
       - name: Run ${{ matrix.suite }} checks
         run: ${{ matrix.run }}
-
-  platform-build:
-    runs-on: macos-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.15.1
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build

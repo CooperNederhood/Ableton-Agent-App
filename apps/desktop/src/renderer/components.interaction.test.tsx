@@ -204,7 +204,13 @@ function desktopApi(
       ...skillOverrides,
     },
     profiles: {
-      get: vi.fn().mockResolvedValue({ revision: "a".repeat(64) }),
+      get: vi.fn().mockResolvedValue({
+        revision: "a".repeat(64),
+        activeProfile: "default",
+        selectedProfile: "default",
+        profiles: [],
+        artifacts: [],
+      }),
       status: vi.fn().mockResolvedValue({
         revision: "a".repeat(64),
         activeProfile: "default",
@@ -1143,9 +1149,9 @@ describe("desktop component interactions", () => {
       ),
     ];
     expect(navigationItems.map((item) => item.textContent)).toEqual([
-      "Defaultdefault",
-      "Default 2default",
-      "ComposeComposition agent.",
+      "Default",
+      "Default 2",
+      "Compose",
     ]);
     expect(
       navigationItems.map((item) =>
@@ -1272,7 +1278,7 @@ describe("desktop component interactions", () => {
       ),
     ].find((input) =>
       input.parentElement?.textContent?.includes(
-        "Automatically approve eligible tool requests",
+        "Ask me before it changes Live",
       ),
     );
     if (automaticApproval === undefined) {

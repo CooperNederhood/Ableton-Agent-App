@@ -20,6 +20,7 @@ import type {
   DesktopProfileSessionSummary,
   DesktopScopedArtifact,
 } from "../contracts";
+import { artifactLocation, ownedLocation, sameLocation } from "./scope-library";
 
 type ArtifactTransfer = {
   operation: "copy" | "move";
@@ -56,76 +57,6 @@ type RenameTarget =
   | { kind: "profile"; name: string }
   | { kind: "artifact"; artifact: DesktopScopedArtifact };
 
-function artifactLocation(
-  artifact: DesktopScopedArtifact,
-): DesktopArtifactLocation {
-  if (artifact.origin === "bundled" || artifact.origin === "system") {
-    return { scope: artifact.origin };
-  }
-  if (artifact.origin === "profile" && artifact.profile !== undefined) {
-    return { scope: "profile", profile: artifact.profile };
-  }
-  if (
-    artifact.origin === "project" &&
-    artifact.profile !== undefined &&
-    artifact.liveProjectId !== undefined
-  ) {
-    return {
-      scope: "project",
-      profile: artifact.profile,
-      liveProjectId: artifact.liveProjectId,
-    };
-  }
-  if (artifact.profile !== undefined && artifact.sessionId !== undefined) {
-    return {
-      scope: "session",
-      profile: artifact.profile,
-      ...(artifact.liveProjectId === undefined
-        ? {}
-        : { liveProjectId: artifact.liveProjectId }),
-      ...(artifact.liveSetId === undefined
-        ? {}
-        : { liveSetId: artifact.liveSetId }),
-      sessionId: artifact.sessionId,
-    };
-  }
-  throw new Error("Artifact location is incomplete");
-}
-
-function ownedLocation(
-  artifact: DesktopScopedArtifact,
-): DesktopArtifactLocation {
-  if (artifact.scope === "system") return { scope: "system" };
-  if (artifact.scope === "profile" && artifact.profile !== undefined) {
-    return { scope: "profile", profile: artifact.profile };
-  }
-  if (
-    artifact.scope === "project" &&
-    artifact.profile !== undefined &&
-    artifact.liveProjectId !== undefined
-  ) {
-    return {
-      scope: "project",
-      profile: artifact.profile,
-      liveProjectId: artifact.liveProjectId,
-    };
-  }
-  if (artifact.profile !== undefined && artifact.sessionId !== undefined) {
-    return {
-      scope: "session",
-      profile: artifact.profile,
-      ...(artifact.liveProjectId === undefined
-        ? {}
-        : { liveProjectId: artifact.liveProjectId }),
-      ...(artifact.liveSetId === undefined
-        ? {}
-        : { liveSetId: artifact.liveSetId }),
-      sessionId: artifact.sessionId,
-    };
-  }
-  throw new Error("Artifact ownership is incomplete");
-}
-
 function artifactStatus(artifact: DesktopScopedArtifact): string {
   if (artifact.state === "disabled") return "Disabled";
   if (artifact.origin === "bundled") return "Bundled";
@@ -143,19 +74,6 @@ function artifactNodeKey(artifact: DesktopScopedArtifact): string {
     artifact.kind,
     artifact.name,
   ].join(":");
-}
-
-function sameLocation(
-  left: DesktopArtifactLocation,
-  right: DesktopArtifactLocation,
-): boolean {
-  return (
-    left.scope === right.scope &&
-    left.profile === right.profile &&
-    left.liveProjectId === right.liveProjectId &&
-    left.liveSetId === right.liveSetId &&
-    left.sessionId === right.sessionId
-  );
 }
 
 function menuCoordinates(element: HTMLElement): { x: number; y: number } {

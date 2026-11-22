@@ -42,6 +42,9 @@ const GROUPS = ["idle", "currentEpoch", "prelaunch", "cleanup"];
 const MAX_COUNTER = 2 ** 44 - 1;
 const SPECTRUM_PHASE_TIMEOUT_MS = 2000;
 const CLOCK_PREFLIGHT_TIMEOUT_MS = 2000;
+// Stopped-transport spectrum frames precede any capture window; free them in
+// batches so a slow reader starts the window without a pre-launch backlog.
+const SPECTRUM_DISCARD_STEP_SAMPLES = 8 * 2048;
 const externalMetrics = ["mel-bands", "pitch", "spectral-shape"];
 const integer = (value, max = MAX_COUNTER) =>
   Number.isSafeInteger(value) && value >= 0 && value <= max;
@@ -305,6 +308,22 @@ function createMetricController(options) {
       "metric_spectrum",
     );
   }
+  function discardSpectrumBefore(p, endSample, force = false) {
+    const s = p.spectrum;
+    if (
+      !s.phase ||
+      s.failure ||
+      s.cleanupStarted !== null ||
+      p.wantCleanup ||
+      endSample < 1 ||
+      endSample <= (s.discardedBefore ?? 0) ||
+      (!force &&
+        endSample < (s.discardedBefore ?? 0) + SPECTRUM_DISCARD_STEP_SAMPLES)
+    )
+      return;
+    s.discardedBefore = endSample;
+    spectrumControl(p, "spectrum_discard_before", [endSample]);
+  }
   function ownerMatches(p, owner) {
     return owner && IDS.every((field) => owner[field] === p.control[field]);
   }
@@ -469,6 +488,9 @@ function createMetricController(options) {
     )
       p.clockHistory.shift();
     if (row[0] === 1 && p.spectrum.started) p.spectrum.streaming = true;
+    // Any capture origin follows this stopped sample; keep one frame of margin.
+    if (row[0] === 0 && !p.spectrum.streaming)
+      discardSpectrumBefore(p, row[4] - 2048);
     if (row[0] === 0 && !p.armProof) {
       appendClockBracket(p, p.clocks, row);
       if (p.clocks.length === 32 && p.dsp)
@@ -1569,6 +1591,7 @@ function createMetricController(options) {
       );
       for (const packet of p.spectrum.pending)
         p.spectrum.handoff.receive(packet);
+      discardSpectrumBefore(p, first, true);
     } else if (p.spectrum.failure && p.spectrum.phase)
       p.collector.failMetric("spectrum", "analyzer_failed");
     p.spectrum.pending = [];

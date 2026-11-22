@@ -1177,12 +1177,14 @@ function createMetricTimelines(input, options = {}) {
             ? "cancelled"
             : (sharedFailure ??
               s.failure ??
-              (s.acceptedRecords === expectedRecords
-                ? undefined
-                : "stalled"));
+              (s.acceptedRecords === expectedRecords ? undefined : "stalled"));
         captureReason ??= reason;
         emit(
-          status === "cancelled" ? "cancelled" : reason ? "failed" : "completed",
+          status === "cancelled"
+            ? "cancelled"
+            : reason
+              ? "failed"
+              : "completed",
           metric,
           {
             acceptedRecords: s.acceptedRecords,

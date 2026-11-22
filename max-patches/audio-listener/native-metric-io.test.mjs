@@ -338,9 +338,10 @@ test("FFT startup waits for genuinely executed epoch instead of rejecting the pr
 test("the real Max adapter sends named Gen parameter messages, not lists whose selectors can be ignored", () => {
   const { context, controls, controlDeliveryKinds } = classicFixture();
   context.begin(GENERATION, EPOCH, 48000);
-  assert.deepEqual(controls.slice(0, 3), [
+  assert.deepEqual(controls.slice(0, 4), [
     ["measurementReadSequence", 1],
     ["measurementAcknowledged", 0],
+    ["measurementDiscardThrough", 0],
     ["measurementEpoch", EPOCH],
   ]);
   assert(controlDeliveryKinds.every((kind) => kind === "named"));
@@ -362,9 +363,10 @@ test("classic Max includes the reader even when its require returns an incompati
     { maxRequire: true },
   );
   assert.equal(context.begin(GENERATION, EPOCH, 48000), true);
-  assert.deepEqual(controls.slice(0, 3), [
+  assert.deepEqual(controls.slice(0, 4), [
     ["measurementReadSequence", 1],
     ["measurementAcknowledged", 0],
+    ["measurementDiscardThrough", 0],
     ["measurementEpoch", EPOCH],
   ]);
 });

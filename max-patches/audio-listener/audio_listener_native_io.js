@@ -722,6 +722,7 @@ NativeMessageIO.prototype.beginRetention = function (epoch, sampleRate) {
   var controls = [
     ["measurementReadSequence", 1],
     ["measurementAcknowledged", 0],
+    ["measurementDiscardThrough", 0],
     ["measurementEpoch", epoch],
   ];
   for (var index = 0; index < controls.length; index++) {
@@ -836,7 +837,9 @@ NativeMessageIO.prototype.readSpectrumRow = function (values) {
     this.control([
       next.type === "request"
         ? "measurementReadSequence"
-        : "measurementAcknowledged",
+        : next.type === "discard"
+          ? "measurementDiscardThrough"
+          : "measurementAcknowledged",
       next.sequence,
     ]);
   }
@@ -847,6 +850,20 @@ NativeMessageIO.prototype.readSpectrumRow = function (values) {
   }
   this.publishRetentionSnapshot(result.status);
   return false;
+};
+// Records ending before the capture window are never read; free them unread.
+NativeMessageIO.prototype.discardSpectrumBefore = function (
+  generation,
+  epoch,
+  endSample
+) {
+  if (
+    !this.spectrumOwner(generation, epoch) ||
+    !this.retentionReader ||
+    this.stopping
+  )
+    return false;
+  return this.retentionReader.discardBefore(endSample);
 };
 // One counter-bookended bank, no second reader or ACK path. Epoch zero
 // is a disabled FIFO receipt, not a spectrum descriptor or a transport proof.
@@ -1778,6 +1795,9 @@ function metric_spectrum_guard_stop(generation) {
 }
 function spectrum_cleanup_tick(generation, epoch) {
   return nativeIO.spectrumCleanupTick(generation, epoch);
+}
+function spectrum_discard_before(generation, epoch, endSample) {
+  return nativeIO.discardSpectrumBefore(generation, epoch, endSample);
 }
 function request_spectrum_stop(generation, epoch, outcome, deadline) {
   return nativeIO.requestSpectrumStop(generation, epoch, outcome, deadline);

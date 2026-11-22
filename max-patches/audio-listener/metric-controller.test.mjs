@@ -489,6 +489,8 @@ async function controllerHarness({
         } else if (selector === "request_spectrum_stop")
           accepted = spectrumIO.requestSpectrumStop(...args);
         else if (selector === "release") accepted = spectrumIO.release(...args);
+        else if (selector === "spectrum_discard_before")
+          accepted = spectrumIO.discardSpectrumBefore(...args);
         else if (selector === "spectrum_cleanup_tick") {
           spectrumIO.spectrumCleanupTick(...args);
           accepted = true;
@@ -2387,41 +2389,50 @@ test("one-vector-old coherent level snapshots complete without disarming the sha
   );
 });
 
-test("production spectrum polling survives 30 ms scheduling and six seconds of post-arm inspection", async () => {
-  const analysis = nativeRuntimeDocuments({ nativeVersion: 5 })[
-    "audio_listener_native_analysis.maxpat"
-  ];
-  const readPair = analysis.patcher.boxes.find(
-    ({ box }) => box.id === "metricSpectrumReadPair",
-  )?.box;
-  const f = await controllerHarness({
-    spectrumEnabled: true,
-    spectrumPollMs: 30,
-    spectrumReadsPerTick: readPair?.numoutlets ?? 1,
-    requestedMetrics: ["level", "spectral-centroid", "attacks"],
-  });
-  await f.until(() =>
-    f.replies.some((reply) => reply.payload.status === "ready"),
-  );
-  f.controller.arm(f.arm);
-  await f.until(() =>
-    f.replies.some((reply) => reply.payload.status === "armed"),
-  );
-  for (let sample = 0; sample < 6 * 48000; sample++) f.step();
-  f.startPlayback();
-  await f.until(() =>
-    f.results.some((result) =>
+// A congested Live main thread reads spectrum slower than the FFT produces it.
+for (const [pollMs, readsPerTick, armedSeconds] of [
+  [30, null, 6],
+  [60, 1, 9],
+])
+  test(`production spectrum polling survives ${pollMs} ms scheduling and ${armedSeconds} seconds of post-arm inspection`, async () => {
+    const analysis = nativeRuntimeDocuments({ nativeVersion: 5 })[
+      "audio_listener_native_analysis.maxpat"
+    ];
+    const readPair = analysis.patcher.boxes.find(
+      ({ box }) => box.id === "metricSpectrumReadPair",
+    )?.box;
+    const f = await controllerHarness({
+      spectrumEnabled: true,
+      deadlineMs: 20000,
+      spectrumPollMs: pollMs,
+      spectrumReadsPerTick: readsPerTick ?? readPair?.numoutlets ?? 1,
+      requestedMetrics: ["level", "spectral-centroid", "attacks"],
+    });
+    await f.until(() =>
+      f.replies.some((reply) => reply.payload.status === "ready"),
+    );
+    f.controller.arm(f.arm);
+    await f.until(() =>
+      f.replies.some((reply) => reply.payload.status === "armed"),
+    );
+    for (let sample = 0; sample < armedSeconds * 48000; sample++) f.step();
+    f.startPlayback();
+    await f.until(() =>
+      f.results.some((result) =>
+        ["completed", "partial", "failed"].includes(result.payload.status),
+      ),
+    );
+    const result = f.results.find((result) =>
       ["completed", "partial", "failed"].includes(result.payload.status),
-    ),
-  );
-  const result = f.results.find((result) =>
-    ["completed", "partial", "failed"].includes(result.payload.status),
-  ).payload;
-  assert.equal(result.status, "completed");
-  const stream = await verifiedStream(f);
-  assert.equal(stream.metric("spectral-centroid").status, "complete");
-  assert.equal(stream.manifest.nativeProof.spectrumCleanup.status, "completed");
-});
+    ).payload;
+    assert.equal(result.status, "completed");
+    const stream = await verifiedStream(f);
+    assert.equal(stream.metric("spectral-centroid").status, "complete");
+    assert.equal(
+      stream.manifest.nativeProof.spectrumCleanup.status,
+      "completed",
+    );
+  });
 
 for (const session of [false, true])
   test(`actual retained FFT -> controller -> complete metrics and cleanup, Session reset=${session}`, async () => {

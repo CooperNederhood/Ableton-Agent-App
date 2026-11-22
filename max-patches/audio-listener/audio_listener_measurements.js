@@ -5,6 +5,8 @@ var AudioListenerMeasurements = (function () {
   "use strict";
   var COUNTER_MAX = 17592186044415;
   var VALUE_MAX = 9007199254740991;
+  // Skipping costs a few polls; reading a short unread prefix is cheaper.
+  var DISCARD_MINIMUM = 4;
   var has = Object.prototype.hasOwnProperty;
   var METRIC_FIELDS = [
     ["sequence", "count"],
@@ -351,6 +353,10 @@ var AudioListenerMeasurements = (function () {
     var lastProduced = 0;
     var lastAcknowledged = 0;
     var acknowledgementIssued = 0;
+    // Prefix discard: records ending before discardCutoff are freed unread.
+    var discardCutoff = null;
+    var discardRequested = 0;
+    var skip = null;
     var polling = false;
     var counts = {
       polls: 0,
@@ -418,6 +424,8 @@ var AudioListenerMeasurements = (function () {
       candidate = null;
       pendingAccepted = null;
       consecutive = false;
+      skip = null;
+      discardCutoff = null;
       consume = null;
       if (stage === "failed") increment("failures");
       event(stage);
@@ -533,6 +541,46 @@ var AudioListenerMeasurements = (function () {
         row[7] < lastProduced
       )
         return fail("invalid_sequence_order");
+      if (skip) {
+        lastProduced = row[7];
+        lastAcknowledged = row[8];
+        if (row[2] !== skip.request) {
+          increment("waiting");
+          return result("waiting");
+        }
+        if (skip.phase === "probe") {
+          if (row[3] !== epoch || row[4] !== skip.request)
+            return fail("invalid_slot_owner");
+          if (row[6] < discardCutoff) {
+            skip = {
+              phase: "advance",
+              request: skip.request + 1,
+              through: skip.request,
+            };
+            return result("waiting", [
+              { type: "request", sequence: skip.request },
+            ]);
+          }
+          // Supports advanced faster than one hop per record; probe lower.
+          var lower = expected + Math.floor((skip.request - expected) / 2);
+          skip = {
+            phase: lower > expected ? "probe" : "return",
+            request: lower,
+          };
+          if (skip.phase === "return") discardCutoff = null;
+          return result("waiting", [{ type: "request", sequence: lower }]);
+        }
+        if (skip.phase === "advance") {
+          var through = skip.through;
+          skip = null;
+          expected = through + 1;
+          acknowledgementIssued = through;
+          candidate = null;
+          consecutive = false;
+          return result("waiting", [{ type: "discard", sequence: through }]);
+        }
+        skip = null;
+      }
       // Param writes are asynchronous. Retain at most the last accepted immutable slot
       // until the new request is observed, never treating this old page as fresh progress.
       if (pendingAccepted && row[2] === expected - 1) {
@@ -577,6 +625,31 @@ var AudioListenerMeasurements = (function () {
       }
       lastProduced = row[7];
       lastAcknowledged = row[8];
+      if (
+        discardCutoff !== null &&
+        !pendingAccepted &&
+        row[7] > expected &&
+        row[3] === epoch &&
+        row[4] === expected
+      ) {
+        if (row[6] >= discardCutoff) discardCutoff = null;
+        else {
+          var target = Math.min(
+            row[7],
+            expected +
+              Math.floor((discardCutoff - 1 - row[6]) / declaration.hopSamples)
+          );
+          if (target - expected >= DISCARD_MINIMUM) {
+            candidate = null;
+            consecutive = false;
+            skip = { phase: "probe", request: target };
+            return result(
+              "waiting",
+              acknowledgement.concat([{ type: "request", sequence: target }])
+            );
+          }
+        }
+      }
       if (row[7] < expected) {
         if (candidate) return fail("slot_disappeared");
         increment("waiting");
@@ -651,6 +724,19 @@ var AudioListenerMeasurements = (function () {
       },
       fail: function () {
         return fail("caller_failed");
+      },
+      // Free unread records that end before endSample; they cannot be needed.
+      discardBefore: function (endSample) {
+        if (state !== "queued" && state !== "started") return false;
+        if (
+          declaration.hopSamples === null ||
+          !integer(endSample, 1, COUNTER_MAX)
+        )
+          throw new Error("invalid_discard_cutoff");
+        if (endSample <= discardRequested) return false;
+        discardRequested = endSample;
+        discardCutoff = endSample;
+        return true;
       },
       stats: stats,
     });

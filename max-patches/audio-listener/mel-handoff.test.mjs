@@ -171,7 +171,7 @@ test("an unbound initial empty receipt cannot establish a DSP owner or readiness
   f.advance();
   assert.throws(
     () => f.handoff.receive(["mel_drain", 2, 2, 0, 0, 1, 0, 0, 0, 0]),
-    /mel_invalid_drain_receipt/,
+    /mel_foreign_drain_receipt/,
   );
 });
 
@@ -214,14 +214,12 @@ test("pending-arm receipts cannot replay a token or replace established readines
   f.advance();
   const packet = ["mel_drain", 3, 1, 3, 0, 0, 0, 0, 0, 0];
   f.handoff.receive(packet);
-  assert.throws(() => f.handoff.receive(packet), /mel_invalid_drain_receipt/);
+  assert.throws(() => f.handoff.receive(packet), /mel_foreign_drain_receipt/);
   const ready = fixture();
   ready.ready();
   ready.advance();
-  assert.throws(
-    () => ready.handoff.receive(["mel_drain", 2, 1, 3, 0, 0, 0, 0, 0, 0]),
-    /mel_invalid_drain_receipt/,
-  );
+  ready.handoff.receive(["mel_drain", 2, 1, 3, 0, 0, 0, 0, 0, 0]);
+  assert.equal(ready.handoff.snapshot().desynced, "mel_invalid_drain_receipt");
   assert.equal(ready.handoff.snapshot().generation, 7);
 });
 
@@ -275,8 +273,18 @@ for (const [label, change] of [
     f.advance();
     const packet = ["mel_drain", 3, 1, 3, 0, 0, 0, 0, 0, 0];
     change(packet);
-    assert.throws(() => f.handoff.receive(packet), /mel_invalid_drain_receipt/);
-    assert.equal(f.handoff.snapshot().ready, false);
+    if (["unexpected records", "unexpected frames"].includes(label)) {
+      // Count drift desynchronizes mel alone; mel is stopped, not trusted.
+      f.handoff.receive(packet);
+      assert.equal(f.handoff.snapshot().desynced, "mel_invalid_drain_receipt");
+      assert.ok(f.controls.some(([selector]) => selector === "stop"));
+    } else {
+      assert.throws(
+        () => f.handoff.receive(packet),
+        /mel_foreign_drain_receipt/,
+      );
+      assert.equal(f.handoff.snapshot().ready, false);
+    }
     assert.equal(f.handoff.snapshot().receipt, null);
   });
 
@@ -304,7 +312,7 @@ for (const [reason, gap] of [
   });
 }
 
-for (const reason of [0, 2, 3, 4, 5, 8, 9, 11, 99]) {
+for (const reason of [0, 2, 3, 4, 5, 9, 99]) {
   test(`shared native reason ${reason} cannot hide behind malformed data or cancellation`, () => {
     for (const cancelled of [false, true]) {
       const f = fixture();
@@ -325,6 +333,24 @@ for (const reason of [0, 2, 3, 4, 5, 8, 9, 11, 99]) {
     }
   });
 }
+
+for (const reason of [8, 11])
+  test(`mel-only native reason ${reason} fails mel alone and still needs a confirmed receipt`, () => {
+    const f = fixture();
+    f.start();
+    f.handoff.receive(frame(1));
+    f.handoff.receive(terminal(1, reason));
+    assert.equal(
+      f.handoff.snapshot().desynced,
+      `mel_native_integrity_failure_${reason}`,
+    );
+    assert.equal(f.handoff.snapshot().integrityFailure, null);
+    assert.equal(f.handoff.snapshot().terminal.reason, reason);
+    f.drain(99, 99, 1, 0);
+    assert.equal(f.handoff.stop(), false);
+    f.drain(99, 99, 1, 1);
+    assert.equal(f.handoff.stop(), true);
+  });
 
 test("local failure cleanup cannot claim a clock before its retained prefix", () => {
   const f = fixture();
@@ -417,15 +443,25 @@ test("wrong origin, frame support, sequence, epoch and generation fail closed", 
     f.start();
     const packet = frame(1);
     mutate(packet);
-    assert.throws(() => f.handoff.receive(packet), /mel_/);
+    // Header ownership crosses the listen; frame position desyncs mel alone.
+    if (packet[2] === 3 && packet[3] === 7) {
+      f.handoff.receive(packet);
+      assert.equal(
+        f.handoff.snapshot().desynced,
+        "mel_frame_support_or_sequence_mismatch",
+      );
+    } else assert.throws(() => f.handoff.receive(packet), /mel_/);
   }
   const f = fixture();
   f.ready();
   f.handoff.bind({ startSample: origin + 1, endSample: end + 1 });
-  assert.throws(
-    () => f.handoff.receive(["mel_started", ...header(0, origin, end)]),
-    /capture_origin_mismatch/,
-  );
+  f.handoff.receive(["mel_started", ...header(0, origin, end)]);
+  assert.equal(f.handoff.snapshot().desynced, "mel_capture_origin_mismatch");
+  const late = fixture();
+  late.ready();
+  late.handoff.receive(["mel_started", ...header(0, origin, end)]);
+  late.handoff.bind({ startSample: origin + 1, endSample: end + 1 });
+  assert.equal(late.handoff.snapshot().desynced, "mel_capture_origin_mismatch");
 });
 
 test("unobserved, duplicated, stale and incomplete terminal receipts cannot complete acquisition", () => {
@@ -435,36 +471,45 @@ test("unobserved, duplicated, stale and incomplete terminal receipts cannot comp
   const incomplete = fixture();
   incomplete.start();
   incomplete.handoff.receive(frame(1));
-  assert.throws(
-    () => incomplete.handoff.receive(terminal(1)),
-    /incomplete_normal_terminal/,
+  incomplete.handoff.receive(terminal(1));
+  assert.equal(
+    incomplete.handoff.snapshot().desynced,
+    "mel_incomplete_normal_terminal",
   );
-  for (const [records, frames, consumed, clockValid, clock] of [
-    [4, 2, 1, 1, end],
-    [5, 1, 1, 1, end],
-    [5, 2, 0, 1, end],
-    [5, 2, 1, 0, end],
-    [5, 2, 1, 1, end - 1],
+  assert.equal(incomplete.handoff.snapshot().terminal.reason, 10);
+  assert.equal(incomplete.handoff.snapshot().completed, false);
+  for (const [records, frames, consumed, clockValid, clock, expected] of [
+    [4, 2, 1, 1, end, "desync"],
+    [5, 1, 1, 1, end, "desync"],
+    [5, 2, 0, 1, end, /terminal_not_consumed/],
+    [5, 2, 1, 0, end, /terminal_clock_unconfirmed/],
+    [5, 2, 1, 1, end - 1, /terminal_clock_before_capture_end/],
   ]) {
     const f = fixture();
     f.start();
     f.handoff.receive(frame(1));
     f.handoff.receive(frame(2));
     f.handoff.receive(terminal());
-    assert.throws(
-      () => f.drain(records, frames, consumed, clockValid, clock),
-      /mel_/,
-    );
+    if (expected === "desync") {
+      f.drain(records, frames, consumed, clockValid, clock);
+      assert.equal(f.handoff.snapshot().desynced, "mel_invalid_drain_receipt");
+    } else
+      assert.throws(
+        () => f.drain(records, frames, consumed, clockValid, clock),
+        expected,
+      );
     assert.equal(f.handoff.snapshot().completed, false);
   }
   const f = fixture();
   f.start();
   f.handoff.receive(frame(1));
-  assert.throws(() => f.handoff.receive(frame(1)), /sequence_mismatch/);
-  assert.throws(
-    () => f.handoff.receive(["mel_drain", 2, 999, 3, 7, 3, 1, 0, 0, 0]),
-    /invalid_drain_receipt/,
+  f.handoff.receive(frame(1));
+  assert.equal(
+    f.handoff.snapshot().desynced,
+    "mel_frame_support_or_sequence_mismatch",
   );
+  f.handoff.receive(["mel_drain", 2, 999, 3, 7, 3, 1, 0, 0, 0]);
+  assert.equal(f.handoff.snapshot().receipt, null);
 });
 
 test("cancellation requires a physical terminal and never publishes a timeline", () => {

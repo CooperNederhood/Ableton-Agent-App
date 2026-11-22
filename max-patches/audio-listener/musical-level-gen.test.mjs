@@ -291,7 +291,7 @@ test("opt-in is explicit and every default shipping graph/source remains byte-id
     [1, "d102081c366e48f040661f4d08d0ae8c597f8549ee0493a341c3f0fd2fe4473e"],
     [2, "c97ded54e5a62f7a63586ed35c6ebff712a0f9ca11b9139c7126c27f1828ec70"],
     [3, "c97ded54e5a62f7a63586ed35c6ebff712a0f9ca11b9139c7126c27f1828ec70"],
-    [4, "7d2b61d3b3c926010529f2cad7aaed4f6291ff7f9b906b287cb14434b12eb09a"],
+    [4, "c468d0246fa296e4d4badca3b6e79fcfe2f9e77213d4c63ce2f4754c463a1174"],
   ])
     assert.equal(
       hash(JSON.stringify(nativeRuntimeDocuments({ nativeVersion: version }))),
@@ -303,7 +303,7 @@ test("opt-in is explicit and every default shipping graph/source remains byte-id
   );
   assert.equal(
     hash(retainedNativeEnvelopeSource().code),
-    "3b381745b581100498c059a7f5fcc70127344a18d4f5f8491849cff2bc51abbf",
+    "bed49d8baac732486bc7dc19cd3e1aa9f98370b64ceae8395e8e588fc5d5c62a",
   );
   assert.equal(
     musicalEnvelopeDocument().patcher.boxes[0].box.code,

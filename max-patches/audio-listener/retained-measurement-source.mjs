@@ -39,6 +39,7 @@ export function retainedMeasurementSource({
     epoch: `${name}Epoch`,
     requestedSequence: `${name}ReadSequence`,
     acknowledgedSequence: `${name}Acknowledged`,
+    discardedSequence: `${name}DiscardThrough`,
   };
   const variable = (suffix) => `${name}${suffix}`;
   const epoch = variable("Owner");
@@ -61,6 +62,7 @@ export function retainedMeasurementSource({
     `Param ${parameter.epoch}(0);`,
     `Param ${parameter.requestedSequence}(1);`,
     `Param ${parameter.acknowledgedSequence}(0);`,
+    `Param ${parameter.discardedSequence}(0);`,
     `History ${epoch}(0); History ${produced}(0);`,
     `History ${acknowledged}(0); History ${fault}(0);`,
     `History ${selected}(0);`,
@@ -79,15 +81,26 @@ if (${validEpoch} && ${parameter.epoch} != ${epoch}) {
 ${requested} = ${parameter.requestedSequence};
 if (!${validEpoch}) { ${fault} = 2; }
 if (${epoch} > 0 && ${fault} == 0) {
- if (!(${parameter.acknowledgedSequence} >= ${acknowledged} &&
+ if (!((${parameter.acknowledgedSequence} >= ${acknowledged} ||
+   ${parameter.acknowledgedSequence} <= ${parameter.discardedSequence}) &&
    ${parameter.acknowledgedSequence} <= ${acknowledged} + 1 &&
    ${parameter.acknowledgedSequence} <= ${produced} &&
    floor(${parameter.acknowledgedSequence}) == ${parameter.acknowledgedSequence} &&
    ${requested} >= ${parameter.acknowledgedSequence} + 1 &&
    ${requested} <= ${produced} + 1 && floor(${requested}) == ${requested})) {
   ${fault} = 2;
- } else {
+ } else if (${parameter.acknowledgedSequence} > ${acknowledged}) {
   ${acknowledged} = ${parameter.acknowledgedSequence};
+ }
+}
+// A reader may free an unread prefix only after its next request executed.
+if (${epoch} > 0 && ${fault} == 0 && ${parameter.discardedSequence} > ${acknowledged}) {
+ if (${parameter.discardedSequence} <= ${produced} &&
+   floor(${parameter.discardedSequence}) == ${parameter.discardedSequence} &&
+   ${requested} >= ${parameter.discardedSequence} + 1) {
+  ${acknowledged} = ${parameter.discardedSequence};
+ } else {
+  ${fault} = 2;
  }
 }
 if (${epoch} > 0 && ${fault} == 0 && (${publish})) {

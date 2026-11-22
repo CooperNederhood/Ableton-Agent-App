@@ -178,7 +178,7 @@ test("native overflow records honest missing slots with consumed terminal", () =
     assert.equal(timeline.gaps[0].reason, "overflow");
   }
 });
-test("ABI2, generation change, duplicate support and missing drain fail closed", () => {
+test("ABI2 and generation change fail closed; duplicate support desyncs mel alone", () => {
   const f = fixture();
   const old = header(0, 9000, 9000);
   old[0] = 2;
@@ -193,7 +193,11 @@ test("ABI2, generation change, duplicate support and missing drain fail closed",
   const h = fixture();
   h.start();
   h.frame(1);
-  assert.throws(() => h.frame(1), /sequence_mismatch/);
+  h.frame(1);
+  assert.equal(
+    h.handoff.snapshot().desynced,
+    "mel_frame_support_or_sequence_mismatch",
+  );
   assert.throws(() => h.handoff.analyzerTimelines(), /not_settled/);
 });
 test("cancellation drains shared physical ownership but publishes no analyzer timeline", () => {

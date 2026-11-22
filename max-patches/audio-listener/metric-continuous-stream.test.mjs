@@ -590,3 +590,58 @@ for (const seconds of [180, 600]) {
     assert.equal(c.cancel(), terminal);
   });
 }
+
+test("streamed terminal events name a reason for every failed metric and keep healthy metrics completed", () => {
+  const d = descriptor(2),
+    g = d.geometry;
+  const owner = {
+    generation: d.ownership.generation,
+    nativeEpoch: 1,
+    arm: "arm-1",
+  };
+  const events = [];
+  const c = createMetricTimelines(
+    {
+      owner,
+      captureMode: g.captureMode,
+      originSample: g.startSample,
+      originBeat: 0,
+      sampleRate: g.sampleRate,
+      vectorSize: g.vectorSize,
+      tempo: g.tempoBpm,
+      startBeat: g.startBeat,
+      endBeat: g.endBeat,
+      captureStartSample: g.startSample,
+      captureEndSample: g.endSample,
+      requestedMetrics: ["level", "spectrum"],
+    },
+    { now: () => 1, onRecord: () => true, onEvent: (e) => events.push(e) },
+  );
+  for (const row of c.grid) {
+    const n = row.endSample - row.startSample;
+    assert.equal(
+      c.ingestLevel({
+        owner,
+        sequence: row.index + 1,
+        startSample: row.startSample,
+        endSample: row.endSample,
+        count: n,
+        peak: [0.5, 0.5],
+        sumSquares: [n / 4, n / 4],
+      }).accepted,
+      true,
+    );
+  }
+  // Real Live: the FFT reader fell behind and the spectrum family stalled.
+  c.failMetric("spectrum", "stalled");
+  events.length = 0;
+  const terminal = c.finalizeStream({ owner, sourceEndSample: g.endSample });
+  assert.equal(terminal.status, "failed");
+  for (const event of events)
+    if (["failed", "cancelled"].includes(event.stage))
+      assert.equal(typeof event.reason, "string", JSON.stringify(event));
+  const stage = (metricId) => events.find((e) => e.metricId === metricId).stage;
+  assert.equal(stage("level"), "completed");
+  assert.equal(stage("spectrum"), "failed");
+  assert.equal(events.find((e) => e.metricId === "spectrum").reason, "stalled");
+});

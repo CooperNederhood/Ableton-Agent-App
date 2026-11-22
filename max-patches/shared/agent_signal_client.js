@@ -1831,7 +1831,18 @@ class AgentSignalClient {
       encodedBytes = null,
       validationDetail = null
     ) => {
-      if (diagnosticOnly)
+      // Lifecycle-only progress is telemetry: a rejected event is a recorded
+      // gap, while the terminal result still decides the listen outcome.
+      const lifecycleProgress =
+        type === "listener.result" &&
+        payload?.status === "progress" &&
+        Object.keys(payload).every((key) =>
+          ["status", "nativeLifecycle"].includes(key)
+        );
+      if (
+        diagnosticOnly ||
+        (lifecycleProgress && reason === "invalid_metric_listener_payload")
+      )
         return this.emitStatus("live", "native_diagnostic_gap", reason);
       let armGeometry;
       if (payload?.status === "armed") {

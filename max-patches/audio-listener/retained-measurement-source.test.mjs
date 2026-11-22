@@ -223,6 +223,92 @@ test("reader waits for executed request before an ACK can reach DSP ahead of tha
   assert.equal(model.step()[8], 3);
 });
 
+const PARAMETER_FOR_ACTION = {
+  request: "measurementReadSequence",
+  acknowledge: "measurementAcknowledged",
+  discard: "measurementDiscardThrough",
+};
+
+function discardFixture(ends) {
+  const { model } = fixture({ capacity: 16 });
+  ends.forEach((end, index) => model.step(1, end - 2048, end, index + 1));
+  const records = [];
+  const reader = measurements.createReader({
+    declaration: {
+      version: 1,
+      kind: "scalar",
+      algorithmVersion: "v1",
+      sampleRate: 48000,
+      hopSamples: 2048,
+      windowSamples: 2048,
+      width: 2,
+      capacity: 16,
+      fields: [
+        { name: "a", unit: "linear" },
+        { name: "b", unit: "linear" },
+      ],
+    },
+    epoch: 1,
+    consume(record) {
+      records.push(record);
+      return true;
+    },
+  });
+  reader.begin();
+  return { model, reader, records };
+}
+
+function drain(model, reader, polls = 96) {
+  for (let poll = 0; poll < polls; poll++) {
+    const result = reader.poll(model.step());
+    assert.notEqual(result.status, "failed", result.reason);
+    // Independent Params need not execute in JavaScript send order.
+    const actions = poll % 2 ? [...result.actions].reverse() : result.actions;
+    for (const action of actions) {
+      model.configure({ [PARAMETER_FOR_ACTION[action.type]]: action.sequence });
+      assert.equal(model.step()[9], 0, JSON.stringify(action));
+    }
+  }
+}
+
+test("a reader frees an unread prefix that ends before the cutoff without reading it", () => {
+  const ends = Array.from({ length: 12 }, (_, index) => (index + 1) * 2048);
+  const { model, reader, records } = discardFixture(ends);
+  assert.equal(reader.discardBefore(8 * 2048 + 1), true);
+  drain(model, reader);
+  assert.deepEqual(
+    records.map((record) => record.sequence),
+    [9, 10, 11, 12],
+  );
+  assert.equal(model.step()[8], 12);
+});
+
+test("a prefix discard never frees a record that ends at or after the cutoff", () => {
+  // A DSP pause makes supports advance faster than one hop per record.
+  const ends = [1, 2, 3, 13, 14, 15, 16, 17, 18, 19, 20, 21].map(
+    (hop) => hop * 2048,
+  );
+  const cutoff = 15 * 2048;
+  const { model, reader, records } = discardFixture(ends);
+  reader.discardBefore(cutoff);
+  drain(model, reader);
+  const kept = records.map((record) => record.endSample);
+  assert.deepEqual(
+    kept.filter((end) => end >= cutoff),
+    ends.filter((end) => end >= cutoff),
+  );
+  assert.deepEqual(kept, ends.slice(3));
+  assert.equal(model.step()[8], 12);
+});
+
+test("Gen rejects a prefix discard before the next request executed", () => {
+  const { model } = fixture();
+  for (let sequence = 1; sequence <= 3; sequence++)
+    model.step(1, sequence * 2048, (sequence + 1) * 2048, sequence);
+  model.configure({ measurementDiscardThrough: 2 });
+  assert.equal(model.step()[9], 2);
+});
+
 test("new capture ownership invalidates old slots without storing or clearing audio", () => {
   const { model } = fixture({ capacity: 2 });
   model.step(1, 1000, 2000, 10);

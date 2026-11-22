@@ -2219,7 +2219,8 @@ small,
 .inspection,
 .approval-panel,
 .plan-approval-panel,
-.plan-artifact-preview {
+.plan-artifact-preview,
+.artifact-review {
   padding: 14px;
   border-bottom: 1px solid var(--line);
 }
@@ -2351,7 +2352,8 @@ small,
 }
 .inspector-pane-content .inspection,
 .inspector-pane-content .approval-panel,
-.inspector-pane-content .plan-artifact-preview {
+.inspector-pane-content .plan-artifact-preview,
+.inspector-pane-content .artifact-review {
   min-height: 100%;
   border-bottom: 0;
 }

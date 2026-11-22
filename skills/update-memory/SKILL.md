@@ -14,6 +14,7 @@ Loading this skill opens a draft and names a workspace folder. It holds
 copies of the memory as `memory/{scope}/{topic}.md`. Use `view`, `glob`, and
 `grep` to read it and `create` and `edit` to change it, always with absolute
 paths inside the workspace. Only the scopes the draft lists are writable.
+Their `memory/{scope}/` folders already exist, so never run `mkdir`.
 
 ## Scopes
 

@@ -103,6 +103,12 @@ function runtimeEventAttributes(
     ...(event.data.targetIdentity === undefined
       ? {}
       : { targetIdentity: event.data.targetIdentity }),
+    ...(typeof event.data.agentId === "string"
+      ? { subagentId: event.data.agentId }
+      : {}),
+    ...(typeof event.data.subagentName === "string"
+      ? { subagentName: event.data.subagentName }
+      : {}),
     ...(includeData ? { data: event.data } : {}),
   });
 }

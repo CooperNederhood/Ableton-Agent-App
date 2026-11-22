@@ -2305,10 +2305,16 @@ test("renders plan.md in the Inspector and routes composer approval through IPC"
     await expect(
       meter.locator('[data-token-kind="conversation"]'),
     ).toBeVisible();
+    await expect(contextBudget.locator("dt")).toHaveText([
+      "System messages",
+      "Tool definitions",
+      "Conversation",
+      "Compactions",
+    ]);
     await expect(contextBudget.locator("dd")).toHaveText([
       "100",
-      "200",
       "Not reported",
+      "200",
       "1",
     ]);
     await expect(window.getByText("Electron approval plan")).toHaveCount(0);

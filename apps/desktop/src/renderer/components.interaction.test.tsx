@@ -2590,7 +2590,7 @@ describe("desktop component interactions", () => {
       container.querySelector('[role="meter"] [data-token-kind="system"]'),
     ).toBeNull();
     expect(container.querySelector("dl")?.textContent).toContain(
-      "System messages0ConversationNot reported",
+      "System messages0Tool definitionsNot reportedConversationNot reported",
     );
     expect(
       container.querySelector(".context-budget-compactions")?.textContent,

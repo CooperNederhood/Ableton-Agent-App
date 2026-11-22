@@ -7066,14 +7066,14 @@ function ContextBudget({
   const rows = [
     { key: "system", label: "System messages", count: usage?.systemTokens },
     {
-      key: "conversation",
-      label: "Conversation",
-      count: usage?.conversationTokens,
-    },
-    {
       key: "tools",
       label: "Tool definitions",
       count: usage?.toolDefinitionsTokens,
+    },
+    {
+      key: "conversation",
+      label: "Conversation",
+      count: usage?.conversationTokens,
     },
   ] as const;
   const known = rows.reduce((total, { count }) => total + (count ?? 0), 0);

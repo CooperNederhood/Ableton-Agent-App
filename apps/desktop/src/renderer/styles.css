@@ -2150,6 +2150,34 @@ small,
 .operation-partial summary small {
   color: #dca66d;
 }
+.operation-subagent,
+.operation-subagent-launch {
+  --subagent-color: #22d3ee;
+  border-left: 2px solid var(--subagent-color);
+  padding-left: 8px;
+}
+.operation-subagent summary {
+  grid-template-columns: 18px auto minmax(0, 1fr) auto;
+}
+.operation-subagent summary.has-tool-name {
+  grid-template-columns: 18px auto minmax(0, max-content) minmax(0, 1fr) auto;
+}
+.operation-subagent .activity-icon,
+.operation-subagent-launch .activity-icon {
+  color: var(--subagent-color);
+}
+.operation-subagent-label {
+  max-width: 14ch;
+  overflow: hidden;
+  border-radius: 4px;
+  padding: 1px 6px;
+  background: rgb(34 211 238 / 14%);
+  color: var(--subagent-color);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .operation-details {
   margin: 5px 0 0 26px;
   border-left: 1px solid var(--line);

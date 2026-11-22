@@ -45,6 +45,7 @@ export type OperationFailureSource =
 export interface OperationEventMetadata {
   operationDescriptorId?: string;
   action?: string;
+  subagentLabel?: string;
   targetIdentity?: {
     readonly domain: string;
     readonly action: string;

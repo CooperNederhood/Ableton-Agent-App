@@ -1881,6 +1881,54 @@ describe("desktop components", () => {
     );
   });
 
+  it("distinguishes sub-agent operations with a labeled accent", () => {
+    const operation = {
+      id: "sub-1",
+      label: "Compose: Read session",
+      toolName: "ableton_session",
+      subagentLabel: "Compose",
+      status: "completed" as const,
+      warnings: [],
+      changed: [],
+      unchanged: [],
+      retryable: false,
+      undoable: false,
+      timestamp: 1,
+    };
+    const subagent = renderToStaticMarkup(
+      <OperationCard operation={operation} />,
+    );
+    expect(subagent).toContain("operation-subagent");
+    expect(subagent).toContain(
+      '<span class="operation-subagent-label" title="Run by sub-agent Compose">Compose</span><span class="operation-label">Read session</span>',
+    );
+
+    const launch = renderToStaticMarkup(
+      <OperationCard
+        operation={{
+          ...operation,
+          id: "task-1",
+          label: "Delegate to Compose",
+          toolName: "task",
+          subagentLabel: undefined,
+        }}
+      />,
+    );
+    expect(launch).toContain("operation-subagent-launch");
+    expect(launch).not.toContain("operation-subagent-label");
+
+    const parent = renderToStaticMarkup(
+      <OperationCard
+        operation={{
+          ...operation,
+          label: "Read session",
+          subagentLabel: undefined,
+        }}
+      />,
+    );
+    expect(parent).not.toContain("operation-subagent");
+  });
+
   it("renders an attributed policy failure with corrective guidance", () => {
     const html = renderToStaticMarkup(
       <OperationCard

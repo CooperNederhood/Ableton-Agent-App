@@ -5534,6 +5534,136 @@ it("configures profile-owned spill output and gates bash to read-only spill insp
   }
 });
 
+it.each([
+  { name: "supported", support: { supported: true }, sandboxed: true },
+  {
+    name: "unsupported",
+    support: { supported: false, reason: "seatbelt unavailable" },
+    sandboxed: false,
+  },
+  { name: "probe failure", support: new Error("rpc down"), sandboxed: false },
+  { name: "unreported", support: undefined, sandboxed: false },
+])(
+  "sandboxes bash for scratch computation only when the host supports it ($name)",
+  async ({ support, sandboxed }) => {
+    const root = await mkdtemp(join(tmpdir(), "ableton-agent-sandbox-"));
+    const largeOutputDirectory = join(root, "copilot", "tool-output");
+    const configs: SessionConfig[] = [];
+    const runtimeEvents: AgentRuntimeEvent[] = [];
+    const getSandboxHostSupport = vi.fn(async () => {
+      if (support instanceof Error) throw support;
+      return support as { supported: boolean; reason?: string };
+    });
+    const service = new CopilotAgentService(
+      baseOptions({
+        largeOutputDirectory,
+        runtimeObserver: { enqueue: (event) => runtimeEvents.push(event) },
+        clientFactory: () => ({
+          createSession: vi.fn(async (config: SessionConfig) => {
+            configs.push(config);
+            return createFakeSession(`session-${configs.length}`);
+          }),
+          resumeSession: vi.fn(async () => {
+            throw new Error("resume not expected");
+          }),
+          ...(support === undefined ? {} : { getSandboxHostSupport }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    try {
+      await service.start();
+      await service.createManagedAgent(
+        configuration("composer", {
+          resolvedTools: ["ableton_session", "bash"],
+          skills: [],
+        }),
+      );
+      const config = configs.at(-1)!;
+      const prompt = config.customAgents?.[0]?.prompt ?? "";
+      const python = `python3 -c "import json; print(json.dumps([60, 64, 67]))" > notes.json`;
+      const request = {
+        kind: "shell",
+        toolCallId: "shell-python",
+        canOfferSessionApproval: false,
+        commands: [{ identifier: "python3", readOnly: false }],
+        commandSegments: [{ identifier: "python3", fullCommandText: python }],
+        fullCommandText: python,
+        hasWriteFileRedirection: true,
+        intention: "Generate MIDI note data",
+        possiblePaths: ["notes.json"],
+        possibleUrls: [],
+      } satisfies Extract<PermissionRequest, { kind: "shell" }>;
+      const decide = (
+        overrides: Partial<Extract<PermissionRequest, { kind: "shell" }>>,
+      ) =>
+        config.onPermissionRequest?.(
+          { ...request, ...overrides },
+          { sessionId: "session-2" },
+        );
+
+      if (sandboxed) {
+        expect(config.sandboxConfig).toEqual({
+          enabled: true,
+          allowBypass: false,
+          userPolicy: {
+            filesystem: {
+              deniedPaths: expect.arrayContaining<unknown>([
+                expect.stringMatching(/credentials$/),
+                expect.stringMatching(/observability$/),
+                expect.stringMatching(/\.ssh$/),
+              ]) as unknown,
+            },
+            network: { allowOutbound: false, allowLocalNetwork: false },
+            seatbelt: { keychainAccess: false },
+          },
+        });
+        expect(prompt).toContain("runs inside an OS sandbox");
+        await expect(decide({})).resolves.toEqual({ kind: "approve-once" });
+        await expect(
+          decide({ requestSandboxBypass: true }),
+        ).resolves.toMatchObject({ kind: "reject" });
+        await expect(
+          decide({ requestSandboxPermissive: true }),
+        ).resolves.toMatchObject({ kind: "reject" });
+        await expect(
+          decide({ possibleUrls: [{ url: "https://example.com" }] }),
+        ).resolves.toMatchObject({ kind: "reject" });
+      } else {
+        expect(config).not.toHaveProperty("sandboxConfig");
+        expect(prompt).toContain("restricted to bounded, read-only inspection");
+        await expect(decide({})).resolves.toMatchObject({ kind: "reject" });
+      }
+      expect(
+        runtimeEvents.find(
+          (event) =>
+            event.type === "agent.permission.completed" &&
+            event.data.permissionId !== undefined &&
+            (event.data.shellPolicy as { sandboxed?: boolean } | undefined) !==
+              undefined,
+        )?.data.shellPolicy,
+      ).toMatchObject({
+        sandboxed,
+        stage: sandboxed ? "sandboxed" : "write_redirection",
+      });
+      expect(
+        runtimeEvents
+          .filter((event) => event.type.startsWith("agent.shell_sandbox."))
+          .map((event) => event.type),
+      ).toEqual([
+        "agent.shell_sandbox.queued",
+        "agent.shell_sandbox.started",
+        support instanceof Error
+          ? "agent.shell_sandbox.failed"
+          : "agent.shell_sandbox.completed",
+      ]);
+    } finally {
+      await service.stop();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
 it("blocks plan-mode mutations until interactive approval", async () => {
   const turn = deferred<void>();
   const events = new InMemoryEventPublisher();
@@ -6400,5 +6530,28 @@ describe("CopilotAgentService sub-agents", () => {
         },
       ),
     ).rejects.toThrow("not enabled for sub-agent 'compose'");
+  });
+
+  it("marks sub-agent tool operations with the sub-agent label", async () => {
+    const { managed, received } = await startWith({ delegates: [compose] });
+    managed.emit(subagentEvent("subagent.started", "sub-1"));
+    managed.emit({
+      ...toolStart("sub-read", "ableton_session", { action: "read" }),
+      agentId: "sub-1",
+    });
+    managed.emit(toolStart("parent-read", "ableton_session", {}));
+
+    const started = received.flatMap((event) =>
+      event.type === "operation.started" ? [event] : [],
+    );
+    expect(
+      started.find((event) => event.operationId === "sub-read"),
+    ).toMatchObject({
+      subagentLabel: "Compose",
+      label: expect.stringMatching(/^Compose: /) as unknown,
+    });
+    expect(
+      started.find((event) => event.operationId === "parent-read"),
+    ).not.toHaveProperty("subagentLabel");
   });
 });

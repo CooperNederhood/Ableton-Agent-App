@@ -389,4 +389,76 @@ describe("spill file shell permission", () => {
       evaluateSpillFileShellPermission(shellRequest(file), directory),
     ).toMatchObject({ kind: "reject" });
   });
+
+  describe("inside the OS sandbox", () => {
+    const python = `python3 -c "print([60, 64, 67])" > notes.json`;
+    const computation = (
+      file: string,
+      overrides: Partial<Extract<PermissionRequest, { kind: "shell" }>> = {},
+    ) =>
+      shellRequest(file, {
+        commands: [{ identifier: "python3", readOnly: false }],
+        commandSegments: [{ identifier: "python3", fullCommandText: python }],
+        fullCommandText: python,
+        hasWriteFileRedirection: true,
+        possiblePaths: ["notes.json"],
+        ...overrides,
+      });
+
+    it("approves scratch computation and records the sandboxed stage", async () => {
+      const { directory, file } = await fixture();
+      const evaluation = evaluateSpillFileShellPolicy(
+        computation(file),
+        directory,
+        { sandboxed: true },
+      );
+
+      expect(evaluation).toMatchObject({
+        result: { kind: "approve-once" },
+        diagnostics: { stage: "sandboxed", sandboxed: true },
+      });
+      expect(JSON.stringify(evaluation.diagnostics)).not.toContain("print");
+    });
+
+    it("keeps rejecting the same computation without the sandbox", async () => {
+      const { directory, file } = await fixture();
+      expect(
+        evaluateSpillFileShellPolicy(computation(file), directory),
+      ).toMatchObject({
+        result: { kind: "reject" },
+        diagnostics: { stage: "write_redirection", sandboxed: false },
+      });
+    });
+
+    it.each<[Partial<Extract<PermissionRequest, { kind: "shell" }>>, string]>([
+      [{ requestSandboxBypass: true }, "sandbox_escalation"],
+      [{ requestSandboxPermissive: true }, "sandbox_escalation"],
+      [{ possibleUrls: [{ url: "https://example.com" }] }, "network_access"],
+    ])(
+      "still rejects escalation and network requests (%o)",
+      async (overrides, stage) => {
+        const { directory, file } = await fixture();
+        expect(
+          evaluateSpillFileShellPolicy(
+            computation(file, overrides),
+            directory,
+            {
+              sandboxed: true,
+            },
+          ),
+        ).toMatchObject({ result: { kind: "reject" }, diagnostics: { stage } });
+      },
+    );
+
+    it("defers managed approval to the managed policy", async () => {
+      const { directory, file } = await fixture();
+      expect(
+        evaluateSpillFileShellPermission(
+          computation(file, { managedApprovalRequired: true }),
+          directory,
+          { sandboxed: true },
+        ),
+      ).toEqual({ kind: "no-result" });
+    });
+  });
 });

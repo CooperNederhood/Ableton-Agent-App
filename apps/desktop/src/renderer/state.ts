@@ -894,6 +894,8 @@ function upsertOperation(
                   operation.operationDescriptorId ??
                   candidate.operationDescriptorId,
                 action: operation.action ?? candidate.action,
+                subagentLabel:
+                  operation.subagentLabel ?? candidate.subagentLabel,
                 detail: operation.detail ?? candidate.detail,
                 request: operation.request ?? candidate.request,
               }

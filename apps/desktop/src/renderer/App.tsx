@@ -6451,13 +6451,37 @@ export function OperationCard({
     operation.toolName,
     operation.label,
   );
+  const subagentPrefix =
+    operation.subagentLabel === undefined
+      ? undefined
+      : `${operation.subagentLabel}: `;
+  const label =
+    subagentPrefix !== undefined && operation.label.startsWith(subagentPrefix)
+      ? operation.label.slice(subagentPrefix.length)
+      : operation.label;
+  const subagentClass =
+    operation.subagentLabel !== undefined
+      ? " operation-subagent"
+      : operation.toolName === "task"
+        ? " operation-subagent-launch"
+        : "";
   return (
-    <details className={`operation operation-${operation.status}`}>
+    <details
+      className={`operation operation-${operation.status}${subagentClass}`}
+    >
       <summary
         className={operation.toolName === undefined ? "" : "has-tool-name"}
       >
         <ActivityIcon type={presentation.type} />
-        <span className="operation-label">{operation.label}</span>
+        {operation.subagentLabel !== undefined && (
+          <span
+            className="operation-subagent-label"
+            title={`Run by sub-agent ${operation.subagentLabel}`}
+          >
+            {operation.subagentLabel}
+          </span>
+        )}
+        <span className="operation-label">{label}</span>
         {operation.toolName !== undefined && (
           <code className="operation-tool-name">
             {operation.toolName}

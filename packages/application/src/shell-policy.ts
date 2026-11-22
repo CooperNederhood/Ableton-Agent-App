@@ -38,6 +38,7 @@ export type SpillShellPolicyStage =
   | "missing_spill_operand"
   | "network_access"
   | "sandbox_escalation"
+  | "sandboxed"
   | "spill_directory_unavailable"
   | "unbounded_output"
   | "unsupported_command"
@@ -45,6 +46,7 @@ export type SpillShellPolicyStage =
 
 export interface SpillShellPolicyDiagnostics {
   readonly stage: SpillShellPolicyStage;
+  readonly sandboxed: boolean;
   readonly commandIdentifiers: readonly string[];
   readonly commandCount: number;
   readonly segmentCount: number;
@@ -52,6 +54,11 @@ export interface SpillShellPolicyDiagnostics {
   readonly sdkCommandSummaryDisagrees: boolean;
   readonly sdkPathSummaryDisagrees: boolean;
   readonly durationMs: number;
+}
+
+export interface ShellPolicyOptions {
+  /** The session runs shell commands inside the SDK OS sandbox. */
+  readonly sandboxed?: boolean;
 }
 
 export interface SpillShellPolicyEvaluation {
@@ -556,8 +563,10 @@ function validateSpillPath(
 export function evaluateSpillFileShellPolicy(
   request: PermissionRequest,
   spillDirectory: string,
+  options: ShellPolicyOptions = {},
 ): SpillShellPolicyEvaluation {
   if (request.kind !== "shell") return { result: undefined };
+  const sandboxed = options.sandboxed === true;
   const startedAt = performance.now();
   const commandIdentifiers = (request.commandSegments ?? [])
     .slice(0, 8)
@@ -576,6 +585,7 @@ export function evaluateSpillFileShellPolicy(
       result,
       diagnostics: {
         stage,
+        sandboxed,
         commandIdentifiers,
         commandCount: request.commands.length,
         segmentCount: request.commandSegments?.length ?? 0,
@@ -604,14 +614,18 @@ export function evaluateSpillFileShellPolicy(
       "sandbox_escalation",
     );
   }
-  if (request.hasWriteFileRedirection) {
-    return finish(reject("Shell access is read-only."), "write_redirection");
-  }
   if (request.possibleUrls.length > 0) {
     return finish(
       reject("Shell network access is not allowed."),
       "network_access",
     );
+  }
+  // The OS sandbox confines writes to the scratch working directory and blocks network access.
+  if (sandboxed) {
+    return finish({ kind: "approve-once" }, "sandboxed");
+  }
+  if (request.hasWriteFileRedirection) {
+    return finish(reject("Shell access is read-only."), "write_redirection");
   }
   if (
     request.commandSegments === undefined ||
@@ -726,6 +740,7 @@ export function evaluateSpillFileShellPolicy(
 export function evaluateSpillFileShellPermission(
   request: PermissionRequest,
   spillDirectory: string,
+  options: ShellPolicyOptions = {},
 ): PermissionRequestResult | undefined {
-  return evaluateSpillFileShellPolicy(request, spillDirectory).result;
+  return evaluateSpillFileShellPolicy(request, spillDirectory, options).result;
 }

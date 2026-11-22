@@ -1849,6 +1849,23 @@ test("renders useful successful and blocked tool disclosures", async () => {
           timestamp: 4,
         },
       },
+      {
+        type: "operation.changed",
+        agentInstanceId,
+        operation: {
+          id: "subagent-read",
+          label: "Compose: Read session overview",
+          toolName: "ableton_session",
+          subagentLabel: "Compose",
+          status: "completed",
+          warnings: [],
+          changed: [],
+          unchanged: [],
+          retryable: false,
+          undoable: false,
+          timestamp: 5,
+        },
+      },
     ];
 
     await publish(disclosureEvents);
@@ -1881,6 +1898,20 @@ test("renders useful successful and blocked tool disclosures", async () => {
       "Start a new chat with the current Live Set open.",
     );
     await expect(changedSet).not.toContainText("Permission denied");
+    const subagentOperation = window.locator(
+      "details.operation.operation-subagent",
+    );
+    await expect(subagentOperation).toHaveCount(1);
+    await expect(
+      subagentOperation.locator(".operation-subagent-label"),
+    ).toHaveText("Compose");
+    await expect(subagentOperation.locator(".operation-label")).toHaveText(
+      "Read session overview",
+    );
+    await expect(subagentOperation).toHaveCSS(
+      "border-left-color",
+      "rgb(34, 211, 238)",
+    );
   } finally {
     await application.close();
     await rm(profile, { recursive: true, force: true });

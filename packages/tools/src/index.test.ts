@@ -4,6 +4,8 @@ import type { Tool } from "@github/copilot-sdk";
 
 import {
   abletonAgentSemanticPreconditions,
+  abletonOperationDescriptors,
+  agentSchemaActionVariant,
   abletonToolMetadata,
   createAbletonPermissionHandler,
   createAbletonTools,
@@ -1472,6 +1474,50 @@ describe("Ableton tools", () => {
     }
   });
 
+  it("compacts model-facing schemas without changing the fields each action accepts", () => {
+    const toolSet = createAbletonTools(services());
+    let serializedLength = 0;
+    for (const tool of toolSet.tools as unknown as readonly Tool[]) {
+      const schema = (
+        tool.parameters as { toJSONSchema(): Record<string, unknown> }
+      ).toJSONSchema();
+      const serialized = JSON.stringify(schema);
+      serializedLength += serialized.length;
+      expect(serialized, tool.name).not.toContain("9007199254740991");
+      expect(serialized, tool.name).not.toContain('"pattern":"^([0-9a-fA-F]');
+      for (const descriptor of abletonOperationDescriptors.filter(
+        ({ toolName }) => toolName === tool.name,
+      )) {
+        const declared = descriptor.inputSchema.toJSONSchema({
+          io: "input",
+        }) as {
+          properties?: object;
+          required?: string[];
+          additionalProperties?: unknown;
+        };
+        const variant = agentSchemaActionVariant(schema, descriptor.action);
+        const properties = variant?.properties as Record<string, object>;
+        expect(Object.keys(properties).sort(), descriptor.operationId).toEqual(
+          Object.keys(declared.properties ?? {}).sort(),
+        );
+        expect(
+          Object.values(properties).every(
+            (property) => Object.keys(property).length > 0,
+          ),
+          descriptor.operationId,
+        ).toBe(true);
+        expect(
+          (variant?.required as string[] | undefined)?.slice().sort(),
+          descriptor.operationId,
+        ).toEqual(declared.required?.slice().sort());
+        expect(variant?.additionalProperties, descriptor.operationId).toBe(
+          declared.additionalProperties,
+        );
+      }
+    }
+    expect(serializedLength).toBeLessThan(140_000);
+  });
+
   it("guides pad inspection and Session clip creation with their exact actions and fields", () => {
     const toolSet = createAbletonTools(services());
     const devices = toolByName(toolSet, "ableton_devices");
@@ -1487,11 +1533,7 @@ describe("Ableton tools", () => {
       const schema = (
         tool.parameters as { toJSONSchema(): Record<string, unknown> }
       ).toJSONSchema();
-      return (schema.oneOf as Record<string, unknown>[]).find(
-        (candidate) =>
-          (candidate.properties as Record<string, Record<string, unknown>>)
-            .action?.const === action,
-      );
+      return agentSchemaActionVariant(schema, action);
     };
     expect(branch(devices, "inspect-drum-rack-pads")?.description).toContain(
       "pad names and MIDI notes",
@@ -1653,11 +1695,7 @@ describe("Ableton tools", () => {
       "ableton_browser",
     ).parameters as { toJSONSchema(): Record<string, unknown> };
     const schema = parameters.toJSONSchema();
-    const loadBranch = (schema.oneOf as Record<string, unknown>[]).find(
-      (branch) =>
-        (branch.properties as Record<string, Record<string, unknown>>).action
-          ?.const === "load-item",
-    );
+    const loadBranch = agentSchemaActionVariant(schema, "load-item");
     const properties = loadBranch?.properties as
       Record<string, Record<string, unknown>> | undefined;
 
@@ -2321,13 +2359,11 @@ describe("Ableton tools", () => {
         toJSONSchema(): Schema;
         safeParse(value: unknown): { success: boolean };
       };
-      const wire = parameters.toJSONSchema();
-      const variants = wire.properties?.action?.const
-        ? [wire]
-        : (wire.oneOf ?? wire.anyOf ?? []);
-      const targetSchema = variants.find(
-        (variant) =>
-          variant.properties?.action?.const === "play-session-and-listen",
+      const targetSchema = (
+        agentSchemaActionVariant(
+          parameters.toJSONSchema() as Record<string, unknown>,
+          "play-session-and-listen",
+        ) as Schema | undefined
       )?.properties?.target;
       expect(targetSchema?.properties?.view?.const).toBe("session");
       expect(targetSchema?.properties).not.toHaveProperty("kind");
@@ -2423,11 +2459,10 @@ describe("Ableton tools", () => {
       const parameters = listening.parameters as {
         toJSONSchema(): { oneOf?: ActionSchema[]; anyOf?: ActionSchema[] };
       };
-      const schema = parameters.toJSONSchema();
-      const arrangement = (schema.oneOf ?? schema.anyOf)?.find(
-        (variant) =>
-          variant.properties?.action?.const === "play-arrangement-and-listen",
-      );
+      const arrangement = agentSchemaActionVariant(
+        parameters.toJSONSchema(),
+        "play-arrangement-and-listen",
+      ) as ActionSchema | undefined;
       expect(arrangement?.description).toContain(
         "durationBeats is not accepted",
       );
@@ -2566,11 +2601,10 @@ describe("Ableton tools", () => {
         JSON.stringify(parameters.toJSONSchema()),
       ) as Variant;
       expect(wire.properties).not.toHaveProperty("offset");
-      const inventory = (
-        wire.properties?.action?.const === "read"
-          ? [wire]
-          : (wire.oneOf ?? wire.anyOf ?? [wire])
-      ).find((variant) => variant.properties?.action?.const === "read");
+      const inventory = agentSchemaActionVariant(
+        wire as Record<string, unknown>,
+        "read",
+      ) as Variant | undefined;
       expect(inventory?.properties).toHaveProperty("cursor");
       expect(inventory?.properties).toHaveProperty("target");
       expect(inventory?.properties).not.toHaveProperty("limit");

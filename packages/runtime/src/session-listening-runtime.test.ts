@@ -20,6 +20,7 @@ import { createSyntheticMetricWireFixture } from "@ableton-agent/signal-routing/
 import type { ListeningRuntimeDependencies } from "./composition.js";
 import {
   createListeningRuntimeHost,
+  listeningSubject,
   type ConcreteListeningRuntimeHost,
 } from "./listening-runtime-host.js";
 import {
@@ -379,6 +380,7 @@ async function fixture(
     requestListenerControl,
     sessionListeningPass,
     inspectSessionListeningSource,
+    inspectListeningContext,
     stopTransport,
     positionListeningPlayback,
     startListeningPlayback,
@@ -568,6 +570,24 @@ describe("production v5 Session host with synthetic native peer", () => {
     });
     expect(f.positionListeningPlayback).not.toHaveBeenCalled();
     expect(f.startListeningPlayback).not.toHaveBeenCalled();
+  });
+
+  it("regression: keeps the Session track subject distinct from an Arrangement pass over the same track and beats", async () => {
+    const f = await fixture();
+    const job = await f.run();
+    expect(job.stage, JSON.stringify({ job, log: f.log })).toBe("completed");
+    const inspection = await (f.inspectListeningContext.mock.results[0]!
+      .value as Promise<InspectListeningContextResult>);
+    const range = (await f.repository.getPass(job.passId))!.actualRange!;
+    const arrangementTrack = listeningSubject(
+      owner,
+      inspection.listeners[0]!,
+      range,
+      "track",
+    );
+    // The repository rejects publishing an existing subject ID with a different payload.
+    const stored = await f.repository.getSubject(arrangementTrack.id);
+    if (stored !== undefined) expect(stored).toEqual(arrangementTrack);
   });
 
   it.each(["midi", "warped-audio"] as const)(

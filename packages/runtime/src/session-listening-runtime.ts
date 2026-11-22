@@ -275,9 +275,12 @@ export function createSessionListeningServices(
       )
     )
       deny("session_same_track_native_listener_required");
-    const trackId = inspectedTrack.id;
+    // Session track subjects are self-referential, so their ID must not reuse
+    // the Arrangement track subject's ID for the same track and beats.
+    const trackId = digest({ view: "session", track: inspectedTrack.id });
     const contributor = {
       ...inspectedTrack,
+      id: trackId,
       trackId,
       binding: {
         ...inspectedTrack.binding,

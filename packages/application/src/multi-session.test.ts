@@ -47,6 +47,7 @@ import type { SignalTurnRequest } from "./signal-delivery.js";
 import type { LiveEventTurnRequest } from "./live-event-delivery.js";
 import { ListeningFailure } from "./listening-coordinator.js";
 import {
+  agentSchemaActionVariant,
   analysisPageSchema,
   type ListeningOperationParams,
 } from "@ableton-agent/tools";
@@ -607,7 +608,11 @@ describe("CopilotAgentService managed sessions", () => {
         if (operations !== undefined) expect(actions).toEqual(["launch"]);
         const declarations = wire.parameters.oneOf ?? [wire.parameters];
         expect(declarations).toHaveLength(actionCount);
-        for (const branch of declarations) {
+        for (const action of actions) {
+          const branch = agentSchemaActionVariant(
+            wire.parameters,
+            action ?? "",
+          ) as { properties: { expectedName?: { description?: string } } };
           expect(branch.properties.expectedName?.description).toContain(
             "containing track",
           );

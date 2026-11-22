@@ -82,6 +82,14 @@ At session start, `CopilotAgentService` calls `scopeAbletonTools`
 - rebuild each tool's schema and description so the model sees only the
   actions that remain.
 
+The schema the model sees is a compacted copy of the Zod schema
+(`agentFacingParameters` in `packages/tools/src/argument-validation.ts`). It
+drops keywords that only the validator needs, such as UUID regex patterns and
+safe-integer bounds. Fields defined identically in every action that uses them
+are listed once in the top-level `properties`; each action variant marks them
+with an empty `{}` schema. Use `agentSchemaActionVariant` to read one action's
+complete fields. Arguments are still validated against the full Zod schema.
+
 Every handler is also wrapped so that it validates arguments, checks the Live
 connection, turns errors into a structured failure, and records lifecycle
 events (`agent.operation.requested`, `queued`, `started`, `completed`,

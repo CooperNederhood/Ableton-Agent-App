@@ -226,10 +226,19 @@ export function createListeningHost(options: ListeningHostOptions): Required<
           (source.listenerDeviceReference === undefined ||
             listener.deviceReference === source.listenerDeviceReference),
       );
-      if (candidates.length !== 1)
+      const trackName = sanitizePersistedText(source.track.expectedName).slice(
+        0,
+        128,
+      );
+      if (candidates.length === 0)
         throw new ListeningFailure(
-          candidates.length ? "ambiguous_listener" : "listener_not_found",
-          `Expected one eligible listener on ${sanitizePersistedText(source.track.expectedName).slice(0, 128)}; found ${candidates.length}. Specify listenerDeviceReference to disambiguate`,
+          "listener_not_found",
+          `No listener is available on track ${trackName}. Add the Machine-Listening-Development device to that track, then ask again.`,
+        );
+      if (candidates.length > 1)
+        throw new ListeningFailure(
+          "ambiguous_listener",
+          `Found ${candidates.length} listeners on track ${trackName}. Specify listenerDeviceReference to choose one.`,
         );
       return candidates[0]!.listenerId;
     });

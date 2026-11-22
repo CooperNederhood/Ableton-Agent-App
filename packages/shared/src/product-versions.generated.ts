@@ -2,7 +2,7 @@
 export const PRODUCT_VERSIONS = {
   app: "0.1.0",
   remoteScript: "0.8.0",
-  protocol: 11,
+  protocol: 12,
   database: 2,
   minimumRemoteScript: "0.8.0",
   supportedLive: {

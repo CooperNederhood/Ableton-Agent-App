@@ -42,7 +42,7 @@ export const desktopListeningJobSchema = z
     metricResults: metricListeningResultSummariesSchema.optional(),
     error: z.string().min(1).max(2048).optional(),
     failureEvidence: listeningFailureEvidenceSchema.optional(),
-    cleanupPolicy: z.literal("leave-running"),
+    cleanupPolicy: z.enum(["stop-owned", "leave-running"]),
     evidence: z.literal("lifecycle-only"),
     session: sessionListeningJobDetailSchema.optional(),
   })

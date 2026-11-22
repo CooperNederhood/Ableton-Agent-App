@@ -315,7 +315,7 @@ async function summarize(
             `Measured beats ${coords.startBeat}-${coords.endBeat}; samples ${coords.startSample}-${coords.endSample} at ${coords.sampleRate} Hz`,
             ...(payload.source.view === "session"
               ? [
-                  `Session first iteration (0), clip-local beats 0-${coords.endBeat}; global transport beats ${payload.source.transport.startBeat}-${payload.source.transport.endBeat}; ${payload.source.kind}; connection-scoped references, not physical source proof`,
+                  `Session first iteration (0), clip-local beats 0-${coords.endBeat}; ${payload.source.kind}; connection-scoped references, not physical source proof`,
                 ]
               : [
                   "Arrangement source; connection-scoped references, not physical source proof",

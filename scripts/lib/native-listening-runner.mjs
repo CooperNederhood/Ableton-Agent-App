@@ -806,9 +806,11 @@ export async function runNativeScenarioGroup({
               processStopped: true,
               fixtureCleaned: true,
               transportCleanup:
-                result?.evidence?.expectedRefusal === undefined
-                  ? "leave-running"
-                  : "unchanged-stopped",
+                result?.evidence?.expectedRefusal !== undefined
+                  ? "unchanged-stopped"
+                  : reviewNativeScenario(manifest).session
+                    ? "stop-owned"
+                    : "leave-running",
             },
           }
         : {}),
@@ -1189,8 +1191,6 @@ export async function createNativeListeningRunner({
                             sessionSource.source.projectRevision &&
                           parsed.durationBeats ===
                             sessionSource.durationBeats &&
-                          parsed.timingAnchor.globalBeat ===
-                            geometry.startBeat &&
                           isDeepStrictEqual(
                             parsed.target,
                             sessionSource.target,
@@ -2310,15 +2310,16 @@ export async function createNativeListeningRunner({
               finalListener,
               beforeBinding: normalizeInspection(inspected),
               afterBinding: normalizeInspection(finalInspection),
+              cleanupPolicy: job.cleanupPolicy,
             },
             d.sanitizePersistedText,
           );
           await lifecycle.stage(
-            "leave-running-postconditions",
+            `${job.cleanupPolicy}-postconditions`,
             async () =>
               assert(
                 postconditions.passed,
-                `Leave-running capture cleanup, immutable binding or recording state mismatch: ${postconditions.failedChecks.join(", ")}`,
+                `${job.cleanupPolicy === "stop-owned" ? "Stop-owned" : "Leave-running"} capture cleanup, immutable binding or recording state mismatch: ${postconditions.failedChecks.join(", ")}`,
               ),
             { postconditions },
           );

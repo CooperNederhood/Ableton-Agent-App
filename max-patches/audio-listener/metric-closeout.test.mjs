@@ -256,6 +256,19 @@ for (const [change, reason] of [
   });
 }
 
+test("client close reasons reach the device diagnostic outlet before the disconnect", async () => {
+  const f = fixture();
+  f.start();
+  f.clients[0].config.onStatus("live", "invalid_response", "invalid_message");
+  f.clients[0].config.onStatus("live", "disconnected");
+  const diagnostics = f.outputs.filter((atoms) => atoms[0] === "diagnostic");
+  assert.deepEqual(diagnostics, [
+    ["diagnostic", "client_invalid_response", "invalid_message"],
+    ["diagnostic", "disconnected_requires_reload"],
+  ]);
+  await f.runtime.stop();
+});
+
 test("native budget rejection consumes no epoch or source lease and keeps its exact SDK failure reason", async () => {
   let deny = true,
     admission;

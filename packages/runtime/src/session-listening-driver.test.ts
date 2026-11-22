@@ -115,7 +115,7 @@ function fixture() {
           : "prepared",
     mutationState: playing ? "observed-playing" : "not-attempted",
     reason: null,
-    cleanupPolicy: "leave-running",
+    cleanupPolicy: "stop-owned",
     evidence: "message-rate-only",
     nativeAlignment: "unverified",
     lastObservedSource: structuredClone(state),
@@ -157,7 +157,6 @@ function fixture() {
         expectedDeviceName: "Listener",
         expectedClassName: "MxDeviceAudioEffect",
       },
-      startBeat: 12,
     });
   return { controller, pass, capabilities, receipt, ableton, driver, prepare };
 }

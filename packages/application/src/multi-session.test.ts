@@ -2917,7 +2917,7 @@ describe("CopilotAgentService managed sessions", () => {
         expect(params).toEqual({
           action: "read-captures",
           contextIds,
-          summaryBudgetBytes: expect.any(Number),
+          summaryBudgetBytes: expect.any(Number) as number,
         });
         // This would deadlock if analysis waiting retained the capture mutation lease.
         await queuedMutation;
@@ -3683,7 +3683,7 @@ describe("CopilotAgentService managed sessions", () => {
               outcome === "resolution-failed"
                 ? "Source changed before approval"
                 : "changed the requested action",
-            ),
+            ) as string,
           });
           expect(approve).not.toHaveBeenCalled();
         } else if (outcome === "missing-tool-call-id") {

@@ -243,7 +243,7 @@ describe("owned listening tool host", () => {
       code: "listener_not_found",
       message: expect.stringMatching(
         /^No listener is available on track .+\. Add the Machine-Listening-Development device/,
-      ),
+      ) as string,
     });
     expect(f.services.prepare).not.toHaveBeenCalled();
     await f.host.shutdown();

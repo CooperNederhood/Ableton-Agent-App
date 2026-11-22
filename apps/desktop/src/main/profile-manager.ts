@@ -57,6 +57,7 @@ import {
   type DesktopArtifactLocation,
   type DesktopArtifactMutationResult,
   type DesktopArtifactScope,
+  type DesktopMemoryDocument,
   type DesktopAgentCatalog,
   type DesktopProfileManagerSnapshot,
   type DesktopScopedArtifact,
@@ -871,6 +872,31 @@ export class DesktopProfileManager implements ProfileManagerActions {
         return this.get(snapshot.selectedProfile);
       },
     );
+  }
+
+  public async readMemory(
+    request: Parameters<ProfileManagerActions["readMemory"]>[0],
+  ): Promise<DesktopMemoryDocument> {
+    return this.#artifactOperation("read", "memory", request.name, async () => {
+      const snapshot = await this.get(this.options.getActiveProfile());
+      const { directory } = await this.#memoryLocation(
+        request.location,
+        snapshot,
+        "source",
+      );
+      const topic = (await readMemoryScope(directory)).topics.find(
+        ({ name }) => name === request.name,
+      );
+      if (topic === undefined) {
+        throw new Error(`Memory topic '${request.name}' does not exist`);
+      }
+      return {
+        name: topic.name,
+        description: topic.description,
+        content: topic.content,
+        fingerprint: topic.fingerprint,
+      };
+    });
   }
 
   public async setArtifactDisabled(

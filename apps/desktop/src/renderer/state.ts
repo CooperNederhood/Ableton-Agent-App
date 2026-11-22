@@ -10,6 +10,7 @@ import type {
   DesktopAgentElicitationRequest,
   DesktopAgentArtifactReviewRequest,
   DesktopAgentArtifactScope,
+  DesktopArtifactScope,
   DesktopAgentPlanApproval,
   DesktopPlanArtifactSnapshot,
   DesktopActiveAgent,
@@ -41,6 +42,7 @@ export type WorkspaceView =
   | "diagnostics"
   | "sessions"
   | "settings";
+export type LibraryScope = "all" | DesktopArtifactScope;
 export interface MessageView {
   id: string;
   role: "user" | "assistant";
@@ -111,6 +113,8 @@ export interface DesktopState {
     "stopped" | "starting" | "ready" | "degraded" | "stopping" | "crashed";
   connection: DesktopConnectionStatus;
   activeView: WorkspaceView;
+  /** Scope shown by the Agents, Skills, and Memory lists; "all" shows every scope. */
+  libraryScope: LibraryScope;
   messages: MessageView[];
   operations: OperationView[];
   agentWorkspaces: Record<string, AgentWorkspaceState>;
@@ -155,6 +159,7 @@ export const initialState: DesktopState = {
   lifecycle: "starting",
   connection: { state: "disconnected" },
   activeView: "workspace",
+  libraryScope: "all",
   messages: [],
   operations: [],
   agentWorkspaces: {},
@@ -216,7 +221,8 @@ export const initialState: DesktopState = {
 
 export type DesktopAction =
   | { type: "event"; event: DesktopAppEvent }
-  | { type: "view"; view: WorkspaceView }
+  | { type: "view"; view: WorkspaceView; libraryScope?: LibraryScope }
+  | { type: "library-scope"; scope: LibraryScope }
   | {
       type: "user-message";
       id: string;
@@ -287,7 +293,15 @@ export function desktopReducer(
     case "event":
       return reduceEvent(state, action.event);
     case "view":
-      return { ...state, activeView: action.view };
+      return {
+        ...state,
+        activeView: action.view,
+        ...(action.libraryScope === undefined
+          ? {}
+          : { libraryScope: action.libraryScope }),
+      };
+    case "library-scope":
+      return { ...state, libraryScope: action.scope };
     case "user-message": {
       const message = {
         id: action.id,

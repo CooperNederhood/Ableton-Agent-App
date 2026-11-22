@@ -225,6 +225,7 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
       deleteArtifact: (request) => invoke("profiles:delete-artifact", request),
       setArtifactDisabled: (request) =>
         invoke("profiles:set-artifact-disabled", request),
+      readMemory: (request) => invoke("profiles:read-memory", request),
     },
     ableton: {
       connect: () => invoke("ableton:connect", {}),

@@ -1483,6 +1483,16 @@ export const desktopSkillDocumentSchema = z
   .strict();
 export type DesktopSkillDocument = z.infer<typeof desktopSkillDocumentSchema>;
 
+export const desktopMemoryDocumentSchema = z
+  .object({
+    name: z.string().min(1).max(128),
+    description: z.string().max(2_048),
+    content: z.string().max(64 * 1024),
+    fingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+  })
+  .strict();
+export type DesktopMemoryDocument = z.infer<typeof desktopMemoryDocumentSchema>;
+
 export const desktopArtifactKindSchema = z.enum(["agent", "skill", "memory"]);
 export type DesktopArtifactKind = z.infer<typeof desktopArtifactKindSchema>;
 
@@ -2322,6 +2332,15 @@ export const ipcSchemas = {
       .strict(),
     response: desktopProfileManagerSnapshotSchema,
   },
+  "profiles:read-memory": {
+    request: z
+      .object({
+        name: z.string().min(1).max(128),
+        location: desktopArtifactLocationSchema,
+      })
+      .strict(),
+    response: desktopMemoryDocumentSchema,
+  },
   "profiles:set-artifact-disabled": {
     request: z
       .object({
@@ -2812,6 +2831,10 @@ export interface DesktopApi {
       disabled: boolean;
       expectedRevision: string;
     }): Promise<DesktopProfileManagerSnapshot>;
+    readMemory(request: {
+      name: string;
+      location: DesktopArtifactLocation;
+    }): Promise<DesktopMemoryDocument>;
   };
   ableton: {
     connect(): Promise<DesktopConnectionStatus>;

@@ -625,7 +625,8 @@ const maximumFailureStringLength = failureSanitizerOptions.maxStringCharacters;
 const maximumFailureArrayLength = failureSanitizerOptions.maxArrayItems;
 const maximumFailureObjectEntries = failureSanitizerOptions.maxObjectFields;
 const maximumFailureDepth = failureSanitizerOptions.maxDepth;
-const bearerToken = /\bBearer\s+[A-Za-z0-9._~+/-]+=*/giu;
+const bearerToken =
+  /\bBearer\s+(?!(?:[A-Z][a-z]+|[a-z]{1,7})(?![A-Za-z0-9._~+/=-]))[A-Za-z0-9._~+/-]+=*/gu;
 const credentialAssignment =
   /\b(token|secret|password|api[_ -]?key|authorization)\s*[:=]\s*[^\s,;]+/giu;
 const truncatedFailureValue = "[TRUNCATED]";

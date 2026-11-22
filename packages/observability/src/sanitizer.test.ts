@@ -34,6 +34,24 @@ describe("telemetry sanitizer", () => {
     },
   );
 
+  it("keeps music text after Basic or Bearer but still redacts real tokens", () => {
+    for (const text of [
+      "Load the Basic Drum Rack on track 2",
+      "a basic drum pattern",
+      "Basic drum groove",
+      "bearer of news",
+    ]) {
+      expect(sanitizePersistedText(text)).toBe(text);
+    }
+    expect(sanitizePersistedText("Bearer abcsecret")).toBe("Bearer [REDACTED]");
+    expect(sanitizePersistedText("Basic dXNlcjpwYXNz")).toBe(
+      "Basic [REDACTED]",
+    );
+    expect(sanitizePersistedText("authorization: basic Drum")).not.toContain(
+      "Drum",
+    );
+  });
+
   it("redacts credentials and bearer tokens while preserving detailed content", () => {
     const input: Record<string, unknown> = {
       prompt: "Create a MIDI clip at /Users/cooper/Sets/demo.als",

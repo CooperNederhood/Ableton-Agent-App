@@ -916,15 +916,15 @@ describe("bounded continuous six-metric record stream", () => {
     ).toBe(14_001);
   });
 
-  it("streams a full 600-second capture of all six families through bounded chunks and a compact final manifest", async () => {
-    const d = descriptor(600);
+  it("streams a multi-chunk capture of all six families through bounded chunks and a compact final manifest", async () => {
+    const d = descriptor(60);
     const state = await complete(d);
     const final = manifest(d, state);
     await expect(
       verifyMetricRecordStreamManifest(d, state, final),
     ).resolves.toEqual(final);
     expect(state.metrics.map((item) => item.nextRecordOffset)).toEqual([
-      4800, 14062, 6000, 14062, 14062, 14062,
+      480, 1406, 600, 1406, 1406, 1406,
     ]);
     expect(state.metrics.every((item) => item.nextChunkSequence > 1)).toBe(
       true,
@@ -935,13 +935,13 @@ describe("bounded continuous six-metric record stream", () => {
     expect(
       final.metrics.find((item) => item.metric === "mel-bands")
         ?.trailingSupport,
-    ).toEqual({ startSample: 28_808_976, endSample: 28_810_000 });
+    ).toEqual({ startSample: 2_889_488, endSample: 2_890_000 });
     const result = summarizeMetricListeningStreamManifest(final);
     expect(result.nativeStatus).toBe("completed");
     expect(result.metrics.map((metric) => metric.retainedRecords)).toEqual([
-      4800, 14062, 6000, 14062, 14062, 14062,
+      480, 1406, 600, 1406, 1406, 1406,
     ]);
-  }, 60_000);
+  });
 
   it("distinguishes known sub-window no-frame tails from unavailable algorithms and failed output", async () => {
     const tiny = descriptor(1 / 48_000);

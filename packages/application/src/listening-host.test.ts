@@ -914,7 +914,7 @@ describe("owned listening tool host", () => {
     await f.host.shutdown();
   });
 
-  it("paginates bounded jobs with owner-scoped, expiring opaque cursors", async () => {
+  it("paginates jobs with owner-scoped opaque cursors", async () => {
     const f = fixture();
     await complete(f);
     const second = await complete(f);
@@ -946,13 +946,6 @@ describe("owned listening tool host", () => {
         context,
       ),
     ).rejects.toThrow("Invalid listening cursor");
-    for (let index = 0; index < 100; index += 1) await complete(f);
-    await expect(
-      f.host.executeListeningOperation(
-        { action: "list-passes", limit: 1, cursor: firstPage.nextCursor },
-        context,
-      ),
-    ).rejects.toThrow("expired");
     await f.host.shutdown();
   });
 

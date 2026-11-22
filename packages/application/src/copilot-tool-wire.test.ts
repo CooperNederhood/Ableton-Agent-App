@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  agentSchemaActionVariant,
   type AbletonToolServices,
   createAbletonTools,
   scopeAbletonTools,
@@ -174,15 +175,15 @@ describe.each(["completions", "responses"] as const)(
           expect(
             branches.map((branch) => branch.properties.action.const).sort(),
           ).toEqual(actions);
-          const mixer = branches.find(
-            (branch) =>
-              branch.properties.action.const === "inspect-chain-mixer",
-          );
+          const variant = (action: string) =>
+            agentSchemaActionVariant(
+              { properties: definition.parameters.properties, oneOf: branches },
+              action,
+            ) as WireBranch | undefined;
+          const mixer = variant("inspect-chain-mixer");
           expect(mixer?.required).toEqual(["target", "action"]);
           expect(mixer?.properties.target?.oneOf?.length).toBeGreaterThan(0);
-          const parameters = branches.find(
-            (branch) => branch.properties.action.const === "inspect-parameters",
-          );
+          const parameters = variant("inspect-parameters");
           for (const field of [
             "deviceIndex",
             "expectedDeviceReference",
@@ -216,7 +217,7 @@ describe.each(["completions", "responses"] as const)(
       description: string;
       parameters: {
         description: string;
-        properties: { action: { enum?: string[] } };
+        properties: { action: { enum?: string[] } } & Record<string, unknown>;
         oneOf?: WireBranch[];
         anyOf?: WireBranch[];
       };

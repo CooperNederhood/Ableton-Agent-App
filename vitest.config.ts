@@ -12,8 +12,9 @@ export default defineConfig({
       "max-patches/**/*.test.{cjs,mjs}",
       ".test-artifacts/**",
     ],
-    testTimeout: 10_000,
-    hookTimeout: 10_000,
+    // CI runners are several times slower than a dev machine.
+    testTimeout: process.env.CI ? 30_000 : 10_000,
+    hookTimeout: process.env.CI ? 30_000 : 10_000,
     retry: 0,
   },
   resolve: {

@@ -51,7 +51,7 @@ import {
 } from "./storage-shape.js";
 import type { AssertionInput, TurnEvidence } from "./contracts.js";
 
-function fixture(
+function buildFixture(
   measures = 1,
   modern: boolean | "feature-shapes" = "feature-shapes",
   unavailablePitch: boolean | "first-measure" = false,
@@ -509,6 +509,20 @@ function fixture(
     restart,
     history,
   };
+}
+
+// Building the fixture dominates this file's runtime, so build each variant
+// once and hand every test its own deep copy.
+const fixtures = new Map<string, ReturnType<typeof buildFixture>>();
+function fixture(...args: Parameters<typeof buildFixture>) {
+  const key = JSON.stringify(args);
+  let built = fixtures.get(key);
+  if (!built) {
+    built = buildFixture(...args);
+    fixtures.set(key, built);
+  }
+  const { history, ...data } = built;
+  return { ...structuredClone(data), history };
 }
 
 describe("message-driven storage shape acceptance", () => {

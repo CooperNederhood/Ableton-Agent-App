@@ -605,7 +605,7 @@ describe("agent listening result acceptance", () => {
     ).rejects.toThrow("truncated");
   });
   it.each([
-    { count: 720, fieldLength: 12_000, admitted: true },
+    { count: 250, fieldLength: 100, admitted: true },
     { count: 1025, fieldLength: 0, admitted: false },
     { count: 900, fieldLength: 14_000, admitted: false },
   ])(

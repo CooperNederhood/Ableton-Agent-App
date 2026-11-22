@@ -415,6 +415,147 @@ function enrichAgentJsonSchema(
   return schema;
 }
 
+// Arguments are validated against the full Zod schema before any handler runs,
+// so the model-facing schema drops keywords that only matter to the validator.
+function stripValidatorOnlyKeywords(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripValidatorOnlyKeywords);
+  const schema = jsonSchema(value);
+  if (schema === undefined) return value;
+  const compact: JsonSchema = {};
+  for (const [key, child] of Object.entries(schema)) {
+    if (key === "$schema") continue;
+    if (key === "pattern" && typeof schema.format === "string") continue;
+    if (
+      (key === "maximum" && child === Number.MAX_SAFE_INTEGER) ||
+      (key === "minimum" && child === Number.MIN_SAFE_INTEGER)
+    ) {
+      continue;
+    }
+    const properties = key === "properties" ? jsonSchema(child) : undefined;
+    compact[key] =
+      properties === undefined
+        ? stripValidatorOnlyKeywords(child)
+        : Object.fromEntries(
+            Object.entries(properties).map(([name, property]) => [
+              name,
+              stripValidatorOnlyKeywords(property),
+            ]),
+          );
+  }
+  return compact;
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  const schema = jsonSchema(value);
+  if (schema === undefined) return JSON.stringify(value);
+  return `{${Object.keys(schema)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(schema[key])}`)
+    .join(",")}}`;
+}
+
+// Action variants repeat the same target fields hundreds of times. Fields whose
+// schema is identical in every variant that uses them are defined once in the
+// top-level properties; each variant still lists every field it accepts, using
+// an empty schema for shared fields, so variants stay closed and exact.
+function hoistSharedActionProperties(schema: JsonSchema): JsonSchema {
+  const variantsKey = Array.isArray(schema.oneOf)
+    ? "oneOf"
+    : Array.isArray(schema.anyOf)
+      ? "anyOf"
+      : undefined;
+  if (variantsKey === undefined) return schema;
+  const variants = (schema[variantsKey] as unknown[]).map(jsonSchema);
+  if (
+    variants.some(
+      (variant) => variant === undefined || actionValue(variant) === undefined,
+    )
+  ) {
+    return schema;
+  }
+  const actionVariants = variants as JsonSchema[];
+  const variantsByField = new Map<string, Set<string>>();
+  for (const variant of actionVariants) {
+    for (const [field, property] of Object.entries(
+      schemaProperties(variant) ?? {},
+    )) {
+      if (field === "action") continue;
+      const shapes = variantsByField.get(field) ?? new Set<string>();
+      shapes.add(canonicalJson(property));
+      variantsByField.set(field, shapes);
+    }
+  }
+  const sharedFields = new Set(
+    [...variantsByField]
+      .filter(([, shapes]) => shapes.size === 1)
+      .map(([field]) => field),
+  );
+  const sharedProperties: JsonSchema = {};
+  const compactVariants = actionVariants.map((variant) => {
+    const ownProperties: JsonSchema = {
+      action: { const: actionValue(variant) },
+    };
+    for (const [field, property] of Object.entries(
+      schemaProperties(variant) ?? {},
+    )) {
+      if (field === "action") continue;
+      if (sharedFields.has(field)) {
+        sharedProperties[field] ??= property;
+        ownProperties[field] = {};
+      } else {
+        ownProperties[field] = property;
+      }
+    }
+    const compactVariant: JsonSchema = {
+      ...variant,
+      properties: ownProperties,
+    };
+    delete compactVariant.type;
+    return compactVariant;
+  });
+  return {
+    ...schema,
+    properties: { ...(schemaProperties(schema) ?? {}), ...sharedProperties },
+    [variantsKey]: compactVariants,
+  };
+}
+
+function compactAgentJsonSchema(schema: JsonSchema): JsonSchema {
+  return hoistSharedActionProperties(
+    stripValidatorOnlyKeywords(schema) as JsonSchema,
+  );
+}
+
+// Resolves the empty field stubs in a compacted action variant against the
+// top-level shared properties, giving the full set of fields that action accepts.
+export function agentSchemaActionVariant(
+  schema: JsonSchema,
+  action: string,
+): JsonSchema | undefined {
+  let selected: JsonSchema | undefined;
+  visitSchemas(schema, (candidate) => {
+    if (selected === undefined && actionValue(candidate) === action) {
+      selected = candidate;
+    }
+  });
+  if (selected === undefined) return undefined;
+  const shared = schemaProperties(schema) ?? {};
+  return {
+    ...selected,
+    properties: Object.fromEntries(
+      Object.entries(schemaProperties(selected) ?? {}).map(
+        ([field, property]) => {
+          const fieldSchema = jsonSchema(property);
+          const isStub =
+            fieldSchema !== undefined && Object.keys(fieldSchema).length === 0;
+          return [field, isStub && field in shared ? shared[field] : property];
+        },
+      ),
+    ),
+  };
+}
+
 export function agentFacingParameters<T>(
   toolName: string,
   parameters: Tool<T>["parameters"],
@@ -427,9 +568,11 @@ export function agentFacingParameters<T>(
     [agentParametersMarker]: true,
     safeParse: runtimeSchema.safeParse.bind(runtimeSchema),
     toJSONSchema: () =>
-      enrichAgentJsonSchema(
-        toolName,
-        runtimeSchema.toJSONSchema({ io: "input" }),
+      compactAgentJsonSchema(
+        enrichAgentJsonSchema(
+          toolName,
+          runtimeSchema.toJSONSchema({ io: "input" }),
+        ),
       ),
   } as Tool<T>["parameters"];
 }
@@ -447,16 +590,8 @@ function expectedShape(
   schema: JsonSchema,
   suppliedAction: unknown,
 ): Readonly<Record<string, unknown>> | undefined {
-  let selected: JsonSchema | undefined;
-  visitSchemas(schema, (candidate) => {
-    if (
-      selected === undefined &&
-      typeof suppliedAction === "string" &&
-      actionValue(candidate) === suppliedAction
-    ) {
-      selected = candidate;
-    }
-  });
+  if (typeof suppliedAction !== "string") return undefined;
+  const selected = agentSchemaActionVariant(schema, suppliedAction);
   if (selected === undefined) return undefined;
   const properties =
     selected.properties !== null &&

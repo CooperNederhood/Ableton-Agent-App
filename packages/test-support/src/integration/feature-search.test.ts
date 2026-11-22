@@ -35,7 +35,10 @@ import {
 } from "@ableton-agent/tools";
 import type { AgentHistoryPage } from "@ableton-agent/observability";
 import { melSmokeFixture } from "./mel-smoke-test-support.js";
-import { listeningSummaryFixture } from "./agent-listening-test-support.js";
+import {
+  cachedFixture,
+  listeningSummaryFixture,
+} from "./agent-listening-test-support.js";
 import {
   projectFeatureSource,
   validateFeatureSources,
@@ -557,7 +560,8 @@ describe("canonical stream feature-source reads", () => {
   });
 });
 
-function fixture(
+const fixture = cachedFixture(buildFixture);
+function buildFixture(
   reportPages = false,
   unavailableConfidence = false,
   reportRowLimit = 1,
@@ -1081,7 +1085,8 @@ function fixture(
   };
   return { input, turns, search, comparison, observations };
 }
-function deliveredFeatureFixture(unavailableConfidence = false) {
+const deliveredFeatureFixture = cachedFixture(buildDeliveredFeatureFixture);
+function buildDeliveredFeatureFixture(unavailableConfidence = false) {
   const f = fixture(false, unavailableConfidence);
   const sources = f.turns[1]!.featureSources!;
   const groups = f.observations.map((observation, index) => {
@@ -1580,7 +1585,8 @@ function analyzerResult(turn: TurnEvidence, type: string) {
   }
   throw new Error("Missing synthetic analyzer feature");
 }
-function peakFixture(equalPeaks = false) {
+const peakFixture = cachedFixture(buildPeakFixture);
+function buildPeakFixture(equalPeaks = false) {
   const full = fixture(false, false, 1, equalPeaks);
   const turns = full.turns.slice(0, 2);
   for (const [index, turn] of turns.entries()) {
@@ -1676,7 +1682,8 @@ function omitTool(turn: TurnEvidence, action: string, featureId?: string) {
     ),
   });
 }
-function priorPeakFixture() {
+const priorPeakFixture = cachedFixture(buildPriorPeakFixture);
+function buildPriorPeakFixture() {
   const value = peakFixture();
   omitTool(value.turns[1]!, "get-feature", "feature-1");
   return value;
@@ -1742,7 +1749,8 @@ function inventoryViews(data: Record<string, unknown>) {
     source: { ...feature.source, summary: "Controlled feature inventory" },
   }));
 }
-function equalityFixture(coverage: "full" | "peak-only") {
+const equalityFixture = cachedFixture(buildEqualityFixture);
+function buildEqualityFixture(coverage: "full" | "peak-only") {
   const value =
     coverage === "full" ? fixture(false, false, 1, true) : peakFixture(true);
   for (const id of firstFeatureIds)
@@ -2364,13 +2372,17 @@ const firstFeatureIds = [
   "feature-1-spread-summary",
   "feature-1-rolloff-summary",
 ];
-function priorFullFixture() {
+const priorFullFixture = cachedFixture(buildPriorFullFixture);
+function buildPriorFullFixture() {
   const value = fixture(true, false, 32);
   for (const id of firstFeatureIds)
     omitTool(value.turns[1]!, "get-feature", id);
   return value;
 }
-function priorPitchInventoryFixture() {
+const priorPitchInventoryFixture = cachedFixture(
+  buildPriorPitchInventoryFixture,
+);
+function buildPriorPitchInventoryFixture() {
   const value = priorFullFixture();
   const first = value.turns[0]!;
   const second = value.turns[1]!;

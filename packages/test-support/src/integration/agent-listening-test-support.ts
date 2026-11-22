@@ -8,6 +8,21 @@ import type { AgentHistoryPage } from "@ableton-agent/observability";
 import type { ListeningSummary } from "@ableton-agent/tools";
 import type { AssertionInput, TurnEvidence } from "./contracts.js";
 
+/**
+ * Builds a deterministic fixture once per argument list and returns a deep
+ * copy on every call, so slow fixtures stay cheap and tests stay isolated.
+ */
+export function cachedFixture<A extends unknown[], R>(
+  build: (...args: A) => R,
+): (...args: A) => R {
+  const built = new Map<string, R>();
+  return (...args) => {
+    const key = JSON.stringify(args);
+    if (!built.has(key)) built.set(key, build(...args));
+    return structuredClone(built.get(key)!);
+  };
+}
+
 export function listeningSummaryFixture(
   readTarget: ListeningSummary["readTarget"],
   capturedAt: string,

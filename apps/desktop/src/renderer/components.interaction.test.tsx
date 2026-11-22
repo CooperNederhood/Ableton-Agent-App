@@ -2577,13 +2577,24 @@ describe("desktop component interactions", () => {
     expect(container.textContent).toContain(
       `400 / ${(4000).toLocaleString()} tokens used`,
     );
-    expect(container.querySelector("meter")?.value).toBe(400);
+    expect(
+      container.querySelector('[role="meter"]')?.getAttribute("aria-valuenow"),
+    ).toBe("400");
+    expect(
+      container.querySelector<HTMLElement>(
+        '[role="meter"] [data-token-kind="unclassified"]',
+      )?.style.width,
+    ).toBe("10%");
+    expect(
+      container.querySelector('[role="meter"] [data-token-kind="system"]'),
+    ).toBeNull();
     expect(container.querySelector("dl")?.textContent).toContain(
       "System messages0ConversationNot reported",
     );
-    expect(container.querySelector("dl")?.textContent).toContain(
-      "Compactions2Failed compactions1",
-    );
+    expect(
+      container.querySelector(".context-budget-compactions")?.textContent,
+    ).toContain("Compactions2Failed compactions1");
+    expect(container.textContent).not.toContain("Latest reported tokens");
     state = desktopReducer(state, {
       type: "event",
       event: {
@@ -2594,7 +2605,9 @@ describe("desktop component interactions", () => {
     });
     report("sdk-current", 600);
     await render();
-    expect(container.querySelector("meter")?.value).toBe(500);
+    expect(
+      container.querySelector('[role="meter"]')?.getAttribute("aria-valuenow"),
+    ).toBe("500");
     state = desktopReducer(state, {
       type: "event",
       event: {
@@ -2605,7 +2618,7 @@ describe("desktop component interactions", () => {
     });
     await render();
     expect(container.textContent).toContain("Waiting for token usage");
-    expect(container.querySelector("meter")).toBeNull();
+    expect(container.querySelector('[role="meter"]')).toBeNull();
   });
 
   it("switches, closes, and re-adds modular inspector views", async () => {

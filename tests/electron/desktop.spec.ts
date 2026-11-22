@@ -2260,8 +2260,19 @@ test("renders plan.md in the Inspector and routes composer approval through IPC"
     const contextBudget = window.getByRole("region", {
       name: "Context budget",
     });
+    await expect(contextBudget.locator(".context-budget-total")).toHaveText(
+      "300 / 800 tokens used",
+    );
+    const meter = contextBudget.getByRole("meter", {
+      name: "Context window usage",
+    });
+    await expect(meter).toHaveAttribute("aria-valuenow", "300");
+    await expect(meter.locator('[data-token-kind="system"]')).toHaveCSS(
+      "background-color",
+      "rgb(183, 163, 251)",
+    );
     await expect(
-      contextBudget.getByText("300 / 800 tokens used"),
+      meter.locator('[data-token-kind="conversation"]'),
     ).toBeVisible();
     await expect(contextBudget.locator("dd")).toHaveText([
       "100",

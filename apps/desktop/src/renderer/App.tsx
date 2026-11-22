@@ -7000,42 +7000,92 @@ function ContextBudget({
   const used = usage?.currentTokens;
   const limit = usage?.tokenLimit;
   const rows = [
-    ["System messages", format(usage?.systemTokens)],
-    ["Conversation", format(usage?.conversationTokens)],
-    ["Tool definitions", format(usage?.toolDefinitionsTokens)],
-    ["Compactions", format(usage?.compactions)],
-    ...(usage?.failedCompactions
-      ? [["Failed compactions", format(usage.failedCompactions)]]
-      : []),
-  ];
+    { key: "system", label: "System messages", count: usage?.systemTokens },
+    {
+      key: "conversation",
+      label: "Conversation",
+      count: usage?.conversationTokens,
+    },
+    {
+      key: "tools",
+      label: "Tool definitions",
+      count: usage?.toolDefinitionsTokens,
+    },
+  ] as const;
+  const known = rows.reduce((total, { count }) => total + (count ?? 0), 0);
+  const segments =
+    used !== undefined && known <= used
+      ? [...rows, { key: "unclassified", count: used - known }]
+      : [{ key: "unclassified", count: used }];
   return (
     <section className="context-budget" aria-label="Context budget">
       <h3>Context budget</h3>
-      <p>
-        {used === undefined && limit === undefined
-          ? "Waiting for token usage from Copilot."
-          : `${format(used)} / ${format(limit)} tokens used`}
+      <p className="context-budget-total">
+        {used === undefined && limit === undefined ? (
+          "Waiting for token usage from Copilot."
+        ) : (
+          <>
+            <strong>{format(used)}</strong>
+            {" / "}
+            {format(limit)} tokens used
+          </>
+        )}
       </p>
       {used !== undefined && limit !== undefined && (
-        <meter
+        <div
+          className="context-budget-meter"
+          role="meter"
           aria-label="Context window usage"
-          min={0}
-          max={limit}
-          value={Math.min(used, limit)}
-        />
+          aria-valuemin={0}
+          aria-valuemax={limit}
+          aria-valuenow={Math.min(used, limit)}
+          aria-valuetext={`${format(used)} of ${format(limit)} tokens used`}
+          data-over-budget={used > limit || undefined}
+        >
+          {segments.map(
+            ({ key, count }) =>
+              count !== undefined &&
+              count > 0 && (
+                <span
+                  key={key}
+                  aria-hidden="true"
+                  data-token-kind={key}
+                  style={{ width: `${(count / Math.max(limit, used)) * 100}%` }}
+                />
+              ),
+          )}
+        </div>
       )}
       <dl>
-        {rows.map(([label, value]) => (
+        {rows.map(({ key, label, count }) => (
           <div key={label}>
-            <dt>{label}</dt>
-            <dd>{value}</dd>
+            <dt>
+              <span
+                className="context-budget-swatch"
+                data-token-kind={key}
+                aria-hidden="true"
+              />
+              {label}
+            </dt>
+            <dd>{format(count)}</dd>
           </div>
         ))}
       </dl>
-      <p className="context-budget-caption">
-        Latest reported tokens. Compactions counted since connecting to this
-        conversation.
-      </p>
+      <dl
+        className="context-budget-compactions"
+        aria-label="Compactions observed since connecting to this conversation"
+      >
+        <div>
+          <dt>Compactions</dt>
+          <dd>{format(usage?.compactions)}</dd>
+        </div>
+        {usage?.failedCompactions ? (
+          <div className="context-budget-failed">
+            <dt>Failed compactions</dt>
+            <dd>{format(usage.failedCompactions)}</dd>
+          </div>
+        ) : null}
+      </dl>
     </section>
   );
 }

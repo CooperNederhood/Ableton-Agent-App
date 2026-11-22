@@ -103,10 +103,11 @@ A few Workspace details worth knowing:
   tracks, clips and devices are attached as context chips.
 - **Inspector.** Modular tabs for the current Selection, the session Plan,
   pending Approvals, and Context. You can reorder and split them. Context shows
-  the selected conversation's latest Copilot-reported token usage and limit
-  (system messages, conversation, and tool definitions when reported) and
-  counts completed and failed compactions observed since the app connected to
-  that conversation, not historical ones.
+  the selected conversation's latest Copilot-reported token usage and limit. A
+  segmented bar with matching colored labels separates system messages,
+  conversation, and tool definitions; used tokens without a reported breakdown
+  are neutral. It counts completed and failed compactions observed since the
+  app connected to that conversation, not historical ones.
 - **Hiding panels.** Both sidebars and the top bar can be hidden, down to a
   small chat-only window (320×360).
 

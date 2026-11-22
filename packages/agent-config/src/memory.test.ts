@@ -12,13 +12,16 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  deleteMemoryTopic,
   formatMemoryIndex,
   formatMemorySystemSection,
   MAX_MEMORY_TOPICS_PER_SCOPE,
   parseMemoryTopic,
   publishMemoryChanges,
   readMemoryScope,
+  renameMemoryTopic,
   StaleMemoryError,
+  transferMemoryTopic,
 } from "./memory.js";
 
 const roots: string[] = [];
@@ -248,5 +251,112 @@ describe("memory scope storage", () => {
     ).rejects.toThrow();
     expect(await readdir(first)).toEqual(["keep.md"]);
     expect((await readdir(root)).sort()).toEqual(["blocked", "first"]);
+  });
+});
+
+describe("memory topic management", () => {
+  async function scopes() {
+    const root = await temporaryRoot();
+    const profile = { scope: "profile" as const, directory: join(root, "p") };
+    const project = { scope: "project" as const, directory: join(root, "q") };
+    await mkdir(profile.directory, { recursive: true });
+    await writeFile(join(profile.directory, "taste.md"), topic("taste"));
+    await writeFile(join(profile.directory, "INDEX.md"), "stale\n");
+    return { profile, project };
+  }
+
+  it("moves a topic and regenerates INDEX.md in both scopes", async () => {
+    const { profile, project } = await scopes();
+    await expect(
+      transferMemoryTopic({
+        operation: "move",
+        name: "taste",
+        source: profile,
+        destination: project,
+      }),
+    ).resolves.toEqual({ status: "completed" });
+    expect(await readdir(profile.directory)).toEqual([]);
+    expect(await readFile(join(project.directory, "INDEX.md"), "utf8")).toBe(
+      "taste | About taste | ./taste.md\n",
+    );
+  });
+
+  it("reports a conflict, then replaces or renames on request", async () => {
+    const { profile, project } = await scopes();
+    await mkdir(project.directory, { recursive: true });
+    await writeFile(
+      join(project.directory, "taste.md"),
+      topic("taste", "Older"),
+    );
+    const conflict = await transferMemoryTopic({
+      operation: "copy",
+      name: "taste",
+      source: profile,
+      destination: project,
+    });
+    expect(conflict.status).toBe("conflict");
+
+    await transferMemoryTopic({
+      operation: "copy",
+      name: "taste",
+      source: profile,
+      destination: project,
+      resolution: { rename: "taste-copy" },
+    });
+    const renamed = await readFile(
+      join(project.directory, "taste-copy.md"),
+      "utf8",
+    );
+    expect(renamed).toContain("name: taste-copy");
+
+    await transferMemoryTopic({
+      operation: "copy",
+      name: "taste",
+      source: profile,
+      destination: project,
+      resolution: "replace",
+    });
+    expect(
+      (await readMemoryScope(project.directory)).topics
+        .map(({ name, description }) => [name, description])
+        .sort(),
+    ).toEqual([
+      ["taste", "About taste"],
+      ["taste-copy", "About taste"],
+    ]);
+    expect((await readMemoryScope(profile.directory)).topics).toHaveLength(1);
+  });
+
+  it("rejects a transfer into the same scope", async () => {
+    const { profile } = await scopes();
+    await expect(
+      transferMemoryTopic({
+        operation: "copy",
+        name: "taste",
+        source: profile,
+        destination: profile,
+      }),
+    ).rejects.toThrow("same scope");
+  });
+
+  it("renames and deletes topics, refusing an existing name", async () => {
+    const { profile } = await scopes();
+    await writeFile(join(profile.directory, "mix.md"), topic("mix"));
+    await expect(
+      renameMemoryTopic({ ...profile, name: "taste", newName: "mix" }),
+    ).rejects.toThrow("already exists");
+
+    await renameMemoryTopic({ ...profile, name: "taste", newName: "sound" });
+    expect(
+      await readFile(join(profile.directory, "sound.md"), "utf8"),
+    ).toContain("name: sound");
+
+    await deleteMemoryTopic({ ...profile, name: "mix" });
+    expect(await readFile(join(profile.directory, "INDEX.md"), "utf8")).toBe(
+      "sound | About taste | ./sound.md\n",
+    );
+    await expect(
+      deleteMemoryTopic({ ...profile, name: "missing" }),
+    ).rejects.toThrow();
   });
 });

@@ -279,6 +279,12 @@ function contextMenuHandler(open: (x: number, y: number) => void): {
   };
 }
 
+const artifactGroups = [
+  { kind: "agent", label: "Agents" },
+  { kind: "skill", label: "Skills" },
+  { kind: "memory", label: "Memory topics" },
+] as const;
+
 function ArtifactGroups({
   artifacts,
   clipboard,
@@ -297,13 +303,13 @@ function ArtifactGroups({
 }): React.JSX.Element {
   return (
     <div className="profile-tree-artifacts">
-      {(["agent", "skill"] as const).map((kind) => {
+      {artifactGroups.map(({ kind, label }) => {
         const entries = artifacts.filter((artifact) => artifact.kind === kind);
         return (
           <section className="profile-tree-artifact-group" key={kind}>
             <header>
-              <h3>{kind === "agent" ? "Agents" : "Skills"}</h3>
-              <span aria-label={`${entries.length} ${kind}s`}>
+              <h3>{label}</h3>
+              <span aria-label={`${entries.length} ${label.toLowerCase()}`}>
                 {entries.length}
               </span>
             </header>
@@ -1294,6 +1300,7 @@ export function ProfileManagerView({
                 Delete local
               </MenuButton>
               <MenuButton
+                disabled={menu.artifact.kind === "memory"}
                 onSelect={() => {
                   const artifact = menu.artifact;
                   setMenu(undefined);

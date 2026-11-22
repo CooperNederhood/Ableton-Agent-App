@@ -7,9 +7,14 @@ import {
   compareArtifacts,
   copyArtifact,
   deleteArtifact,
+  deleteMemoryTopic,
   disableArtifact,
   loadLayeredAgentCatalog,
   moveArtifact,
+  readMemoryScope,
+  renameMemoryTopic,
+  transferMemoryTopic,
+  type MemoryScopeLocation,
   replaceAgentDefinitionInScope,
   publishSkillToScope,
   readArtifactTombstones,
@@ -35,6 +40,7 @@ import {
   renameProfile,
   resolveArtifactScopePaths,
   resolveLiveAgentStorage,
+  resolveMemoryScopeDirectory,
   selectProfile,
   type ArtifactScopePaths,
   type LiveAgentStorageLayout,
@@ -246,6 +252,32 @@ function sourceDescription(
   fallback: string,
 ): string {
   return artifact?.description || fallback;
+}
+
+async function memoryArtifacts(
+  scope: DesktopArtifactScope,
+  directory: string,
+  owner: {
+    profile?: string;
+    liveProjectId?: string;
+    liveSetId?: string;
+    sessionId?: string;
+  } = {},
+): Promise<DesktopScopedArtifact[]> {
+  const { topics } = await readMemoryScope(directory);
+  return topics.map((topic) => ({
+    kind: "memory",
+    name: topic.name,
+    description: topic.description,
+    scope,
+    origin: scope,
+    state: "local",
+    sourceFile: `${topic.name}.md`,
+    fingerprint: topic.fingerprint,
+    ...owner,
+    overriddenOrigins: [],
+    diagnostics: [],
+  }));
 }
 
 function sessionSummaries(
@@ -781,6 +813,14 @@ export class DesktopProfileManager implements ProfileManagerActions {
       request.name,
       async () => {
         const snapshot = await this.#assertRevision(request.expectedRevision);
+        if (request.kind === "memory") {
+          await renameMemoryTopic({
+            ...(await this.#memoryLocation(request.location, snapshot)),
+            name: request.name,
+            newName: request.newName,
+          });
+          return this.get(snapshot.selectedProfile);
+        }
         const paths = await this.#paths(request.location, snapshot);
         if (request.kind === "agent") {
           await renameAgentInScope({
@@ -811,6 +851,13 @@ export class DesktopProfileManager implements ProfileManagerActions {
       request.name,
       async () => {
         const snapshot = await this.#assertRevision(request.expectedRevision);
+        if (request.kind === "memory") {
+          await deleteMemoryTopic({
+            ...(await this.#memoryLocation(request.location, snapshot)),
+            name: request.name,
+          });
+          return this.get(snapshot.selectedProfile);
+        }
         const paths = await this.#paths(request.location, snapshot);
         await deleteArtifact({
           kind: request.kind,
@@ -834,6 +881,11 @@ export class DesktopProfileManager implements ProfileManagerActions {
       request.kind,
       request.name,
       async () => {
+        if (request.kind === "memory") {
+          throw new Error(
+            "Memory topics cannot be disabled; delete or move them instead",
+          );
+        }
         const snapshot = await this.#assertRevision(request.expectedRevision);
         const paths = await this.#paths(request.location, snapshot);
         const tombstonePath =
@@ -870,6 +922,9 @@ export class DesktopProfileManager implements ProfileManagerActions {
       request.name,
       async (progress) => {
         const snapshot = await this.#assertRevision(request.expectedRevision);
+        if (request.kind === "memory") {
+          return this.#transferMemory(operation, request, snapshot, progress);
+        }
         const source = await this.#paths(request.source, snapshot, "source");
         const destination = await this.#paths(
           request.destination,
@@ -1037,6 +1092,105 @@ export class DesktopProfileManager implements ProfileManagerActions {
     );
   }
 
+  async #transferMemory(
+    operation: "copy" | "move",
+    request: Parameters<ProfileManagerActions["copyArtifact"]>[0],
+    snapshot: DesktopProfileManagerSnapshot,
+    progress: OperationProgress,
+  ): Promise<DesktopArtifactMutationResult> {
+    if (
+      request.conflictResolution === "rename" &&
+      request.renamedName === undefined
+    ) {
+      throw new Error("A renamed artifact requires a replacement name");
+    }
+    const source = await this.#memoryLocation(
+      request.source,
+      snapshot,
+      "source",
+    );
+    const destination = await this.#memoryLocation(
+      request.destination,
+      snapshot,
+      "destination",
+      () =>
+        progress("persisting-active-session", {
+          destination_session_id: request.destination.sessionId!,
+        }),
+    );
+    const result = await transferMemoryTopic({
+      operation,
+      name: request.name,
+      source,
+      destination,
+      ...(request.conflictResolution === "replace"
+        ? { resolution: "replace" as const }
+        : request.conflictResolution === "rename"
+          ? { resolution: { rename: request.renamedName! } }
+          : {}),
+    });
+    if (result.status === "conflict") {
+      return {
+        status: "conflict",
+        conflict: {
+          kind: "memory",
+          name: request.name,
+          sourceFingerprint: result.source.fingerprint,
+          destinationFingerprint: result.destination.fingerprint,
+          sourceDescription: result.source.description,
+          destinationDescription: result.destination.description,
+          suggestedName: `${request.name}-copy`,
+        },
+      };
+    }
+    return {
+      status: "completed",
+      snapshot: await this.get(snapshot.selectedProfile),
+    };
+  }
+
+  /** Validates a Profile Manager location exactly like agents and skills. */
+  async #memoryLocation(
+    location: DesktopArtifactLocation,
+    snapshot: DesktopProfileManagerSnapshot,
+    sessionAccess: "active" | "source" | "destination" = "active",
+    onPromote?: () => void,
+  ): Promise<MemoryScopeLocation> {
+    if (location.scope === "bundled") {
+      throw new Error("Bundled artifacts have no memory");
+    }
+    await this.#paths(location, snapshot, sessionAccess, onPromote);
+    const layout = resolveLiveAgentStorage({
+      environment: { LIVE_AGENT_HOME: this.options.rootLayout.root },
+      profile: location.profile ?? snapshot.selectedProfile,
+    });
+    if (location.scope === "session") {
+      const session = snapshot.profiles
+        .find(({ name }) => name === layout.profile)!
+        .sessions.find(({ id }) => id === location.sessionId)!;
+      return {
+        scope: "session",
+        directory: resolveMemoryScopeDirectory(layout, "session", {
+          liveSetId: session.liveSetId,
+          ...(session.liveProjectId === undefined
+            ? {}
+            : { liveProjectId: session.liveProjectId }),
+          sessionId: session.id,
+        }),
+      };
+    }
+    return {
+      scope: location.scope,
+      directory: resolveMemoryScopeDirectory(
+        layout,
+        location.scope,
+        location.scope === "project"
+          ? { liveProjectId: location.liveProjectId! }
+          : undefined,
+      ),
+    };
+  }
+
   async #snapshot(
     registry: ProfileRegistry,
     selectedProfile: string,
@@ -1120,6 +1274,15 @@ export class DesktopProfileManager implements ProfileManagerActions {
             profileCatalog,
             { profile: selectedProfile, liveProjectId },
           );
+          artifacts.push(
+            ...(await memoryArtifacts(
+              "project",
+              resolveMemoryScopeDirectory(selectedLayout, "project", {
+                liveProjectId,
+              }),
+              { profile: selectedProfile, liveProjectId },
+            )),
+          );
           return artifacts;
         }),
       )
@@ -1180,6 +1343,26 @@ export class DesktopProfileManager implements ProfileManagerActions {
               sessionId: id,
             },
           );
+          artifacts.push(
+            ...(await memoryArtifacts(
+              "session",
+              resolveMemoryScopeDirectory(selectedLayout, "session", {
+                liveSetId: storedSession.liveSetId,
+                ...(storedSession.liveProjectId === undefined
+                  ? {}
+                  : { liveProjectId: storedSession.liveProjectId }),
+                sessionId: id,
+              }),
+              {
+                profile: selectedProfile,
+                liveSetId: storedSession.liveSetId,
+                ...(storedSession.liveProjectId === undefined
+                  ? {}
+                  : { liveProjectId: storedSession.liveProjectId }),
+                sessionId: id,
+              },
+            )),
+          );
           return artifacts;
         }),
       )
@@ -1192,6 +1375,15 @@ export class DesktopProfileManager implements ProfileManagerActions {
         { profile: selectedProfile },
         false,
       ),
+      ...(await memoryArtifacts(
+        "system",
+        resolveMemoryScopeDirectory(selectedLayout, "system"),
+      )),
+      ...(await memoryArtifacts(
+        "profile",
+        resolveMemoryScopeDirectory(selectedLayout, "profile"),
+        { profile: selectedProfile },
+      )),
       ...projectArtifacts,
       ...sessionArtifacts,
     ];

@@ -14,6 +14,8 @@ import { basename, dirname, isAbsolute, join } from "node:path";
 import { parseDocument } from "yaml";
 import { z } from "zod";
 
+import { renameFrontmatterName } from "./artifact-service.js";
+
 /**
  * Memory is plain Markdown the agent keeps between sessions. Each scope owns
  * one `memory/` folder: one file per general topic plus an app-generated
@@ -488,4 +490,137 @@ export async function publishMemoryChanges(
     written: change.writes.map((write) => write.name),
     deleted: change.deletes.map((removal) => removal.name),
   }));
+}
+
+export interface MemoryScopeLocation {
+  readonly scope: MemoryScopeName;
+  readonly directory: string;
+}
+
+async function requireTopic(
+  location: MemoryScopeLocation,
+  name: string,
+): Promise<{ topic: MemoryTopic; topics: readonly MemoryTopic[] }> {
+  const { topics } = await readMemoryScope(location.directory);
+  const topic = topics.find((candidate) => candidate.name === name);
+  if (topic === undefined) {
+    throw new Error(
+      `${MEMORY_SCOPE_DESCRIPTIONS[location.scope].label} memory topic '${name}' does not exist`,
+    );
+  }
+  return { topic, topics };
+}
+
+function renamedTopicContent(topic: MemoryTopic, name: string): string {
+  return name === topic.name
+    ? topic.content
+    : renameFrontmatterName(
+        topic.content,
+        memoryTopicNameSchema.parse(name),
+        `Memory topic '${topic.name}'`,
+      );
+}
+
+/** Renames one topic in place and regenerates the scope's INDEX.md. */
+export async function renameMemoryTopic(
+  options: MemoryScopeLocation & {
+    readonly name: string;
+    readonly newName: string;
+  },
+): Promise<void> {
+  const { topic, topics } = await requireTopic(options, options.name);
+  if (topics.some((candidate) => candidate.name === options.newName)) {
+    throw new Error(`Memory topic '${options.newName}' already exists`);
+  }
+  await publishMemoryChanges([
+    {
+      scope: options.scope,
+      directory: options.directory,
+      writes: [
+        {
+          name: options.newName,
+          content: renamedTopicContent(topic, options.newName),
+          baseFingerprint: null,
+        },
+      ],
+      deletes: [{ name: topic.name, baseFingerprint: topic.fingerprint }],
+    },
+  ]);
+}
+
+/** Deletes one topic and regenerates the scope's INDEX.md. */
+export async function deleteMemoryTopic(
+  options: MemoryScopeLocation & { readonly name: string },
+): Promise<void> {
+  const { topic } = await requireTopic(options, options.name);
+  await publishMemoryChanges([
+    {
+      scope: options.scope,
+      directory: options.directory,
+      writes: [],
+      deletes: [{ name: topic.name, baseFingerprint: topic.fingerprint }],
+    },
+  ]);
+}
+
+export type MemoryTopicTransferResult =
+  | { readonly status: "completed" }
+  | {
+      readonly status: "conflict";
+      readonly source: MemoryTopic;
+      readonly destination: MemoryTopic;
+    };
+
+/**
+ * Copies or moves one topic between scopes as a single publication, so both
+ * INDEX.md files change together. An existing destination topic is a
+ * conflict unless the caller chose to replace it or supplied a new name.
+ */
+export async function transferMemoryTopic(options: {
+  readonly operation: "copy" | "move";
+  readonly name: string;
+  readonly source: MemoryScopeLocation;
+  readonly destination: MemoryScopeLocation;
+  readonly resolution?: "replace" | { readonly rename: string };
+}): Promise<MemoryTopicTransferResult> {
+  if (options.source.directory === options.destination.directory) {
+    throw new Error("Memory source and destination are the same scope");
+  }
+  const { topic } = await requireTopic(options.source, options.name);
+  const targetName =
+    typeof options.resolution === "object"
+      ? options.resolution.rename
+      : options.name;
+  const existing = (
+    await readMemoryScope(options.destination.directory)
+  ).topics.find((candidate) => candidate.name === targetName);
+  if (existing !== undefined && options.resolution !== "replace") {
+    if (typeof options.resolution === "object") {
+      throw new Error(`Memory topic '${targetName}' already exists`);
+    }
+    return { status: "conflict", source: topic, destination: existing };
+  }
+  await publishMemoryChanges([
+    {
+      ...options.destination,
+      writes: [
+        {
+          name: targetName,
+          content: renamedTopicContent(topic, targetName),
+          baseFingerprint: existing?.fingerprint ?? null,
+        },
+      ],
+      deletes: [],
+    },
+    ...(options.operation === "move"
+      ? [
+          {
+            ...options.source,
+            writes: [],
+            deletes: [{ name: topic.name, baseFingerprint: topic.fingerprint }],
+          },
+        ]
+      : []),
+  ]);
+  return { status: "completed" };
 }

@@ -463,6 +463,47 @@ describe("ProfileManagerView", () => {
     expect(create).toHaveBeenCalledWith("ambient-two", revision);
   });
 
+  it("groups memory topics under their scope and cannot disable them", async () => {
+    const base = snapshot();
+    window.desktop = api({
+      get: vi.fn().mockResolvedValue(
+        snapshot({
+          artifacts: [
+            ...base.artifacts,
+            {
+              kind: "memory",
+              name: "taste",
+              description: "Likes warm pads",
+              scope: "profile",
+              profile: "default",
+              origin: "profile",
+              state: "local",
+              sourceFile: "taste.md",
+              fingerprint: "d".repeat(64),
+              overriddenOrigins: [],
+              diagnostics: [],
+            },
+          ],
+        }),
+      ),
+    });
+    await act(async () => {
+      root.render(<ProfileManagerView />);
+    });
+
+    expect(
+      container.querySelector('[aria-label="1 memory topics"]'),
+    ).not.toBeNull();
+    const taste = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="taste, Local"]',
+    )!;
+    await act(async () => rightClick(taste));
+    const disable = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Disable",
+    );
+    expect(disable?.disabled).toBe(true);
+  });
+
   it("uses Copy and scope Paste with explicit conflict resolution", async () => {
     const copyArtifact = vi
       .fn()

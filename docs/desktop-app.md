@@ -88,7 +88,7 @@ The top bar holds the connection status and these tabs (list in
 | **Outputs**     | Route MIDI/audio observations from Max for Live devices to agents; see listening passes and stored listening context.     |
 | **Events**      | Define Live Events (watch a parameter, or a track's clip/recording changes). A **History** toggle opens the event journal. |
 | **Browser**     | Look through Live's browser and installed plug-ins.                                                                        |
-| **Profiles**    | Manage storage profiles and copy or move agents and skills between sessions.                                               |
+| **Profiles**    | Manage storage profiles and copy, move, rename or delete agents, skills and memory topics between scopes.                  |
 | **Diagnostics** | Check the bridge, Remote Script compatibility, Copilot auth; copy a summary or export a support bundle.                    |
 | **Sessions**    | List saved App sessions and resume one.                                                                                    |
 | **Settings**    | Approval policy, work timeout, reasoning visibility, ports, Remote Script location, logging, history retention, "Always on top". |
@@ -132,6 +132,13 @@ The publish button takes the target scope's colour. It is disabled, with the
 reason shown, when a move would exceed a topic limit, collide with another
 file, or publish a skill hidden by a narrower one. Code:
 `ArtifactReviewModule` in `renderer/App.tsx`.
+
+After publishing, memory topics also appear in **Profiles** under a
+**Memory topics** group at each System, Profile, Project and Session node.
+Copy, move (drag, or Cut and Paste), rename and delete work like they do for
+skills, and both scopes' `INDEX.md` files are rebuilt together. Topics can't
+be disabled. Live Set memory isn't shown there yet, because the Profiles tree
+has no Live Set scope.
 
 ## Approvals
 

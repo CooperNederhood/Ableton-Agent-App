@@ -602,21 +602,21 @@ export function resolveArtifactScopePaths(
 export function resolveMemoryScopeDirectory(
   layout: LiveAgentStorageLayout,
   scope: MemoryScope,
-  ownership?: SessionStorageOwnershipContext,
+  ownership?: SessionStorageOwnershipContext | ProjectStorageOwnershipContext,
 ): string {
   if (scope === "system") return layout.systemMemoryDirectory;
   if (scope === "profile") return layout.memoryDirectory;
-  if (ownership === undefined) {
-    throw new Error(
-      `Session ownership context is required for ${scope} memory`,
-    );
-  }
   if (scope === "project") {
-    if (ownership.liveProjectId === undefined) {
+    if (ownership?.liveProjectId === undefined) {
       throw new Error("Project memory requires a verified Live Project");
     }
     return resolveProjectStorage(layout, ownership.liveProjectId)
       .memoryDirectory;
+  }
+  if (ownership === undefined || !("sessionId" in ownership)) {
+    throw new Error(
+      `Session ownership context is required for ${scope} memory`,
+    );
   }
   const session = resolveNestedSessionStorage(layout, ownership);
   return scope === "live-set"

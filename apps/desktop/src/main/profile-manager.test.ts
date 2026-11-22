@@ -7,6 +7,7 @@ import {
   ensureLiveAgentStorage,
   resolveArtifactScopePaths,
   resolveLiveAgentStorage,
+  resolveMemoryScopeDirectory,
 } from "@ableton-agent/storage";
 import { desktopAgentCatalogSchema, sessionSchema } from "../contracts.js";
 
@@ -329,6 +330,109 @@ describe("DesktopProfileManager", () => {
           scope === "profile" && kind === "agent" && name === "default",
       ),
     ).toMatchObject({ state: "disabled", origin: "bundled" });
+  });
+
+  it("lists, transfers, renames, and deletes memory topics across scopes", async () => {
+    const { manager, layout, refreshActiveCatalog } = await fixture({
+      activeSessionId: "session-1",
+    });
+    const memoryTopic = (name: string, description: string) =>
+      `---\nname: ${name}\ndescription: ${description}\n---\n\nNotes.\n`;
+    const profileMemory = resolveMemoryScopeDirectory(layout, "profile");
+    const sessionMemory = resolveMemoryScopeDirectory(layout, "session", {
+      liveSetId: "test-set",
+      sessionId: "session-1",
+    });
+    await mkdir(profileMemory, { recursive: true });
+    await mkdir(sessionMemory, { recursive: true });
+    await writeFile(
+      join(profileMemory, "taste.md"),
+      memoryTopic("taste", "Likes warm pads"),
+    );
+    await writeFile(
+      join(sessionMemory, "taste.md"),
+      memoryTopic("taste", "Older note"),
+    );
+    const profile = { scope: "profile", profile: "default" } as const;
+    const session = {
+      scope: "session",
+      profile: "default",
+      sessionId: "session-1",
+    } as const;
+    const initial = await manager.get();
+    expect(
+      initial.artifacts.find(
+        ({ kind, scope }) => kind === "memory" && scope === "profile",
+      ),
+    ).toMatchObject({
+      name: "taste",
+      description: "Likes warm pads",
+      origin: "profile",
+      state: "local",
+    });
+
+    const conflict = await manager.copyArtifact({
+      kind: "memory",
+      name: "taste",
+      source: profile,
+      destination: session,
+      expectedRevision: initial.revision,
+    });
+    expect(conflict).toMatchObject({
+      status: "conflict",
+      conflict: { suggestedName: "taste-copy" },
+    });
+
+    const moved = await manager.moveArtifact({
+      kind: "memory",
+      name: "taste",
+      source: profile,
+      destination: session,
+      expectedRevision: initial.revision,
+      conflictResolution: "replace",
+    });
+    if (moved.status !== "completed") throw new Error("Expected completion");
+    expect(
+      moved.snapshot.artifacts.filter(({ kind }) => kind === "memory"),
+    ).toEqual([
+      expect.objectContaining({
+        scope: "session",
+        name: "taste",
+        description: "Likes warm pads",
+      }),
+    ]);
+    expect(await readFile(join(sessionMemory, "INDEX.md"), "utf8")).toBe(
+      "taste | Likes warm pads | ./taste.md\n",
+    );
+
+    await expect(
+      manager.setArtifactDisabled({
+        kind: "memory",
+        name: "taste",
+        location: session,
+        disabled: true,
+        expectedRevision: moved.snapshot.revision,
+      }),
+    ).rejects.toThrow("cannot be disabled");
+
+    const renamed = await manager.renameArtifact({
+      kind: "memory",
+      name: "taste",
+      newName: "sound",
+      location: session,
+      expectedRevision: moved.snapshot.revision,
+    });
+    expect(await readFile(join(sessionMemory, "sound.md"), "utf8")).toContain(
+      "name: sound",
+    );
+    const deleted = await manager.deleteArtifact({
+      kind: "memory",
+      name: "sound",
+      location: session,
+      expectedRevision: renamed.revision,
+    });
+    expect(deleted.artifacts.some(({ kind }) => kind === "memory")).toBe(false);
+    expect(refreshActiveCatalog).not.toHaveBeenCalled();
   });
 
   it("moves skills and copies agents into an inactive persisted session", async () => {

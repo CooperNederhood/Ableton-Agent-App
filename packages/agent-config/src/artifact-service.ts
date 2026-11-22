@@ -324,15 +324,20 @@ export async function moveArtifact(
   }
 }
 
-function renameSkillContent(content: string, replacementName: string): string {
+/** Rewrites the `name` key of a Markdown document's YAML frontmatter. */
+export function renameFrontmatterName(
+  content: string,
+  replacementName: string,
+  label = "SKILL.md",
+): string {
   const normalized = content.replace(/\r\n/gu, "\n");
   const end = normalized.indexOf("\n---\n", 4);
   if (!normalized.startsWith("---\n") || end < 0) {
-    throw new Error("SKILL.md must contain YAML frontmatter");
+    throw new Error(`${label} must contain YAML frontmatter`);
   }
   const document = parseDocument(normalized.slice(4, end), { customTags: [] });
   if (document.errors.length > 0)
-    throw new Error("SKILL.md frontmatter is invalid");
+    throw new Error(`${label} frontmatter is invalid`);
   document.set("name", replacementName);
   return `---\n${document.toString().trimEnd()}\n---\n${normalized.slice(end + 5)}`;
 }
@@ -378,7 +383,7 @@ export async function renameSkillInScope(options: {
     const skillPath = join(stagedSkill, "SKILL.md");
     await atomicWrite(
       skillPath,
-      renameSkillContent(
+      renameFrontmatterName(
         (await readRegularFile(skillPath, maximumSkillBytes)).toString("utf8"),
         options.replacementName,
       ),

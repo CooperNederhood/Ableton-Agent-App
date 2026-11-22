@@ -1478,7 +1478,7 @@ export const desktopSkillDocumentSchema = z
   .strict();
 export type DesktopSkillDocument = z.infer<typeof desktopSkillDocumentSchema>;
 
-export const desktopArtifactKindSchema = z.enum(["agent", "skill"]);
+export const desktopArtifactKindSchema = z.enum(["agent", "skill", "memory"]);
 export type DesktopArtifactKind = z.infer<typeof desktopArtifactKindSchema>;
 
 export const desktopArtifactScopeSchema = z.enum([

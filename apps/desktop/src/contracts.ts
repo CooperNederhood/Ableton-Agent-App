@@ -799,6 +799,7 @@ export const operationSchema = z.object({
   toolName: z.string().min(1).max(128).optional(),
   operationDescriptorId: z.string().min(1).max(128).optional(),
   action: z.string().min(1).max(128).optional(),
+  subagentLabel: z.string().min(1).max(128).optional(),
   status: z.enum(["running", "completed", "partial", "failed", "cancelled"]),
   detail: z.string().optional(),
   request: operationDisclosureSchema.optional(),
@@ -1254,6 +1255,7 @@ export const preferencesSchema = z.object({
   eventsViewMode: z.enum(["live", "history"]).default("live"),
   workflowDensity: z.enum(["compact", "comfortable"]).default("comfortable"),
   alwaysOnTop: z.boolean().default(false),
+  showAdvancedViews: z.boolean().default(false),
 });
 export type DesktopPreferences = z.infer<typeof preferencesSchema>;
 
@@ -1692,6 +1694,20 @@ export const appEventSchema = z.discriminatedUnion("type", [
     traceId: z.string().uuid(),
     correlationId: z.string().uuid(),
     causationId: z.string().uuid(),
+  }),
+  z.object({
+    type: z.literal("agent.context_usage_changed"),
+    usage: z.strictObject({
+      currentTokens: z.number().int().nonnegative().optional(),
+      tokenLimit: z.number().int().positive().optional(),
+      conversationTokens: z.number().int().nonnegative().optional(),
+      systemTokens: z.number().int().nonnegative().optional(),
+      toolDefinitionsTokens: z.number().int().nonnegative().optional(),
+      compactions: z.number().int().nonnegative(),
+      failedCompactions: z.number().int().nonnegative(),
+    }),
+    agentInstanceId: z.string().uuid(),
+    sdkSessionId: z.string().min(1),
   }),
   z.object({
     type: z.literal("agent.mode_changed"),

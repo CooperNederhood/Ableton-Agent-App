@@ -49,9 +49,24 @@ window can show the card, or the app is shutting down, the request is denied.
 
 Some tools skip the prompt because they only touch app-owned files: `skill`,
 `read_plan` and `write_plan`. The SDK's `bash` tool is checked by a separate
-policy (`packages/application/src/shell-policy.ts`) that allows only a few
-read-only commands (`grep`, bounded `head`/`tail`, `wc`, `jq`) on the
-agent's own large-output files, and rejects everything else.
+policy (`packages/application/src/shell-policy.ts`).
+
+When an agent has `bash` and the SDK reports that the host can run its OS
+sandbox (Seatbelt on macOS), the session is created with that sandbox: no
+outbound or local network, no keychain, and writes only inside the agent's
+scratch working directory (the profile's `copilot/tool-output` folder). The
+profile's credentials and observability folders and common secret folders in
+the home directory (`.ssh`, `.gnupg`, `.aws`, `.config/gh`) are denied even for
+reading. Inside the sandbox the agent may run any command without a prompt, for
+example `python3` to compute MIDI note data; Live itself is only reachable
+through the Ableton tools. Requests to bypass or relax the sandbox, commands
+with URLs, and commands that need managed-policy approval are still refused.
+
+If the sandbox is unavailable or the support check fails, the app fails closed:
+`bash` only allows a few read-only commands (`grep`, bounded `head`/`tail`,
+`wc`, `jq`) on the agent's own large-output files and rejects everything else.
+The support check is recorded as `agent.shell_sandbox.*` runtime events, and
+every shell decision records its policy stage and whether it was sandboxed.
 
 ## The checks, in order
 

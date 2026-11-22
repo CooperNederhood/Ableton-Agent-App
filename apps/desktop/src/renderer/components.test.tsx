@@ -611,6 +611,8 @@ describe("desktop components", () => {
     expect(slashCompletionKey("ArrowUp", 0, 2)).toBe(1);
     expect(slashCompletionKey("Tab", 1, 2)).toBe("complete");
     expect(slashCompletionKey("Enter", 0, 2)).toBe("complete");
+    expect(slashCompletionKey("Enter", 0, 2, true)).toBeUndefined();
+    expect(slashCompletionKey("Tab", 0, 2, true)).toBe("complete");
     expect(slashCompletionKey("Enter", 0, 0)).toBeUndefined();
   });
 
@@ -835,6 +837,103 @@ describe("desktop components", () => {
         agentInstanceId: secondAgentId,
       }),
     );
+  });
+
+  it("orders a turn as request, tool activity, then the assistant answer", () => {
+    const messageId = "assistant-turn";
+    const activityId = "00000000-0000-4000-8000-0000000000a1";
+    let state = workspaceState(secondAgentId);
+    const event = (
+      value: Extract<
+        Parameters<typeof desktopReducer>[1],
+        { type: "event" }
+      >["event"],
+    ) => {
+      state = desktopReducer(state, { type: "event", event: value });
+    };
+    event({
+      type: "agent.working_update",
+      messageId,
+      agentInstanceId: secondAgentId,
+      update: {
+        kind: "started",
+        activityId,
+        occurredAt: new Date(1_100).toISOString(),
+      },
+    });
+    state = desktopReducer(state, {
+      type: "user-message",
+      id: "request",
+      content: "Make a beat",
+      submittedAt: 1_000,
+      agentInstanceId: secondAgentId,
+    });
+    event({
+      type: "operation.changed",
+      agentInstanceId: secondAgentId,
+      operation: {
+        id: "tool",
+        label: "Create clip",
+        status: "completed",
+        warnings: [],
+        changed: [],
+        unchanged: [],
+        retryable: false,
+        undoable: false,
+        timestamp: 1_200,
+      },
+    });
+    const order = (html: string) =>
+      ["Make a beat", "Create clip", "Working"].map((text) =>
+        html.indexOf(text),
+      );
+    const running = order(renderToStaticMarkup(<Timeline state={state} />));
+    expect(running).toEqual([...running].sort((a, b) => a - b));
+    event({
+      type: "agent.message_complete",
+      messageId,
+      agentInstanceId: secondAgentId,
+      content: "Made a beat",
+    });
+    event({
+      type: "agent.working_update",
+      messageId,
+      agentInstanceId: secondAgentId,
+      update: {
+        kind: "finished",
+        activityId,
+        outcome: "completed",
+        occurredAt: new Date(1_300).toISOString(),
+      },
+    });
+    const html = renderToStaticMarkup(<Timeline state={state} />);
+    const finished = ["Make a beat", "Create clip", "Made a beat"].map((text) =>
+      html.indexOf(text),
+    );
+    expect(finished.every((index) => index >= 0)).toBe(true);
+    expect(finished).toEqual([...finished].sort((a, b) => a - b));
+  });
+
+  it("stamps a user message with its submission time, not acceptance time", async () => {
+    vi.useFakeTimers({ now: 1_000 });
+    try {
+      const state = workspaceState(secondAgentId);
+      const send = vi.fn(async () => {
+        vi.setSystemTime(5_000);
+        return { accepted: true, messageId: "accepted" };
+      });
+      const desktop = {
+        agents: { send },
+        project: { setContext: vi.fn() },
+      } as unknown as DesktopApi;
+      const dispatch = vi.fn();
+      await sendComposerMessage(desktop, state, "Make a beat", dispatch);
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "user-message", submittedAt: 1_000 }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not present a user message before main-process acceptance", async () => {
@@ -1779,6 +1878,57 @@ describe("desktop components", () => {
     expect(html).toContain("Requested");
     expect(html).toContain("Result");
     expect(html).toContain("1.3 s");
+    expect(html).toContain(
+      '<small><span class="operation-status">partial</span> · 1.3 s</small>',
+    );
+  });
+
+  it("distinguishes sub-agent operations with a labeled accent", () => {
+    const operation = {
+      id: "sub-1",
+      label: "Compose: Read session",
+      toolName: "ableton_session",
+      subagentLabel: "Compose",
+      status: "completed" as const,
+      warnings: [],
+      changed: [],
+      unchanged: [],
+      retryable: false,
+      undoable: false,
+      timestamp: 1,
+    };
+    const subagent = renderToStaticMarkup(
+      <OperationCard operation={operation} />,
+    );
+    expect(subagent).toContain("operation-subagent");
+    expect(subagent).toContain(
+      '<span class="operation-subagent-label" title="Run by sub-agent Compose">Compose</span><span class="operation-label">Read session</span>',
+    );
+
+    const launch = renderToStaticMarkup(
+      <OperationCard
+        operation={{
+          ...operation,
+          id: "task-1",
+          label: "Delegate to Compose",
+          toolName: "task",
+          subagentLabel: undefined,
+        }}
+      />,
+    );
+    expect(launch).toContain("operation-subagent-launch");
+    expect(launch).not.toContain("operation-subagent-label");
+
+    const parent = renderToStaticMarkup(
+      <OperationCard
+        operation={{
+          ...operation,
+          label: "Read session",
+          subagentLabel: undefined,
+        }}
+      />,
+    );
+    expect(parent).not.toContain("operation-subagent");
   });
 
   it("renders an attributed policy failure with corrective guidance", () => {

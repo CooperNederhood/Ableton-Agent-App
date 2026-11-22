@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import type { AbletonService } from "@ableton-agent/ableton-contracts";
 import {
@@ -163,6 +164,7 @@ import {
 } from "@ableton-agent/observability";
 import type {
   AppEvent,
+  AgentContextUsage,
   AgentMode,
   AgentReasoningSummary,
   AgentWorkingUpdate,
@@ -229,6 +231,7 @@ import {
   type ModelInfo,
   type ResumeSessionConfig,
   type CustomAgentConfig,
+  type SandboxConfig,
   type SessionConfig,
   type SessionEvent,
   type Tool,
@@ -703,6 +706,7 @@ interface CopilotClientAdapter {
     config: ResumeSessionConfig,
   ): Promise<CopilotSessionAdapter>;
   listModels?(): Promise<ModelInfo[]>;
+  getSandboxHostSupport?(): Promise<{ supported: boolean; reason?: string }>;
   getAuthStatus?(): Promise<{
     isAuthenticated: boolean;
     authType?: "user" | "env" | "gh-cli" | "hmac" | "api-key" | "token";
@@ -1041,13 +1045,30 @@ const TASK_TOOL_NAME = "task";
 const SUBAGENT_GUIDANCE =
   "You are running as a delegated sub-agent of the main Ableton agent. You cannot ask the user questions. Your final message is returned to the main agent as the task result, so make it a complete, self-contained report of what you observed and changed.";
 
-function toolGuidance(toolNames: readonly string[]): string {
+function shellSandboxConfig(deniedPaths: readonly string[]): SandboxConfig {
+  return {
+    enabled: true,
+    allowBypass: false,
+    userPolicy: {
+      filesystem: { deniedPaths: [...deniedPaths] },
+      network: { allowOutbound: false, allowLocalNetwork: false },
+      seatbelt: { keychainAccess: false },
+    },
+  };
+}
+
+function toolGuidance(
+  toolNames: readonly string[],
+  shellSandboxed: boolean,
+): string {
   const historyGuidance = toolNames.includes("set_sql_search")
     ? "\n\nFor questions about prior Live Sets, saves, devices, clips, or agent trajectories, use set_sql_search against the local read-only Set History views. Treat it as historical evidence and inspect the current Live Set before acting."
     : "";
-  const shellGuidance = toolNames.includes(BASH_TOOL_NAME)
-    ? "\n\nThe bash tool is restricted to bounded, read-only inspection of Copilot large-output spill files. Use grep, bounded head/tail, wc, or jq against the exact spill path returned by a tool. Do not attempt writes, network access, arbitrary filesystem reads, or command execution outside that purpose."
-    : "";
+  const shellGuidance = !toolNames.includes(BASH_TOOL_NAME)
+    ? ""
+    : shellSandboxed
+      ? "\n\nThe bash tool runs inside an OS sandbox with no network access; it can write only inside its current working directory, which is a private scratch directory. Use it freely as a scratchpad for computation, for example python3 or node to generate or transform note data, or to inspect large-output spill files with grep, head, tail, wc, or jq. Bash cannot reach Ableton Live: make every Live change through the Ableton tools. Do not request sandbox bypass or permissive mode."
+      : "\n\nThe bash tool is restricted to bounded, read-only inspection of Copilot large-output spill files. Use grep, bounded head/tail, wc, or jq against the exact spill path returned by a tool. Do not attempt writes, network access, arbitrary filesystem reads, or command execution outside that purpose.";
   const listeningGuidance = toolNames.includes("ableton_listening")
     ? `\n\n${LISTENING_AGENT_GUIDANCE}`
     : "";
@@ -1429,7 +1450,13 @@ interface ManagedSessionState {
   signalTargetId: string;
   session: CopilotSessionAdapter | undefined;
   appliedReasoningSummary: AgentReasoningSummary | undefined;
+  shellSandboxed: boolean;
   unsubscribe: (() => void) | undefined;
+  contextUsage?: {
+    sessionId: string;
+    usage: AgentContextUsage;
+    compactionIds: Set<string>;
+  };
   inFlightTurns: number;
   queuedTurns: number;
   turnQueue: Promise<void>;
@@ -1901,6 +1928,8 @@ export class CopilotAgentService implements AgentService {
   readonly #lifecycleTails = new Map<string, Promise<void>>();
   readonly #planArtifacts: FilePlanArtifactStore;
   readonly #largeOutputDirectory: string;
+  readonly #shellSandboxDeniedPaths: readonly string[];
+  #shellSandboxSupported: Promise<boolean> | undefined;
 
   public constructor(private readonly options: CopilotAgentServiceOptions) {
     if (
@@ -1915,6 +1944,13 @@ export class CopilotAgentService implements AgentService {
     const storage = resolveLiveAgentStorage({ homeDirectory: homedir() });
     this.#largeOutputDirectory =
       options.largeOutputDirectory ?? storage.copilotToolOutputDirectory;
+    this.#shellSandboxDeniedPaths = [
+      storage.credentialsDirectory,
+      storage.observabilityDirectory,
+      ...[".ssh", ".gnupg", ".aws", join(".config", "gh")].map((path) =>
+        join(homedir(), path),
+      ),
+    ];
     this.#planArtifacts = new FilePlanArtifactStore(
       options.resolvePlanArtifactPaths ??
         (() => {
@@ -1925,14 +1961,21 @@ export class CopilotAgentService implements AgentService {
     );
     this.#clientFactory =
       options.clientFactory ??
-      (() =>
-        new CopilotClient({
+      (() => {
+        const client = new CopilotClient({
           mode: "empty",
           baseDirectory: options.baseDirectory ?? storage.copilotDirectory,
           ...(options.runtimeEnvironment === undefined
             ? {}
             : { env: options.runtimeEnvironment }),
-        }));
+        });
+        return Object.assign(client, {
+          async getSandboxHostSupport() {
+            await client.start();
+            return client.rpc.sandbox.getHostSupport();
+          },
+        });
+      });
   }
 
   public get sessionId(): string | undefined {
@@ -2998,6 +3041,7 @@ export class CopilotAgentService implements AgentService {
       signalTargetId: exposeInstanceId ? configuration.instanceId : key,
       session: undefined,
       appliedReasoningSummary: undefined,
+      shellSandboxed: false,
       unsubscribe: undefined,
       inFlightTurns: 0,
       queuedTurns: 0,
@@ -3019,6 +3063,35 @@ export class CopilotAgentService implements AgentService {
       directPlanRequests: new Map(),
       elicitationRequests: new Map(),
     };
+  }
+
+  #shellSandboxSupport(state: ManagedSessionState): Promise<boolean> {
+    this.#shellSandboxSupported ??= (async () => {
+      const startedAt = Date.now();
+      this.#recordRuntime(state, "agent.shell_sandbox.queued", {});
+      this.#recordRuntime(state, "agent.shell_sandbox.started", {});
+      try {
+        const support = await this.#requireClient().getSandboxHostSupport?.();
+        const supported = support?.supported === true;
+        this.#recordRuntime(state, "agent.shell_sandbox.completed", {
+          supported,
+          ...(support?.reason === undefined
+            ? {}
+            : { reason: support.reason.slice(0, 512) }),
+          ...(support === undefined ? { reason: "not_reported" } : {}),
+          durationMs: Date.now() - startedAt,
+        });
+        return supported;
+      } catch (error) {
+        this.#shellSandboxSupported = undefined;
+        this.#recordRuntime(state, "agent.shell_sandbox.failed", {
+          error: error instanceof Error ? error.message : String(error),
+          durationMs: Date.now() - startedAt,
+        });
+        return false;
+      }
+    })();
+    return this.#shellSandboxSupported;
   }
 
   #requireClient(): CopilotClientAdapter {
@@ -3832,6 +3905,10 @@ export class CopilotAgentService implements AgentService {
     const skillInstructions = formatSkillSystemInstructions(
       enabledSkillDescriptors(state.configuration),
     );
+    const shellSandboxed =
+      configuredToolNames.includes(BASH_TOOL_NAME) &&
+      (await this.#shellSandboxSupport(state));
+    state.shellSandboxed = shellSandboxed;
     const scopedSignalContext = this.#scopedSignalContext(state);
     const scopedLiveEventContext = this.#scopedLiveEventContext(state);
     const currentIdentityContext = (): AgentIdentityContext | undefined => {
@@ -3972,7 +4049,7 @@ export class CopilotAgentService implements AgentService {
     const subagents = this.#subagentCustomAgents(
       state,
       configuredToolNames,
-      toolGuidance,
+      (toolNames) => toolGuidance(toolNames, shellSandboxed),
     );
     const config: SessionConfig = {
       clientName: "ableton-agent-app",
@@ -3987,6 +4064,9 @@ export class CopilotAgentService implements AgentService {
         outputDirectory: this.#largeOutputDirectory,
       },
       workingDirectory: this.#largeOutputDirectory,
+      ...(shellSandboxed
+        ? { sandboxConfig: shellSandboxConfig(this.#shellSandboxDeniedPaths) }
+        : {}),
       tools,
       availableTools: qualifyAvailableTools(configuredToolNames),
       toolSearch: { enabled: false },
@@ -3995,7 +4075,7 @@ export class CopilotAgentService implements AgentService {
           name: state.configuration.definitionName,
           displayName: state.configuration.label,
           description: state.configuration.description,
-          prompt: `${state.configuration.systemPrompt}${toolGuidance(configuredToolNames)}`,
+          prompt: `${state.configuration.systemPrompt}${toolGuidance(configuredToolNames, shellSandboxed)}`,
           infer: false,
         },
         ...subagents,
@@ -4190,6 +4270,7 @@ export class CopilotAgentService implements AgentService {
         const shellEvaluation = evaluateSpillFileShellPolicy(
           request,
           this.#largeOutputDirectory,
+          { sandboxed: state.shellSandboxed },
         );
         this.#recordRuntime(state, "agent.permission.requested", {
           permissionId,
@@ -4438,6 +4519,15 @@ export class CopilotAgentService implements AgentService {
 
   #observe(state: ManagedSessionState, session: CopilotSessionAdapter): void {
     state.unsubscribe?.();
+    const context: NonNullable<ManagedSessionState["contextUsage"]> =
+      state.contextUsage?.sessionId === session.sessionId
+        ? state.contextUsage
+        : {
+            sessionId: session.sessionId,
+            usage: { compactions: 0, failedCompactions: 0 },
+            compactionIds: new Set<string>(),
+          };
+    state.contextUsage = context;
     state.unsubscribe = session.on((event) => {
       if (this.#states.get(state.key) !== state) return;
       if (event.type === "subagent.started" && event.agentId !== undefined) {
@@ -4655,6 +4745,68 @@ export class CopilotAgentService implements AgentService {
         event.type === "session.compaction_start" ||
         event.type === "session.compaction_complete"
       ) {
+        if (
+          state.exposeInstanceId &&
+          state.session === session &&
+          event.agentId === undefined
+        ) {
+          let usage = context.usage;
+          if (event.type === "session.usage_info") {
+            const counts = {
+              currentTokens: event.data.currentTokens,
+              tokenLimit: event.data.tokenLimit,
+              conversationTokens: event.data.conversationTokens,
+              systemTokens: event.data.systemTokens,
+              toolDefinitionsTokens: event.data.toolDefinitionsTokens,
+            };
+            const validCount = (value: number | undefined): value is number =>
+              value !== undefined && Number.isSafeInteger(value) && value >= 0;
+            usage = {
+              compactions: usage.compactions,
+              failedCompactions: usage.failedCompactions,
+              ...(validCount(counts.currentTokens)
+                ? { currentTokens: counts.currentTokens }
+                : {}),
+              ...(validCount(counts.tokenLimit) && counts.tokenLimit > 0
+                ? { tokenLimit: counts.tokenLimit }
+                : {}),
+              ...(validCount(counts.conversationTokens)
+                ? { conversationTokens: counts.conversationTokens }
+                : {}),
+              ...(validCount(counts.systemTokens)
+                ? { systemTokens: counts.systemTokens }
+                : {}),
+              ...(validCount(counts.toolDefinitionsTokens)
+                ? { toolDefinitionsTokens: counts.toolDefinitionsTokens }
+                : {}),
+            };
+          } else if (
+            event.type === "session.compaction_complete" &&
+            typeof event.data.success === "boolean"
+          ) {
+            const id = event.data.compactionAttemptId ?? event.id;
+            if (!context.compactionIds.has(id)) {
+              context.compactionIds.add(id);
+              usage = {
+                ...usage,
+                compactions:
+                  usage.compactions + Number(event.data.success === true),
+                failedCompactions:
+                  usage.failedCompactions +
+                  Number(event.data.success === false),
+              };
+            }
+          }
+          if (usage !== context.usage) {
+            context.usage = usage;
+            this.options.events.publish({
+              type: "agent.context_usage_changed",
+              usage,
+              agentInstanceId: state.configuration.instanceId,
+              sdkSessionId: session.sessionId,
+            });
+          }
+        }
         const fields = [
           "model",
           "inputTokens",
@@ -4988,6 +5140,7 @@ export class CopilotAgentService implements AgentService {
           ...(metadata?.lifecycleIdentity === undefined
             ? {}
             : { targetIdentity: metadata.lifecycleIdentity }),
+          ...(subagent === undefined ? {} : { subagentLabel: subagent.label }),
           ...this.#eventAttribution(state),
         });
       } else if (event.type === "tool.execution_complete") {

@@ -21,6 +21,7 @@ function desktopToolName(toolName: string | undefined): string | undefined {
 function desktopOperationMetadata(event: DesktopSharedEvent): {
   readonly operationDescriptorId?: string;
   readonly action?: string;
+  readonly subagentLabel?: string;
 } {
   const record = event as unknown as Readonly<Record<string, unknown>>;
   const operationDescriptorId =
@@ -36,11 +37,18 @@ function desktopOperationMetadata(event: DesktopSharedEvent): {
       ? event.arguments.action
       : undefined;
   const action = (directAction ?? argumentAction)?.slice(0, 128);
+  const subagentLabel =
+    typeof record.subagentLabel === "string"
+      ? record.subagentLabel.trim().slice(0, 128)
+      : undefined;
   return {
     ...(operationDescriptorId === undefined || operationDescriptorId === ""
       ? {}
       : { operationDescriptorId }),
     ...(action === undefined || action === "" ? {} : { action }),
+    ...(subagentLabel === undefined || subagentLabel === ""
+      ? {}
+      : { subagentLabel }),
   };
 }
 

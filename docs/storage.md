@@ -48,7 +48,7 @@ directories with owner-only (`0700`) permissions.
     │   └── signal-ingress-secret.json
     ├── copilot/                    Copilot SDK home (owned by the SDK)
     │   ├── session-state/{sdk-session-id}/events.jsonl, workspace.yaml, …
-    │   └── tool-output/            short-lived large tool outputs
+    │   └── tool-output/            large tool outputs + sandboxed bash scratch
     ├── observability/
     │   └── agent-set-event-history.sqlite   the journal
     ├── logs/desktop.log            Desktop diagnostic log (JSON lines)

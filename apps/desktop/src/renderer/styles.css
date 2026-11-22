@@ -2135,6 +2135,8 @@ small,
 .operation summary small {
   color: #707b82;
   font-size: 11px;
+}
+.operation-status {
   text-transform: capitalize;
 }
 .operation-running summary small {
@@ -2147,6 +2149,34 @@ small,
 .operation-partial summary,
 .operation-partial summary small {
   color: #dca66d;
+}
+.operation-subagent,
+.operation-subagent-launch {
+  --subagent-color: #22d3ee;
+  border-left: 2px solid var(--subagent-color);
+  padding-left: 8px;
+}
+.operation-subagent summary {
+  grid-template-columns: 18px auto minmax(0, 1fr) auto;
+}
+.operation-subagent summary.has-tool-name {
+  grid-template-columns: 18px auto minmax(0, max-content) minmax(0, 1fr) auto;
+}
+.operation-subagent .activity-icon,
+.operation-subagent-launch .activity-icon {
+  color: var(--subagent-color);
+}
+.operation-subagent-label {
+  max-width: 14ch;
+  overflow: hidden;
+  border-radius: 4px;
+  padding: 1px 6px;
+  background: rgb(34 211 238 / 14%);
+  color: var(--subagent-color);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .operation-details {
   margin: 5px 0 0 26px;
@@ -2343,6 +2373,81 @@ small,
   min-height: 0;
   flex: 1;
   overflow: auto;
+}
+.context-budget {
+  padding: 14px;
+  font-size: 12px;
+}
+.context-budget h3 {
+  margin: 0 0 4px;
+  color: var(--muted);
+}
+.context-budget-total {
+  margin: 0 0 9px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.context-budget-total strong {
+  color: #e8ecef;
+  font-size: 19px;
+  font-weight: 650;
+}
+.context-budget-meter {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--line);
+}
+.context-budget-meter[data-over-budget] {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+.context-budget [data-token-kind] {
+  background: #77868f;
+}
+.context-budget [data-token-kind="system"] {
+  background: #a78bfa;
+}
+.context-budget [data-token-kind="conversation"] {
+  background: #4ade80;
+}
+.context-budget [data-token-kind="tools"] {
+  background: #fbbf24;
+}
+.context-budget dl {
+  margin: 11px 0 0;
+}
+.context-budget dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-block: 4px;
+}
+.context-budget dt {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+}
+.context-budget-swatch {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border-radius: 2px;
+}
+.context-budget dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.context-budget-compactions {
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+.context-budget-failed dd {
+  color: var(--accent);
 }
 .inspector-pane-content .inspection,
 .inspector-pane-content .approval-panel,

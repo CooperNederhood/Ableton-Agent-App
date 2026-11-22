@@ -1046,7 +1046,7 @@ describe("musical analysis host", () => {
       tempoEvidence: "message-rate-monitored-constant",
       provenance: "capture-snapshot/v1",
     });
-    vi.mocked(store.listFeatures).mockResolvedValue({
+    vi.spyOn(store, "listFeatures").mockResolvedValue({
       items: [
         {
           ...record,
@@ -1055,7 +1055,7 @@ describe("musical analysis host", () => {
             ...extractListeningFeature(
               "attack-activity-grid/v1",
               observation,
-              range!,
+              range,
             ),
             values: [1, 1, 1, 1],
           },
@@ -1094,7 +1094,7 @@ describe("musical analysis host", () => {
     if (finding?.kind !== "repeated-attack-spacing")
       throw new Error("Expected spaced attacks");
     expect(finding.spacingBeats).toBe(0.25);
-    const pointer = finding!.evidence[0]!;
+    const pointer = finding.evidence[0]!;
     const read = await host.executeContextOperation(
       {
         action: "read",
@@ -2109,7 +2109,10 @@ describe("musical analysis host", () => {
         correlationId: trace.correlationId,
         causationId: trace.causationId,
         trace: { traceId: trace.traceId },
-        attributes: { contextId: ids[0], summaryBytes: expect.any(Number) },
+        attributes: {
+          contextId: ids[0],
+          summaryBytes: expect.any(Number) as number,
+        },
       });
       expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(
         MAX_METRIC_CONTEXT_RESPONSE_BYTES - 8192,

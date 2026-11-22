@@ -167,8 +167,18 @@ test("clock reader waits for a new native vector when Live starts at the same be
   assert.equal(f.packets.filter((p) => p[2] === "clock").length, 2);
 });
 
+// Session launches can start Live at another beat than the stopped position.
+test("clock reader waits for a new native vector when Live starts at another beat", () => {
+  const f = clockFixture();
+  assert.equal(f.read(1449920, 1449983, 0, 129.0703125), true);
+  assert.equal(f.read(1449984, 1449983, 0, 128, 1), false);
+  assert.equal(f.packets.at(-1)[2], "clock-cohort-skipped");
+  assert.equal(f.packets.filter((p) => p[2] === "clock").length, 1);
+  assert.equal(f.read(1449984, 1450047, 0, 128, 1), true);
+  assert.equal(f.packets.filter((p) => p[2] === "clock").length, 2);
+});
+
 for (const [label, host, counter, phase, beat, wasPlaying, isPlaying] of [
-  ["seek", 1449984, 1449983, 0, 1, 0, 1],
   ["phase change", 1449984, 1449983, 0.1, 0, 0, 1],
   ["over one vector", 1450048, 1449983, 0, 0, 0, 1],
   ["native counter regression", 1449984, 1449919, 0, 0, 0, 1],

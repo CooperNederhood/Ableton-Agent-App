@@ -1622,16 +1622,17 @@ NativeMessageIO.prototype.anchorPost = function (values) {
     row[5] === 0 &&
     row[2] === row[4] &&
     row[2] - previous[2] === this.clockVectorSize - 1;
-  var sameBeatStart =
+  // Live may start at another beat than the stopped position (Session launch);
+  // the controller validates the beat on the next fresh native vector.
+  var transportStart =
     previous &&
     previous[0] === 0 &&
     row[0] === 1 &&
-    row[1] === previous[1] &&
     row[5] === 0 &&
     row[2] === row[4] + 1;
   var beatAdvanceMatches =
     previous &&
-    (sameBeatStart ||
+    (transportStart ||
       (row[0] === 0 && row[1] === previous[1]) ||
       (row[0] === 1 &&
         (this.clockSampleRate === 44100 || this.clockSampleRate === 48000) &&
@@ -1659,7 +1660,7 @@ NativeMessageIO.prototype.anchorPost = function (values) {
         index === 2 ||
         index === 8 ||
         index === 9 ||
-        (sameBeatStart && (index === 0 || index === 7)) ||
+        (transportStart && (index === 0 || index === 7)) ||
         value === previous[index]
       );
     })

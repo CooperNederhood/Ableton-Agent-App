@@ -85,6 +85,7 @@ function createMelBandHandoff({
   let cancelled = false;
   let localFailure = null;
   let integrityFailure = null;
+  let desynced = null;
   let sourceIdentityEvidence = null;
   let stoppedPacket = null;
   let drainPacket = null;
@@ -92,6 +93,98 @@ function createMelBandHandoff({
   let pendingArmReported = false;
   let progressAt = -Infinity;
 
+  // These failures mean the mel device crossed ownership, read the wrong
+  // source, broke the stream sink or cannot prove it stopped. Every other mel
+  // fault desynchronizes only the mel-family metrics.
+  const LISTEN_LEVEL_FAILURES = new Set([
+    "mel_unowned_or_malformed_packet",
+    "mel_foreign_or_invalid_header",
+    "analyzer_readiness_generation_mismatch",
+    "mel_dsp_generation_changed",
+    "mel_foreign_drain_receipt",
+    "mel_invalid_source_identity_evidence",
+    "mel_foreign_source_identity_evidence",
+    "mel_source_identity_terminal_mismatch",
+    "mel_stream_record_rejected",
+    "mel_stream_gap_rejected",
+    "analyzer_stream_record_rejected",
+    "analyzer_stream_gap_rejected",
+    "mel_terminal_not_consumed",
+    "mel_unobserved_terminal",
+    "mel_terminal_clock_unconfirmed",
+    "mel_terminal_clock_before_retained_frames",
+    "mel_terminal_clock_before_capture_end",
+  ]);
+  // Native source, clock and DSP stops are shared facts. Only the mel
+  // device's own handshake and origin search fail mel alone.
+  function listenLevel(reason) {
+    const native = /^mel_native_integrity_failure_(\d+)$/.exec(reason);
+    if (native) return !["8", "11"].includes(native[1]);
+    return LISTEN_LEVEL_FAILURES.has(reason);
+  }
+  function desync(reason) {
+    desynced = reason;
+    failLocal(reason);
+    for (const metric of requestedMetrics.filter((item) =>
+      ["pitch", "spectral-shape"].includes(item),
+    ))
+      event("failed", "capture", reason, startedAt, metric);
+    if (!terminal && !stopRequested) {
+      stopRequested = true;
+      send("stop", [epoch]);
+    }
+  }
+  // After a desync, record counts are no longer trusted. An owned terminal and
+  // an owned drain receipt that consumed it on a confirmed clock still prove
+  // the mel device stopped.
+  function receiveDesynced(selector, values) {
+    const owned =
+      values.length >= 3 &&
+      values.slice(0, 3).every((value) => integer(value)) &&
+      [2, 3].includes(values[0]) &&
+      (producerAbi === null || values[0] === producerAbi);
+    if (selector === "mel_stopped") {
+      if (
+        owned &&
+        !terminal &&
+        values.length >= 11 &&
+        values[1] === epoch &&
+        (generation === null || values[2] === generation)
+      ) {
+        generation ??= values[2];
+        terminal = Object.freeze({
+          reason: values[8],
+          start: values[4],
+          end: values[5],
+          lost: values[6],
+          partial: values[7],
+        });
+      }
+      return;
+    }
+    if (selector !== "mel_drain" || receipt) return;
+    if (
+      values.length === 9 &&
+      values.every((value) => integer(value)) &&
+      (producerAbi === null || values[0] === producerAbi) &&
+      values[1] > acceptedToken &&
+      values[1] <= issuedToken &&
+      values[2] === epoch &&
+      values[3] > 0 &&
+      (generation === null || values[3] === generation)
+    ) {
+      acceptedToken = values[1];
+      if (!terminal || values[6] !== 1 || values[7] !== 1) return;
+      generation ??= values[3];
+      receipt = Object.freeze({
+        token: values[1],
+        generation,
+        recordsDrained: values[4],
+        framesDrained: values[5],
+        sourceClockExclusive: values[8],
+      });
+    }
+  }
   // At most one identity, one stopped, one rejected and two drain events per pass
   // (first cleanup receipt and, if later, terminal-consumed receipt).
   // Never admits data, advances record counts, or confirms physical cleanup.
@@ -290,10 +383,12 @@ function createMelBandHandoff({
         (!needsAnalyzers || values[0] === 3) &&
         values[1] > acceptedToken &&
         values[1] <= issuedToken &&
-        values[4] === recordCount &&
-        values[5] === receivedFrames &&
         values[6] <= 1 &&
         values[7] <= 1,
+      "mel_foreign_drain_receipt",
+    );
+    requireValue(
+      values[4] === recordCount && values[5] === receivedFrames,
       "mel_invalid_drain_receipt",
     );
     if (
@@ -318,7 +413,7 @@ function createMelBandHandoff({
     }
     requireValue(
       values[2] === epoch && values[3] > 0,
-      "mel_invalid_drain_receipt",
+      "mel_foreign_drain_receipt",
     );
     if (generation === null) generation = values[3];
     requireValue(values[3] === generation, "mel_dsp_generation_changed");
@@ -586,12 +681,22 @@ function createMelBandHandoff({
       event("started", "configuration", "mel_native_prepare");
     },
     receive(packet) {
+      if (desynced && armed && Array.isArray(packet)) {
+        receiveDesynced(packet[0], packet.slice(1));
+        return;
+      }
       try {
         receivePacket(packet);
       } catch (error) {
-        integrityFailure ??=
+        const reason =
           error instanceof Error ? error.message : "mel_native_receipt_failure";
-        throw error;
+        if (integrityFailure || !armed || listenLevel(reason)) {
+          integrityFailure ??= reason;
+          throw error;
+        }
+        if (packet[0] === "mel_stopped")
+          receiveDesynced(packet[0], packet.slice(1));
+        desync(reason);
       }
     },
     bind(support) {
@@ -604,7 +709,12 @@ function createMelBandHandoff({
         "mel_invalid_capture_binding",
       );
       binding = Object.freeze({ ...support });
-      validateBinding();
+      if (desynced) return;
+      try {
+        validateBinding();
+      } catch (error) {
+        desync(error.message);
+      }
     },
     tick() {
       if (!armed || receipt || now() - lastPoll < 10) return;
@@ -719,24 +829,28 @@ function createMelBandHandoff({
       requireValue(
         streaming &&
           binding &&
-          source &&
+          (source || desynced) &&
           terminal &&
           receipt &&
           !cancelled &&
           !integrityFailure,
         "mel_stream_not_settled",
       );
-      validateBinding();
+      if (!desynced) validateBinding();
+      const support = desynced ? binding : source;
       if (!streamSettled && receivedFrames < expectedRecords) {
         const gap = {
           firstIndex: receivedFrames,
           count: expectedRecords - receivedFrames,
           support: {
-            startSample: source.startSample + receivedFrames * 2048,
-            endSample: source.startSample + expectedRecords * 2048,
+            startSample: support.startSample + receivedFrames * 2048,
+            endSample: support.startSample + expectedRecords * 2048,
           },
-          reason: terminal.reason === 6 ? "overflow" : "unavailable",
-          detail: "Native terminal reports analysis frames not acquired.",
+          reason:
+            !desynced && terminal.reason === 6 ? "overflow" : "unavailable",
+          detail: desynced
+            ? `Native mel stopped after ${desynced}.`.slice(0, 160)
+            : "Native terminal reports analysis frames not acquired.",
         };
         for (const metric of requestedMetrics.filter((m) =>
           ["mel-bands", "pitch", "spectral-shape"].includes(m),
@@ -756,7 +870,7 @@ function createMelBandHandoff({
     snapshot() {
       return Object.freeze({
         armed,
-        ready: readiness !== null,
+        ready: readiness !== null || desynced !== null,
         started: source !== null,
         completed: terminal !== null && receipt !== null,
         frames: validFrames,
@@ -764,6 +878,7 @@ function createMelBandHandoff({
         receivedFrames,
         generation,
         failure: localFailure,
+        desynced,
         integrityFailure,
         sourceIdentityEvidence,
         stoppedPacket,

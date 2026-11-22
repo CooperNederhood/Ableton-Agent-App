@@ -133,11 +133,65 @@ function createMetricController(options) {
     p.failure ||= reason;
     p.wantCleanup = true;
   }
-  function abortSpectrumShared(p, selector, reason) {
+  // Metric failures are best effort; the listen stops only when none remain.
+  function requireRemainingMetric(p) {
+    if (
+      !p.config.requestedMetrics.some(
+        (metric) => metric === "level" || metric === "attacks",
+      ) &&
+      !(p.spectrum.enabled && !p.spectrum.failure) &&
+      !(p.mel && !p.mel.snapshot().desynced)
+    )
+      abort(p, "metric_no_requested_metric_available");
+  }
+  function spectrumDetail(selector, reason) {
     const name =
       typeof selector === "string" ? selector.slice(0, 64) : "invalid-selector";
-    p.inputFailureDetail ??= `${name}: ${reason.slice(0, 128)}`;
+    return `${name}: ${String(reason).slice(0, 128)}`;
+  }
+  function abortSpectrumShared(p, selector, reason) {
+    p.inputFailureDetail ??= spectrumDetail(selector, reason);
     abort(p, "metric_spectrum_shared_failure");
+  }
+  // Spectrum has its own Gen, reader and IO; its faults never invalidate
+  // level, attacks or mel. Record the first fault and keep listening.
+  function failSpectrumPacket(p, selector, reason) {
+    if (p.spectrum.failureDetail) return;
+    const detail = spectrumDetail(selector, reason);
+    p.spectrum.failureDetail = detail;
+    failSpectrum(p);
+    requireRemainingMetric(p);
+    emit(
+      p,
+      p.coordinates ? "capture" : "preflight",
+      "progress",
+      "spectrum",
+      "native_spectrum_failed",
+      undefined,
+      [
+        {
+          field: "capture.spectrum.failure",
+          actual: { state: "observed", value: detail },
+        },
+      ],
+    );
+  }
+  function receiveSpectrumHandoff(p, kind, packet, suffix = "") {
+    let result;
+    try {
+      result = p.spectrum.handoff.receive(packet);
+    } catch (error) {
+      // Collector/handoff infrastructure faults are not spectrum data faults.
+      throw Object.assign(
+        error instanceof Error ? error : new Error(String(error)),
+        { listenLevel: true },
+      );
+    }
+    if (result.classification === "shared")
+      abortSpectrumShared(p, kind, result.reason + suffix);
+    else if (result.classification === "metric")
+      failSpectrumPacket(p, kind, result.reason + suffix);
+    return result;
   }
   function abortIo(p, reason) {
     requireValue(
@@ -158,6 +212,7 @@ function createMetricController(options) {
           "mel_native_drain_receipt",
           "mel_rejected_drain_receipt",
           "native_spectrum_reader_rejected",
+          "native_spectrum_failed",
         ].includes(reason))
     )
       return;
@@ -236,17 +291,18 @@ function createMetricController(options) {
       p.failure
     )
       return;
+    let delivered;
     try {
-      if (
+      delivered =
         options.sendListenerResult(p.control, {
           status: "progress",
           nativeLifecycle,
-        }) !== true
-      )
-        abort(p, "metric_progress_delivery_failed");
+        }) === true;
     } catch {
-      abort(p, "metric_progress_delivery_failed");
+      delivered = false;
     }
+    // Progress is telemetry; the terminal result still decides the outcome.
+    if (!delivered) p.progressGaps++;
   }
   function send(p, selector, args, target = "metric_envelope") {
     if (!current(p)) return;
@@ -651,6 +707,19 @@ function createMetricController(options) {
       packet[0] === "native" && packet[1] === p.control.generation,
       "metric_foreign_spectrum",
     );
+    try {
+      receiveSpectrumData(p, packet);
+    } catch (error) {
+      if (error?.listenLevel) throw error;
+      failSpectrumPacket(
+        p,
+        packet[2],
+        error instanceof Error ? error.message : "spectrum_packet_failed",
+      );
+    }
+  }
+  function receiveSpectrumData(p, packet) {
+    const s = p.spectrum;
     const kind = packet[2],
       values = packet.slice(3);
     const ioRejection =
@@ -703,14 +772,12 @@ function createMetricController(options) {
       s.handoff &&
       ["io-rejection", "retention-rejection", "ioError"].includes(kind)
     ) {
-      const result = s.handoff.receive(packet);
-      if (result.classification === "shared")
-        abortSpectrumShared(
-          p,
-          kind,
-          result.reason + (ioRejection ? `; check=${ioRejection.check}` : ""),
-        );
-      else if (result.classification === "metric") s.failure ||= result.reason;
+      receiveSpectrumHandoff(
+        p,
+        kind,
+        packet,
+        ioRejection ? `; check=${ioRejection.check}` : "",
+      );
       return;
     }
     if (kind === "spectrum-acquisition") {
@@ -783,7 +850,7 @@ function createMetricController(options) {
         (!s.phase && decoded.check === "packet-kind")
       )
         failSpectrum(p);
-      else abortSpectrumShared(p, kind, decoded.check);
+      else failSpectrumPacket(p, kind, decoded.check);
     } else if (kind === "retention-rejection") {
       if (
         [
@@ -795,15 +862,10 @@ function createMetricController(options) {
         ].includes(retentionRejection.readerReason)
       )
         failSpectrum(p);
-      else abortSpectrumShared(p, kind, retentionRejection.readerReason);
+      else failSpectrumPacket(p, kind, retentionRejection.readerReason);
     } else if (kind === "ioError") {
       requireValue(equal(values, [1]), "metric_invalid_spectrum_io_error");
-      if (!s.failure)
-        abortSpectrumShared(
-          p,
-          kind,
-          "upstream_io_error_without_classification",
-        );
+      failSpectrumPacket(p, kind, "upstream_io_error_without_classification");
     } else if (kind === "retention-snapshot") {
       const decoded = decodeRetentionSnapshot(values);
       requireValue(
@@ -825,7 +887,7 @@ function createMetricController(options) {
           integer(values[2], SPECTRUM_CLEANUP_REASONS.length - 1),
         "metric_invalid_spectrum_rejection",
       );
-      abortSpectrumShared(
+      failSpectrumPacket(
         p,
         kind,
         `${SPECTRUM_CLEANUP_REASONS[values[2]]} (${values[2]})` +
@@ -839,10 +901,7 @@ function createMetricController(options) {
       s.receivedRecords = (s.receivedRecords || 0) + 1;
       if (p.wantCleanup || s.failure) return;
       if (s.handoff) {
-        const result = s.handoff.receive(packet);
-        s.lastHandoffResult = copy(result);
-        if (result.classification === "shared")
-          abortSpectrumShared(p, kind, result.reason);
+        s.lastHandoffResult = copy(receiveSpectrumHandoff(p, kind, packet));
       } else {
         s.pending.push(copy(packet));
         const bound = s.streaming
@@ -856,9 +915,7 @@ function createMetricController(options) {
       return;
     }
     if (s.handoff && !s.failure && kind !== "spectrum-acquisition") {
-      const result = s.handoff.receive(packet);
-      if (result.classification === "shared")
-        abortSpectrumShared(p, kind, result.reason);
+      receiveSpectrumHandoff(p, kind, packet);
     }
   }
   function prepareSpectrum(p, now) {
@@ -926,13 +983,7 @@ function createMetricController(options) {
         "native_phase_unavailable",
         now - s.startedAt,
       );
-      if (
-        !p.mel &&
-        !p.config.requestedMetrics.some(
-          (metric) => metric === "level" || metric === "attacks",
-        )
-      )
-        abort(p, "metric_no_requested_metric_available");
+      requireRemainingMetric(p);
       return true;
     }
     return false;
@@ -1260,6 +1311,7 @@ function createMetricController(options) {
       replyPending: command,
       lastEvent: command.causationId,
       events: 0,
+      progressGaps: 0,
       admittedRecords: 0,
       metricCounts: {},
       deliveries: 0,
@@ -1321,6 +1373,8 @@ function createMetricController(options) {
         emit: (event) => {
           const metric = event.metric || "mel-bands";
           p.metricCounts[metric] = event.frames;
+          if (event.stage === "failed" && p.mel?.snapshot().desynced)
+            requireRemainingMetric(p);
           emit(
             p,
             event.phase,
@@ -1344,14 +1398,7 @@ function createMetricController(options) {
     }
     emit(pass, "preflight", "queued");
     emit(pass, "preflight", "started");
-    if (
-      !pass.spectrum.enabled &&
-      !pass.mel &&
-      !pass.config.requestedMetrics.some(
-        (metric) => metric === "level" || metric === "attacks",
-      )
-    )
-      abort(pass, "metric_no_requested_metric_available");
+    requireRemainingMetric(pass);
     return true;
   }
   function arm(raw) {
@@ -1590,7 +1637,7 @@ function createMetricController(options) {
         },
       );
       for (const packet of p.spectrum.pending)
-        p.spectrum.handoff.receive(packet);
+        receiveSpectrumHandoff(p, packet[2], packet);
       discardSpectrumBefore(p, first, true);
     } else if (p.spectrum.failure && p.spectrum.phase)
       p.collector.failMetric("spectrum", "analyzer_failed");
@@ -2282,6 +2329,7 @@ function createMetricController(options) {
       reason: pass.failure,
       inputFailureReason: pass.inputFailureReason || null,
       inputFailureDetail: pass.inputFailureDetail || null,
+      progressGaps: pass.progressGaps,
       ioFailureReason: pass.evidence?.reason || pass.status?.reason || null,
       ioFailureReadback: pass.ioFailureReadback || null,
       ioFailureDetail: pass.ioFailureDetail || null,
@@ -2306,6 +2354,7 @@ function createMetricController(options) {
             ? "unavailable"
             : "pending",
         failure: pass.spectrum.failure,
+        failureDetail: pass.spectrum.failureDetail || null,
         fftInformation: pass.spectrum.fftInformation || null,
         lastHeader: pass.spectrum.lastHeader || null,
         lastReadbackCounter: pass.spectrum.lastReadbackCounter ?? null,

@@ -1177,6 +1177,15 @@ test("metric-local failed/cancelled progress continues; global failures/unknown 
       false
     );
   assert(f.client.listenerJob);
+  // A rejected lifecycle event is a recorded telemetry gap, not a failed listen.
+  assert.equal(f.failures.length, 0);
+  assert(
+    f.statuses.some(
+      ([, state, reason]) =>
+        state === "native_diagnostic_gap" &&
+        reason === "invalid_metric_listener_payload"
+    )
+  );
   assert.equal(
     f.client.sendListenerResult(f.prepare, {
       status: "failed",

@@ -386,10 +386,12 @@ function createMetricSpectrumHandoff(config, options) {
     );
     return reject(reason, "metric");
   }
-  function sharedFailure(reason, collectorReason = "transport_corruption") {
+  // A packet from another capture generation means the pass itself is crossed.
+  // Every other spectrum transport, epoch or reader problem fails spectrum alone.
+  function ownerFailure(reason) {
     increment("rejectedRecords");
     close("failed", reason, "shared", () =>
-      collector.failShared(collectorReason),
+      collector.failShared("owner_corruption"),
     );
     return reject(reason, "shared");
   }
@@ -417,7 +419,10 @@ function createMetricSpectrumHandoff(config, options) {
   }
   function retentionState(values) {
     if (values.length !== 10 || !values.every(finite))
-      return sharedFailure("invalid_retention_state_framing");
+      return metricFailure(
+        "invalid_retention_state_framing",
+        "analyzer_failed",
+      );
     const [
       family,
       stage,
@@ -431,10 +436,10 @@ function createMetricSpectrumHandoff(config, options) {
       fault,
     ] = values;
     if (family !== 1 && family !== 2)
-      return sharedFailure("invalid_retention_family");
+      return metricFailure("invalid_retention_family", "analyzer_failed");
     if (family !== 2) return observed();
     if (epoch !== owner.nativeEpoch)
-      return sharedFailure("foreign_retention_epoch", "owner_corruption");
+      return metricFailure("foreign_retention_epoch", "analyzer_failed");
     const backlog = produced - acknowledged;
     if (
       !integer(stage, 0, 5) ||
@@ -451,7 +456,7 @@ function createMetricSpectrumHandoff(config, options) {
       (stage === 4) !== fault > 0 ||
       (backlog > CAPACITY && fault !== 1)
     )
-      return sharedFailure("invalid_retention_state_bounds");
+      return metricFailure("invalid_retention_state_bounds", "analyzer_failed");
     if (updateQueue(produced, acknowledged, highWater)) {
       upstream.forwardedRecords = expectedSequence - 1;
       upstream.stage = stage;
@@ -464,20 +469,29 @@ function createMetricSpectrumHandoff(config, options) {
     if (fault === 1)
       return metricFailure("upstream_capacity_overflow", "quota_overflow");
     if (fault === 2 || fault === 5)
-      return sharedFailure(
-        "upstream_control_or_owner_corruption",
-        fault === 5 ? "owner_corruption" : "transport_corruption",
+      return metricFailure(
+        fault === 5
+          ? "upstream_owner_corruption"
+          : "upstream_control_corruption",
+        "analyzer_failed",
       );
     if (fault === 4)
       return metricFailure("upstream_forwarding_failed", "analyzer_failed");
-    return sharedFailure("unclassified_upstream_reader_failure");
+    return metricFailure(
+      "unclassified_upstream_reader_failure",
+      "analyzer_failed",
+    );
   }
   function snapshot(values) {
     const decoded = decodeRetentionSnapshot(values);
-    if (!decoded) return sharedFailure("invalid_retention_snapshot_framing");
+    if (!decoded)
+      return metricFailure(
+        "invalid_retention_snapshot_framing",
+        "analyzer_failed",
+      );
     if (decoded.family !== 2) return observed();
     if (decoded.nativeEpoch !== owner.nativeEpoch)
-      return sharedFailure("foreign_retention_epoch", "owner_corruption");
+      return metricFailure("foreign_retention_epoch", "analyzer_failed");
     upstream.snapshotStatus = decoded.status;
     upstream.snapshotDrops = Math.max(
       upstream.snapshotDrops ?? 0,
@@ -528,7 +542,10 @@ function createMetricSpectrumHandoff(config, options) {
       upstream.ignoredReadbacks + ignored,
     );
     if (decoded.status === "failed")
-      return sharedFailure("upstream_failure_without_classification");
+      return metricFailure(
+        "upstream_failure_without_classification",
+        "analyzer_failed",
+      );
     return freeze({
       accepted: false,
       measurement: false,
@@ -539,10 +556,14 @@ function createMetricSpectrumHandoff(config, options) {
   }
   function upstreamRejection(values) {
     const decoded = decodeRetentionRejection(values);
-    if (!decoded) return sharedFailure("invalid_retention_rejection_framing");
+    if (!decoded)
+      return metricFailure(
+        "invalid_retention_rejection_framing",
+        "analyzer_failed",
+      );
     if (decoded.family !== 2) return observed();
     if (decoded.nativeEpoch !== owner.nativeEpoch)
-      return sharedFailure("foreign_retention_epoch", "owner_corruption");
+      return metricFailure("foreign_retention_epoch", "analyzer_failed");
     const reason = decoded.readerReason;
     if (reason === "invalid_numeric") {
       const last = decoded.readerReadbacks.at(-1);
@@ -569,23 +590,8 @@ function createMetricSpectrumHandoff(config, options) {
         integer(row[9], 0, 2);
       return ownedHeader && row.slice(10, 16).some((cell) => !finite(cell))
         ? metricFailure("upstream_invalid_numeric")
-        : sharedFailure("upstream_invalid_numeric_framing");
+        : metricFailure("upstream_invalid_numeric_framing", "analyzer_failed");
     }
-    if (
-      [
-        "invalid_arity",
-        "invalid_abi",
-        "invalid_owner_reset",
-        "invalid_uninitialized_readback",
-        "invalid_header_bounds",
-        "invalid_slot_owner",
-        "invalid_dsp_control",
-      ].includes(reason)
-    )
-      return sharedFailure(
-        `upstream_${reason}`,
-        reason.includes("owner") ? "owner_corruption" : "transport_corruption",
-      );
     return metricFailure(
       `upstream_${reason}`,
       reason === "unread_capacity_overflow"
@@ -620,7 +626,7 @@ function createMetricSpectrumHandoff(config, options) {
   function spectrum(values) {
     increment("spectrumPackets");
     if (values.length !== WIDTH)
-      return sharedFailure("invalid_spectrum_framing");
+      return metricFailure("invalid_spectrum_framing", "analyzer_failed");
     if (!values.every(finite)) return metricFailure("invalid_spectrum_numeric");
     const [end, centroid, energy, start, frameEnd, invalidFrames] = values;
     if (
@@ -743,9 +749,12 @@ function createMetricSpectrumHandoff(config, options) {
         typeof packet[1] !== "string" ||
         typeof packet[2] !== "string"
       )
-        return sharedFailure("invalid_native_packet_framing");
+        return metricFailure(
+          "invalid_native_packet_framing",
+          "analyzer_failed",
+        );
       if (packet[1] !== owner.generation)
-        return sharedFailure("foreign_generation", "owner_corruption");
+        return ownerFailure("foreign_generation");
       const values = packet.slice(3);
       switch (packet[2]) {
         case "spectrum":
@@ -763,19 +772,20 @@ function createMetricSpectrumHandoff(config, options) {
             owner.nativeEpoch,
           ])
             ? observed()
-            : sharedFailure(
+            : metricFailure(
                 "foreign_or_invalid_retention_binding",
-                "owner_corruption",
+                "analyzer_failed",
               );
         case "abi-spectrum":
           return exactBinding(packet, owner, "abi-spectrum", [2])
             ? observed()
-            : sharedFailure("invalid_spectrum_abi");
+            : metricFailure("invalid_spectrum_abi", "analyzer_failed");
         case "ioError":
-          return sharedFailure(
+          return metricFailure(
             values.length === 1 && values[0] === 1
               ? "upstream_io_error_without_classification"
               : "invalid_io_error_framing",
+            "analyzer_failed",
           );
         case "retention-unstable":
           if (
@@ -783,26 +793,30 @@ function createMetricSpectrumHandoff(config, options) {
             values[0] !== 2 ||
             values[1] !== owner.nativeEpoch
           )
-            return sharedFailure(
+            return metricFailure(
               "foreign_or_invalid_unstable_binding",
-              "owner_corruption",
+              "analyzer_failed",
             );
           return observed();
         case "io-rejection": {
           const decoded = decodeIORejection(values);
-          if (!decoded) return sharedFailure("invalid_io_rejection_framing");
+          if (!decoded)
+            return metricFailure(
+              "invalid_io_rejection_framing",
+              "analyzer_failed",
+            );
           if (decoded.mode !== "spectrum") return observed();
           if (
             !decoded.generationMatches ||
             (decoded.nativeEpoch !== null &&
               decoded.nativeEpoch !== owner.nativeEpoch)
           )
-            return sharedFailure("foreign_retention_epoch", "owner_corruption");
+            return metricFailure("foreign_retention_epoch", "analyzer_failed");
           return ["packet-numeric", "spectrum-diagnostics-numeric"].includes(
             decoded.check,
           )
             ? metricFailure("upstream_invalid_numeric")
-            : sharedFailure("upstream_io_rejection");
+            : metricFailure("upstream_io_rejection", "analyzer_failed");
         }
         default:
           return freeze({

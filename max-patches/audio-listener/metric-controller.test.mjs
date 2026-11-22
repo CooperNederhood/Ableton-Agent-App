@@ -60,12 +60,14 @@ async function controllerHarness({
   malformedShapeFrame = false,
   malformedMelFrame = false,
   suppressMelTerminal = false,
+  melSequenceFault = null,
   suppressMelReady = false,
   sourceIdentityFault = false,
   failureBeforeIdentity = false,
   runtimeBridge = false,
   sdkStreamBridge = false,
   rejectDiagnostic = false,
+  rejectProgress = false,
   sourceIdentityEpoch = 7,
   nonfiniteIdentity = false,
   invalidMelDrain = false,
@@ -535,6 +537,12 @@ async function controllerHarness({
         );
       if (payload.metricStream || payload.metricChunk || payload.metricManifest)
         return streamSend ? streamSend(payload) : true;
+      if (
+        rejectProgress &&
+        payload.status === "progress" &&
+        payload.nativeLifecycle
+      )
+        return false;
       return true;
     },
     sendListenerDiagnostic(control, lifecycle) {
@@ -629,7 +637,7 @@ async function controllerHarness({
         melQueue.push([
           "mel_frame",
           ...melHeader(
-            melFrames,
+            melSequenceFault === melFrames ? melFrames + 1 : melFrames,
             melOrigin + (melFrames - 1) * 2048,
             melOrigin + melFrames * 2048,
           ),
@@ -1506,6 +1514,54 @@ test("mel-local malformed values publish explicit partial coverage with healthy 
   assert.equal(h.controller.snapshot().cleanup, "completed");
 });
 
+test("rejected progress telemetry is recorded and the listen still completes", async () => {
+  const h = await controllerHarness({ rejectProgress: true });
+  h.launch();
+  await h.until(() =>
+    ["completed", "partial", "failed"].includes(h.controller.snapshot().state),
+  );
+  const snapshot = h.controller.snapshot();
+  assert.equal(snapshot.state, "completed", JSON.stringify(snapshot));
+  assert.ok(snapshot.progressGaps > 0);
+  assert.equal(snapshot.cleanup, "completed");
+});
+
+test("a desynchronized mel stream fails only mel-family metrics and still proves mel cleanup", async () => {
+  const h = await controllerHarness({
+    melEnabled: true,
+    analyzerEnabled: true,
+    melSequenceFault: 2,
+    requestedMetrics: ["level", "attacks", "mel-bands", "pitch"],
+  });
+  h.launch();
+  await h.until(() =>
+    ["completed", "partial", "failed"].includes(h.controller.snapshot().state),
+  );
+  const snapshot = h.controller.snapshot();
+  assert.equal(snapshot.state, "partial", JSON.stringify(snapshot));
+  assert.equal(snapshot.cleanup, "completed");
+  assert.equal(snapshot.mel.desynced, "mel_frame_support_or_sequence_mismatch");
+  assert.equal(snapshot.mel.integrityFailure, null);
+  assert.ok(snapshot.mel.receipt);
+  const stream = await verifiedStream(h);
+  assert.equal(stream.metric("level").missingRecords, 0);
+  assert.equal(stream.metric("attacks").missingRecords, 0);
+  assert.equal(stream.records("mel-bands").length, 1);
+  assert.equal(stream.records("pitch").length, 1);
+  for (const metric of ["mel-bands", "pitch"]) {
+    const gaps = stream.gaps(metric);
+    assert.equal(gaps.at(-1).reason, "unavailable");
+    assert.match(gaps.at(-1).detail, /mel_frame_support_or_sequence_mismatch/);
+  }
+  assert.ok(
+    h.events.some(
+      (event) =>
+        event.nativeLifecycle.metric === "pitch" &&
+        event.nativeLifecycle.stage === "failed",
+    ),
+  );
+});
+
 test("missing mel physical terminal denies publication even when native metrics finish", async () => {
   const h = await controllerHarness({
     melEnabled: true,
@@ -1567,6 +1623,15 @@ test("rejected drain operands traverse the runtime and diagnostic SDK without pu
   );
   h.controller.arm(h.arm);
   await h.until(() => h.controller.snapshot().state === "failed", 300000);
+  assert.equal(
+    h.controller.snapshot().reason,
+    "metric_no_requested_metric_available",
+  );
+  assert.equal(
+    h.controller.snapshot().mel.desynced,
+    "mel_invalid_drain_receipt",
+  );
+  assert.equal(h.controller.snapshot().cleanup, "completed");
   const wire = h.diagnosticWrites.filter(
     (message) =>
       message.nativeLifecycle?.reason === "mel_rejected_drain_receipt",
@@ -1941,8 +2006,15 @@ test("the first spectral reader rejection remains attributable after the routine
     },
   ]);
   assert.equal(
-    h.controller.snapshot().inputFailureDetail,
+    h.controller.snapshot().spectrum.failureDetail,
     "retention-rejection: upstream_invalid_owner_reset",
+  );
+  assert.equal(h.controller.snapshot().inputFailureDetail, null);
+  assert.equal(
+    h.events.filter(
+      (event) => event.nativeLifecycle.reason === "native_spectrum_failed",
+    ).length,
+    1,
   );
 });
 
@@ -1993,7 +2065,7 @@ for (const { capturing, packet, detail } of [
     detail: "retention-state: invalid_retention_family",
   },
 ]) {
-  test(`first shared spectrum detail survives runtime/SDK terminal cleanup: ${detail}, capturing=${capturing}`, async () => {
+  test(`spectrum-local fault fails only spectrum and the listen still completes: ${detail}, capturing=${capturing}`, async () => {
     const h = await controllerHarness({
       spectrumEnabled: true,
       runtimeBridge: true,
@@ -2003,74 +2075,38 @@ for (const { capturing, packet, detail } of [
     if (capturing)
       await h.until(() => h.controller.snapshot().state === "capturing");
     h.runtimeHarness.handlers.native_spectrum("native", GENERATION, ...packet);
-    assert.equal(
-      h.controller.snapshot().inputFailureReason,
-      "metric_spectrum_shared_failure",
-    );
-    assert.equal(h.controller.snapshot().inputFailureDetail, detail);
-    h.runtimeHarness.handlers.native_spectrum(
-      "native",
-      GENERATION,
-      "spectrum-readback",
-      7,
-      h.counter,
-      1,
-      7,
-      0,
-      0,
-    );
-    assert.equal(
-      h.controller.snapshot().lastNativeSelector,
-      "spectrum-readback",
-    );
-    assert.equal(h.controller.snapshot().inputFailureDetail, detail);
-    h.runtimeHarness.handlers.native_spectrum(
-      "native",
-      GENERATION,
-      "spectrum-input-rejection",
-      2,
-      7,
-      SPECTRUM_CLEANUP_REASONS.indexOf("owner_mismatch"),
-    );
-    await h.until(() => h.controller.snapshot().state === "failed");
-    const snapshot = h.controller.snapshot();
-    assert.equal(snapshot.reason, "metric_spectrum_shared_failure");
-    assert.equal(snapshot.inputFailureDetail, detail);
-    assert.notEqual(snapshot.lastNativeSelector, packet[0]);
-    assert.equal(snapshot.cleanup, "completed");
-    assert.equal(h.spectrumIO.generation, null);
-    assert.ok(
-      h.results.every(({ payload }) => payload.metricManifest === undefined),
-    );
-    const evidence = h.diagnosticWrites.filter(
-      ({ nativeLifecycle }) =>
-        nativeLifecycle?.reason === "native_failure_evidence" &&
-        nativeLifecycle.facts?.some(
-          (fact) =>
-            fact.field === "capture.inputFailureDetail" &&
-            fact.actual.value === detail,
-        ),
-    );
-    assert.ok(
-      evidence.length > 0,
-      "detail must cross the actual runtime and SDK wire writer",
-    );
-    for (const message of evidence) {
-      h.codec.listenerResultMetricSchema.parse(message);
-      assert.equal(message.traceId, h.prepare.traceId);
-      assert.equal(message.passId, h.prepare.passId);
-      assert.equal(message.correlationId, h.prepare.correlationId);
-      assert.ok(message.nativeLifecycle.causationId);
-      assert.ok(detail.length <= 256);
-      assert.ok(
-        message.nativeLifecycle.facts.some(
-          (fact) =>
-            fact.field === "capture.cleanup" &&
-            fact.actual.value === "completed",
-        ),
-      );
-    }
+    assert.equal(h.controller.snapshot().inputFailureReason, null);
+    assert.equal(h.controller.snapshot().spectrum.failureDetail, detail);
+    await assertSpectrumOnlyFailed(h, detail);
   });
+}
+
+async function assertSpectrumOnlyFailed(h, detail) {
+  await h.until(() =>
+    ["completed", "partial", "failed"].includes(h.controller.snapshot().state),
+  );
+  const snapshot = h.controller.snapshot();
+  assert.equal(snapshot.state, "partial", JSON.stringify(snapshot));
+  assert.equal(snapshot.reason, null);
+  assert.equal(snapshot.cleanup, "completed");
+  assert.equal(snapshot.spectrum.failureDetail, detail);
+  assert.equal(snapshot.spectrum.cleanup, "completed");
+  assert.equal(h.spectrumIO.generation, null);
+  const stream = await verifiedStream(h);
+  assert.equal(stream.metric("level").status, "complete");
+  assert.equal(stream.metric("attacks").status, "complete");
+  assert.equal(stream.metric("spectral-centroid").status, "failed");
+  assert.ok(stream.records("level").length > 0);
+  const failed = h.events.find(
+    (event) => event.nativeLifecycle.reason === "native_spectrum_failed",
+  );
+  assert.deepEqual(failed.nativeLifecycle.facts, [
+    {
+      field: "capture.spectrum.failure",
+      actual: { state: "observed", value: detail },
+    },
+  ]);
+  assert.ok(detail.length <= 256);
 }
 
 for (const [value, last] of [
@@ -2079,7 +2115,7 @@ for (const [value, last] of [
   [1e100, null],
   [-Infinity, Infinity],
 ]) {
-  test(`actual FFT reader fault operands reach runtime/SDK terminal failure facts: ${value}/${last}`, async () => {
+  test(`actual FFT reader fault operands reach the spectrum failure fact: ${value}/${last}`, async () => {
     const h = await controllerHarness({
       spectrumEnabled: true,
       runtimeBridge: true,
@@ -2095,33 +2131,7 @@ for (const [value, last] of [
     );
     assert.equal(typeof packet[6], "string");
     const expected = `spectrum-input-rejection: counter_incoherent (4) ${packet[6]}`;
-    await h.until(() => h.controller.snapshot().state === "failed");
-    assert.equal(
-      h.controller.snapshot().reason,
-      "metric_spectrum_shared_failure",
-    );
-    assert.equal(h.controller.snapshot().inputFailureDetail, expected);
-    assert.equal(h.controller.snapshot().cleanup, "completed");
-    assert.ok(
-      h.results.every(({ payload }) => payload.metricManifest === undefined),
-    );
-    const evidence = h.diagnosticWrites.find(
-      ({ nativeLifecycle }) =>
-        nativeLifecycle?.reason === "native_failure_evidence" &&
-        nativeLifecycle.facts?.some(
-          (fact) =>
-            fact.field === "capture.inputFailureDetail" &&
-            fact.actual.value === expected,
-        ),
-    );
-    assert.ok(
-      evidence,
-      "original two operands must reach the actual lifecycle observer path",
-    );
-    h.codec.listenerResultMetricSchema.parse(evidence);
-    assert.equal(evidence.traceId, h.prepare.traceId);
-    assert.equal(evidence.passId, h.prepare.passId);
-    assert.ok(expected.length <= 256);
+    await assertSpectrumOnlyFailed(h, expected);
   });
 }
 

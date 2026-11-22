@@ -226,6 +226,21 @@ Each capture records several metric families side by side. If one family fails,
 the others can still publish, and the job ends as `partial`. Missing data is
 shown as unavailable, never as zero.
 
+Each metric is best effort. A failure ends the whole listen only when it makes
+every result untrustworthy or leaves Live in an unknown state:
+
+| Fails one metric family (listen continues)                           | Fails the whole listen                                       |
+| --------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Spectrum reader, framing, epoch or retention faults (own Gen and IO)  | A packet from another capture generation (crossed ownership) |
+| Mel frame/terminal/drain count drift, origin mismatch, mel handshake  | Shared clock, transport, source or DSP faults                |
+| Malformed or overflowing values in one family                         | Mel reading the wrong source, or a mel DSP generation change |
+| A rejected or undelivered progress event (recorded as a gap)          | Cleanup that cannot be confirmed, or the deadline            |
+|                                                                       | Failed control or terminal result delivery                   |
+
+A failed family is stopped, its cleanup is still confirmed, and the stream
+records a gap with the reason. If no requested metric remains, the listen stops
+early as `metric_no_requested_metric_available`.
+
 From those records the app derives musical **features** on a sixteenth-note
 grid (`packages/protocol/src/listening-feature-contracts.ts`):
 

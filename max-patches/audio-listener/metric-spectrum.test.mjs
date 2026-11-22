@@ -642,9 +642,14 @@ test("bad spectral values/support fault only FFT while healthy levels and detect
   }
 });
 
-test("foreign generation, epoch or shared framing cannot be downgraded into an FFT-local result", () => {
+test("only a foreign capture generation fails the listen; spectrum framing faults fail spectrum alone", () => {
+  const foreign = make();
+  assert.equal(
+    foreign.handoff.receive(frame(1, { generation: OTHER })).classification,
+    "shared",
+  );
+  assert.equal(foreign.finish().result.status, "failed");
   for (const packet of [
-    frame(1, { generation: OTHER }),
     ["native", GENERATION, "retention-ready", 2, 1, 8],
     ["native", GENERATION, "abi-spectrum", 1],
     ["native", GENERATION, "ioError", 1],
@@ -653,8 +658,16 @@ test("foreign generation, epoch or shared framing cannot be downgraded into an F
     ["not-native", GENERATION, "spectrum", ...frame(1).slice(3)],
   ]) {
     const f = make();
-    assert.equal(f.handoff.receive(packet).classification, "shared");
-    assert.equal(f.finish().result.status, "failed");
+    assert.equal(
+      f.handoff.receive(packet).classification,
+      "metric",
+      JSON.stringify(packet),
+    );
+    feedOtherFamilies(f);
+    const { result } = f.finish();
+    assert.equal(result.status, "partial");
+    assert.equal(result.metrics.spectrum.status, "failed");
+    assert.equal(result.metrics.level.status, "completed");
   }
 });
 
@@ -811,11 +824,8 @@ test("upstream forwarding/ACK is not Node acceptance and this handoff never ackn
   observation(f, result);
 });
 
-test("actual reader payload corruption retains an independently admitted prefix; header corruption is shared fatal", () => {
-  for (const [cell, classification] of [
-    [12, "metric"],
-    [7, "shared"],
-  ]) {
+test("actual reader payload or header corruption fails spectrum alone and retains the admitted prefix", () => {
+  for (const cell of [12, 7]) {
     const f = executedFixture(48000, {
       expectedAccepted: 1,
       beforeDrain({ readback, reader, handoff, controls, page, step }) {
@@ -829,7 +839,7 @@ test("actual reader payload corruption retains an independently admitted prefix;
         ).length;
         assert.equal(readback(row), false);
         assert.equal(reader.stats().state, "failed");
-        assert.equal(handoff.finish().classification, classification);
+        assert.equal(handoff.finish().classification, "metric");
         assert.equal(
           controls.filter((control) => control[0] === "measurementAcknowledged")
             .length,
@@ -837,15 +847,12 @@ test("actual reader payload corruption retains an independently admitted prefix;
         );
       },
     });
-    if (classification === "metric") feedOtherFamilies(f);
+    feedOtherFamilies(f);
     const { delivery, result } = f.finish();
-    assert.equal(
-      result.status,
-      classification === "metric" ? "partial" : "failed",
-    );
+    assert.equal(result.status, "partial");
     assert.equal(delivery.counters.node.acceptedRecords, 1);
     assert.equal(delivery.counters.node.acknowledgementsIssued, 0);
-    if (classification === "metric") observation(f, result);
+    observation(f, result);
   }
 });
 
@@ -918,7 +925,7 @@ test("continuous retention diagnostics honor the finite long-pass deadline witho
   }
 });
 
-test("unknown counters stay unknown; missing failure diagnostics are shared-fatal, not fabricated metric data", () => {
+test("unknown counters stay unknown; missing failure diagnostics fail spectrum, not fabricated metric data", () => {
   const f = make();
   for (const key of [
     "producedSequence",
@@ -944,13 +951,17 @@ test("unknown counters stay unknown; missing failure diagnostics are shared-fata
     1,
     3,
   ];
-  assert.equal(f.handoff.receive(raw).classification, "shared");
-  assert.equal(f.finish().result.status, "failed");
+  assert.equal(f.handoff.receive(raw).classification, "metric");
+  feedOtherFamilies(f);
+  const { result } = f.finish();
+  assert.equal(result.status, "partial");
+  assert.equal(result.metrics.spectrum.status, "failed");
+  assert.equal(result.metrics.spectrum.acceptedRecords, 0);
   const malformed = make();
   assert.equal(
     malformed.handoff.receive(["native", GENERATION, "retention-snapshot", 2])
       .classification,
-    "shared",
+    "metric",
   );
 });
 

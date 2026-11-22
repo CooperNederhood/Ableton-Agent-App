@@ -722,6 +722,7 @@ NativeMessageIO.prototype.beginRetention = function (epoch, sampleRate) {
   var controls = [
     ["measurementReadSequence", 1],
     ["measurementAcknowledged", 0],
+    ["measurementDiscardThrough", 0],
     ["measurementEpoch", epoch],
   ];
   for (var index = 0; index < controls.length; index++) {
@@ -836,7 +837,9 @@ NativeMessageIO.prototype.readSpectrumRow = function (values) {
     this.control([
       next.type === "request"
         ? "measurementReadSequence"
-        : "measurementAcknowledged",
+        : next.type === "discard"
+          ? "measurementDiscardThrough"
+          : "measurementAcknowledged",
       next.sequence,
     ]);
   }
@@ -847,6 +850,20 @@ NativeMessageIO.prototype.readSpectrumRow = function (values) {
   }
   this.publishRetentionSnapshot(result.status);
   return false;
+};
+// Records ending before the capture window are never read; free them unread.
+NativeMessageIO.prototype.discardSpectrumBefore = function (
+  generation,
+  epoch,
+  endSample
+) {
+  if (
+    !this.spectrumOwner(generation, epoch) ||
+    !this.retentionReader ||
+    this.stopping
+  )
+    return false;
+  return this.retentionReader.discardBefore(endSample);
 };
 // One counter-bookended bank, no second reader or ACK path. Epoch zero
 // is a disabled FIFO receipt, not a spectrum descriptor or a transport proof.
@@ -1605,16 +1622,17 @@ NativeMessageIO.prototype.anchorPost = function (values) {
     row[5] === 0 &&
     row[2] === row[4] &&
     row[2] - previous[2] === this.clockVectorSize - 1;
-  var sameBeatStart =
+  // Live may start at another beat than the stopped position (Session launch);
+  // the controller validates the beat on the next fresh native vector.
+  var transportStart =
     previous &&
     previous[0] === 0 &&
     row[0] === 1 &&
-    row[1] === previous[1] &&
     row[5] === 0 &&
     row[2] === row[4] + 1;
   var beatAdvanceMatches =
     previous &&
-    (sameBeatStart ||
+    (transportStart ||
       (row[0] === 0 && row[1] === previous[1]) ||
       (row[0] === 1 &&
         (this.clockSampleRate === 44100 || this.clockSampleRate === 48000) &&
@@ -1642,7 +1660,7 @@ NativeMessageIO.prototype.anchorPost = function (values) {
         index === 2 ||
         index === 8 ||
         index === 9 ||
-        (sameBeatStart && (index === 0 || index === 7)) ||
+        (transportStart && (index === 0 || index === 7)) ||
         value === previous[index]
       );
     })
@@ -1778,6 +1796,9 @@ function metric_spectrum_guard_stop(generation) {
 }
 function spectrum_cleanup_tick(generation, epoch) {
   return nativeIO.spectrumCleanupTick(generation, epoch);
+}
+function spectrum_discard_before(generation, epoch, endSample) {
+  return nativeIO.discardSpectrumBefore(generation, epoch, endSample);
 }
 function request_spectrum_stop(generation, epoch, outcome, deadline) {
   return nativeIO.requestSpectrumStop(generation, epoch, outcome, deadline);

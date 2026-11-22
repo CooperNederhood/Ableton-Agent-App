@@ -152,8 +152,8 @@ test("the first rejected drain retains bounded actual and expected operands with
   const f = fixture();
   f.h.tick();
   const packet = ["mel_drain", 3, 1, 7, 1, 99, 0, 0, 0, 0];
-  for (let index = 0; index < 50; index++)
-    assert.throws(() => f.h.receive(packet), /mel_invalid_drain_receipt/);
+  for (let index = 0; index < 50; index++) f.h.receive(packet);
+  assert.equal(f.h.snapshot().desynced, "mel_invalid_drain_receipt");
   const rejected = f.events.filter(
     (e) => e.reason === "mel_rejected_drain_receipt",
   );

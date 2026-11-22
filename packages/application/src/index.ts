@@ -3465,7 +3465,7 @@ export class CopilotAgentService implements AgentService {
       this.#recordRuntime(state, "agent.artifact_draft.completed", {
         draftId: draft.id,
         kind,
-        targetScope: draft.targetScope,
+        targetScope: kind === "skill" ? draft.skillScope : scope,
         workspaceFiles: files,
         unavailableScopes: (kind === "memory"
           ? context.memory

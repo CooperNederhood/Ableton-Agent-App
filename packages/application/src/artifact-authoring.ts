@@ -193,19 +193,19 @@ export class ArtifactDraft {
     if (kind === "skill" && requestedScope === "live-set") {
       throw new Error("Skills have no Live Set scope. Use project or session.");
     }
-    const scope = this.#scopeState(this.targetScope);
-    if (requestedScope !== undefined && !scope.available) {
-      throw new Error(
-        `${scopeLabel(requestedScope)} scope is unavailable: ${scope.unavailableReason ?? "no owner"}`,
-      );
+    if (requestedScope !== undefined) {
+      const scope = this.#scopeState(requestedScope);
+      if (!scope.available) {
+        throw new Error(
+          `${scopeLabel(requestedScope)} scope is unavailable: ${scope.unavailableReason ?? "no owner"}`,
+        );
+      }
     }
   }
 
-  get targetScope(): AgentArtifactScope {
-    return (
-      this.requestedScope ??
-      (this.kind === "skill" ? SKILL_AUTHORING_DEFAULT_SCOPE : "session")
-    );
+  /** Scope a skill is proposed at. Memory has none: each topic picks its own. */
+  get skillScope(): AgentArtifactScope {
+    return this.requestedScope ?? SKILL_AUTHORING_DEFAULT_SCOPE;
   }
 
   get changeCount(): number {
@@ -227,7 +227,7 @@ export class ArtifactDraft {
       );
     } else {
       lines.push(
-        `Write one skill to skills/{name}/SKILL.md. It will be proposed at ${scopeLabel(this.targetScope)} scope; the user can change that in review.`,
+        `Write one skill to skills/{name}/SKILL.md. It will be proposed at ${scopeLabel(this.skillScope)} scope; the user can change that in review.`,
       );
     }
     for (const scope of this.kind === "memory"
@@ -430,7 +430,7 @@ export class ArtifactDraft {
         kind: "skill",
         name: parsed.name,
         change: existing === undefined ? "added" : "modified",
-        scope: this.targetScope,
+        scope: this.skillScope,
         movable: true,
         after,
         currentByScope:

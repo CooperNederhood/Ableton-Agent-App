@@ -2366,7 +2366,8 @@ small,
 }
 .context-budget-meter {
   display: flex;
-  height: 7px;
+  gap: 2px;
+  height: 10px;
   overflow: hidden;
   border-radius: 4px;
   background: var(--line);
@@ -2379,13 +2380,13 @@ small,
   background: #77868f;
 }
 .context-budget [data-token-kind="system"] {
-  background: #ee8fc0;
+  background: #a78bfa;
 }
 .context-budget [data-token-kind="conversation"] {
-  background: #61d6bc;
+  background: #4ade80;
 }
 .context-budget [data-token-kind="tools"] {
-  background: #77b5f6;
+  background: #fbbf24;
 }
 .context-budget dl {
   margin: 11px 0 0;
@@ -2403,9 +2404,9 @@ small,
   color: var(--muted);
 }
 .context-budget-swatch {
-  width: 7px;
-  height: 7px;
-  flex: 0 0 7px;
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
   border-radius: 2px;
 }
 .context-budget dd {

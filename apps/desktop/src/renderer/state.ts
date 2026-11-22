@@ -58,7 +58,19 @@ export interface WorkingView {
   detail?: string;
   startedAt: number;
   updatedAt: number;
+  subagents?: SubagentWorkingView[];
 }
+
+export interface SubagentWorkingView {
+  id: string;
+  label: string;
+  status: "running" | "completed" | "failed";
+  executionMode?: string;
+  intent?: string;
+  detail?: string;
+}
+
+const maxSubagentsPerTurn = 32;
 
 export interface AgentWorkspaceState {
   messages: MessageView[];
@@ -990,8 +1002,54 @@ function applyWorkingUpdate(
             startedAt: occurredAt,
             updatedAt: occurredAt,
           };
-    if (update.kind === "intent") {
+    if (update.kind === "intent" && update.subagentId !== undefined) {
+      const subagentId = update.subagentId;
+      working = {
+        ...base,
+        subagents: (base.subagents ?? []).map((subagent) =>
+          subagent.id === subagentId
+            ? { ...subagent, intent: update.content }
+            : subagent,
+        ),
+        updatedAt: occurredAt,
+      };
+    } else if (update.kind === "intent") {
       working = { ...base, intent: update.content, updatedAt: occurredAt };
+    } else if (update.kind === "subagent_started") {
+      const started: SubagentWorkingView = {
+        id: update.subagentId,
+        label: update.label,
+        status: "running",
+        ...(update.executionMode === undefined
+          ? {}
+          : { executionMode: update.executionMode }),
+      };
+      working = {
+        ...base,
+        subagents: [
+          ...(base.subagents ?? []).filter(
+            ({ id }) => id !== update.subagentId,
+          ),
+          started,
+        ].slice(-maxSubagentsPerTurn),
+        updatedAt: occurredAt,
+      };
+    } else if (update.kind === "subagent_finished") {
+      working = {
+        ...base,
+        subagents: (base.subagents ?? []).map((subagent) =>
+          subagent.id === update.subagentId
+            ? {
+                ...subagent,
+                status: update.outcome,
+                ...(update.detail === undefined
+                  ? {}
+                  : { detail: update.detail }),
+              }
+            : subagent,
+        ),
+        updatedAt: occurredAt,
+      };
     } else if (update.kind === "reasoning_delta") {
       working = {
         ...base,

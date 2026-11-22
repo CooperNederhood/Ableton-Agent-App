@@ -382,6 +382,7 @@ describe("desktop IPC", () => {
         model: null,
         reasoningEffort: null,
         autoApprove: false,
+        delegatable: false,
         eventListeners: [],
       },
       expectedRevision: "a".repeat(64),

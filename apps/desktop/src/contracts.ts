@@ -767,6 +767,7 @@ export const approvalSchema = z.object({
   changes: z.array(z.string()),
   destructive: z.boolean(),
   tool: approvalToolSchema.optional(),
+  subagentLabel: z.string().min(1).max(128).optional(),
 });
 export type ApprovalRequest = z.infer<typeof approvalSchema>;
 
@@ -1308,6 +1309,7 @@ export const desktopAgentDefinitionSchema = z.object({
   model: z.string().trim().min(1).max(256).nullable().optional(),
   reasoningEffort: agentReasoningEffortSchema.nullable().optional(),
   autoApprove: z.boolean().optional(),
+  delegatable: z.boolean().optional(),
   eventListeners: z.array(agentEventListenerSchema).optional(),
   origin: z
     .enum(["bundled", "system", "profile", "project", "session"])
@@ -1628,6 +1630,23 @@ export const appEventSchema = z.discriminatedUnion("type", [
         kind: z.literal("intent"),
         activityId: z.string().uuid(),
         content: z.string().max(16_000),
+        subagentId: z.string().min(1).max(256).optional(),
+        occurredAt: z.string().datetime(),
+      }),
+      z.object({
+        kind: z.literal("subagent_started"),
+        activityId: z.string().uuid(),
+        subagentId: z.string().min(1).max(256),
+        label: z.string().min(1).max(256),
+        executionMode: z.string().min(1).max(64).optional(),
+        occurredAt: z.string().datetime(),
+      }),
+      z.object({
+        kind: z.literal("subagent_finished"),
+        activityId: z.string().uuid(),
+        subagentId: z.string().min(1).max(256),
+        outcome: z.enum(["completed", "failed"]),
+        detail: z.string().max(16_000).optional(),
         occurredAt: z.string().datetime(),
       }),
       z.object({

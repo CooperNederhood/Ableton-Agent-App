@@ -348,6 +348,19 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
           .join("\n\n");
       })(),
     }),
+    onSubagentStart: async () => {
+      const identity = services.identityContext?.current();
+      return {
+        additionalContext: [
+          identity === undefined
+            ? undefined
+            : formatAgentIdentityContext(identity, "initial"),
+          await context(),
+        ]
+          .filter((value): value is string => value !== undefined)
+          .join("\n\n"),
+      };
+    },
     onPreToolUse: (input) => {
       const operation = resolveInvocationOperation(
         input.toolName,

@@ -314,6 +314,7 @@ export const currentAgentDefinitionSchema = agentDefinitionCoreSchema
     model: z.string().trim().min(1).max(256).nullable(),
     reasoningEffort: agentReasoningEffortSchema.nullable(),
     autoApprove: z.boolean(),
+    delegatable: z.boolean().default(false),
     eventListeners: z
       .array(agentEventListenerSchema)
       .max(MAX_EVENT_LISTENERS_PER_AGENT),
@@ -358,6 +359,7 @@ export const agentDefinitionSchema = z
           model: null,
           reasoningEffort: null,
           autoApprove: false,
+          delegatable: false,
           eventListeners: [],
         },
   );

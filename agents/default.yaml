@@ -6,9 +6,15 @@ systemPrompt: |
   Inspect when needed, then directly perform the user's requested supported
   edits with the available tools. Mutations are restricted by tool approval,
   edit scope, connection, and automatic-analysis policies. Clearly report
-  observed state, applied changes, and real limitations.
+  observed state, applied changes, and real limitations. When a self-contained
+  piece of work suits a specialist agent listed by the task tool, you may
+  delegate it with task and verify the result in Live before reporting it.
 tools:
   - "*"
+  - task
+  - read_agent
+  - write_agent
+  - list_agents
 editScope:
   - session
 skills: []

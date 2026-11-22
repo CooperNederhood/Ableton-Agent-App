@@ -41,6 +41,7 @@ describe("agent configuration schemas", () => {
       model: null,
       reasoningEffort: null,
       autoApprove: false,
+      delegatable: false,
       eventListeners: [],
     });
   });
@@ -77,8 +78,12 @@ describe("agent configuration schemas", () => {
       model: "model-a",
       reasoningEffort: "high",
       autoApprove: true,
+      delegatable: false,
       eventListeners: [{ eventId }],
     });
+    expect(
+      agentDefinitionSchema.parse({ ...parsed, delegatable: true }).delegatable,
+    ).toBe(true);
     expect(
       agentDefinitionSchema.safeParse({ ...parsed, label: "x".repeat(129) })
         .success,

@@ -24,6 +24,7 @@ import {
   Inspector,
   OperationCard,
   SkillsView,
+  Timeline,
   openListeningFailureHistory,
   slashCompletionsForState,
   WorkingDisclosure,
@@ -2619,6 +2620,73 @@ describe("desktop component interactions", () => {
     await render();
     expect(container.textContent).toContain("Waiting for token usage");
     expect(container.querySelector('[role="meter"]')).toBeNull();
+  });
+
+  it("follows a growing turn only while the timeline is scrolled to the end", async () => {
+    let scrollHeight = 1_000;
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(
+      () => scrollHeight,
+    );
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(200);
+    let state = rendererState();
+    const message = (id: string, role: "user" | "assistant", at: number) => {
+      state = desktopReducer(state, {
+        type: "event",
+        event: {
+          type: "agent.user_message_submitted",
+          messageId: id,
+          content: `${role} ${id}`,
+          agentInstanceId: agentId,
+          agentMode: "interactive",
+          origin: "automation",
+          timestamp: at,
+          traceId: "trace",
+          correlationId: "correlation",
+          causationId: "causation",
+        },
+      });
+    };
+    const render = async () => {
+      await act(async () => root.render(<Timeline state={state} />));
+    };
+    const timeline = () =>
+      container.querySelector<HTMLElement>('[aria-label="Recent activity"]')!;
+    message("first", "user", 1);
+    await render();
+    expect(timeline().scrollTop).toBe(1_000);
+
+    scrollHeight = 1_400;
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.message_delta",
+        messageId: "answer",
+        content: "Streaming",
+        agentInstanceId: agentId,
+      },
+    });
+    await render();
+    expect(timeline().scrollTop).toBe(1_400);
+
+    timeline().scrollTop = 300;
+    timeline().dispatchEvent(new Event("scroll"));
+    scrollHeight = 1_800;
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.message_delta",
+        messageId: "answer",
+        content: " more",
+        agentInstanceId: agentId,
+      },
+    });
+    await render();
+    expect(timeline().scrollTop).toBe(300);
+
+    scrollHeight = 2_000;
+    message("second", "user", Date.now() + 1_000);
+    await render();
+    expect(timeline().scrollTop).toBe(2_000);
   });
 
   it("switches, closes, and re-adds modular inspector views", async () => {

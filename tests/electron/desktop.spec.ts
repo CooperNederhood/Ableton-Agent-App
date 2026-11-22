@@ -2269,7 +2269,7 @@ test("renders plan.md in the Inspector and routes composer approval through IPC"
     await expect(meter).toHaveAttribute("aria-valuenow", "300");
     await expect(meter.locator('[data-token-kind="system"]')).toHaveCSS(
       "background-color",
-      "rgb(183, 163, 251)",
+      "rgb(238, 143, 192)",
     );
     await expect(
       meter.locator('[data-token-kind="conversation"]'),

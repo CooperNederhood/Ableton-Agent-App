@@ -214,6 +214,7 @@ export type DesktopAction =
       type: "user-message";
       id: string;
       content: string;
+      submittedAt?: number;
       agentInstanceId?: string;
       agentMode?: DesktopAgentMode;
     }
@@ -279,7 +280,7 @@ export function desktopReducer(
         role: "user" as const,
         content: action.content,
         streaming: false,
-        timestamp: Date.now(),
+        timestamp: action.submittedAt ?? Date.now(),
         ...(action.agentMode === undefined
           ? {}
           : { agentMode: action.agentMode }),
@@ -954,7 +955,12 @@ function applyMessageDelta(
   }
   return messages.map((message, messageIndex) =>
     messageIndex === index
-      ? { ...message, content: message.content + content, streaming: true }
+      ? {
+          ...message,
+          content: message.content + content,
+          streaming: true,
+          timestamp: Math.max(message.timestamp, Date.now()),
+        }
       : message,
   );
 }
@@ -968,7 +974,12 @@ function applyMessageComplete(
   return exists
     ? messages.map((message) =>
         message.id === messageId
-          ? { ...message, content, streaming: false }
+          ? {
+              ...message,
+              content,
+              streaming: false,
+              timestamp: Math.max(message.timestamp, Date.now()),
+            }
           : message,
       )
     : bounded(
@@ -1111,7 +1122,11 @@ function applyWorkingUpdate(
       };
     }
   }
-  const next = { ...existing, working };
+  const next = {
+    ...existing,
+    working,
+    timestamp: Math.max(existing.timestamp, occurredAt),
+  };
   return index < 0
     ? bounded([...messages, next], maxMessages)
     : messages.map((message, messageIndex) =>

@@ -97,7 +97,10 @@ A few Workspace details worth knowing:
 
 - **Conversation.** Assistant replies are rendered Markdown. Each tool call is a
   compact row that you can expand to see the request, result, and any failure
-  with a hint on how to fix it.
+  with a hint on how to fix it. A turn reads top to bottom: your message, its
+  tool calls, then the reply. The in-progress reply stays last, and the
+  conversation follows new activity while you are scrolled to the end; scroll
+  up to stop following, and sending a message resumes it.
 - **Composer.** Type a message or a slash command. `/plan` (or Shift+Tab)
   switches the selected agent between plan and interactive mode. Selected
   tracks, clips and devices are attached as context chips.

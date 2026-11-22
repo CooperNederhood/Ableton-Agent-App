@@ -621,6 +621,7 @@ export async function sendComposerMessage(
         : `${agent.label} is ${agent.lifecycle}`,
     );
   }
+  const submittedAt = Date.now();
   let invocation: SkillInvocation | undefined;
   try {
     invocation = parseSkillInvocation(message);
@@ -651,6 +652,7 @@ export async function sendComposerMessage(
       type: "user-message",
       id: accepted.messageId,
       content: message,
+      submittedAt,
       agentInstanceId: agent.id,
       agentMode,
     });
@@ -666,6 +668,7 @@ export async function sendComposerMessage(
     type: "user-message",
     id: accepted.messageId,
     content: message,
+    submittedAt,
     agentInstanceId: agent.id,
     agentMode,
   });
@@ -6211,11 +6214,14 @@ export function Timeline({
 }): React.JSX.Element {
   const workspace = selectedAgentWorkspace(state);
   const timelineRef = useRef<HTMLDivElement>(null);
+  const followLatest = useRef(true);
   const scrollKey = selectedAgentInstance(state)?.id ?? "no-agent";
   useLayoutEffect(() => {
-    if (timelineRef.current !== null) {
-      timelineRef.current.scrollTop = scrollPositions?.get(scrollKey) ?? 0;
-    }
+    const timeline = timelineRef.current;
+    if (timeline === null) return;
+    const saved = scrollPositions?.get(scrollKey);
+    timeline.scrollTop = saved ?? timeline.scrollHeight;
+    followLatest.current = saved === undefined || isScrolledToEnd(timeline);
   }, [scrollKey, scrollPositions]);
   const items = useMemo(
     () =>
@@ -6234,19 +6240,38 @@ export function Timeline({
           itemType: "trigger" as const,
         })),
       ]
-        .sort((left, right) => left.timestamp - right.timestamp)
+        .sort(
+          (left, right) =>
+            Number(isActiveTimelineMessage(left)) -
+              Number(isActiveTimelineMessage(right)) ||
+            left.timestamp - right.timestamp,
+        )
         .slice(-200),
     [workspace.messages, workspace.operations, workspace.triggers],
   );
+  const latestUserMessageId = [...workspace.messages]
+    .reverse()
+    .find(({ role }) => role === "user")?.id;
+  const followedUserMessageId = useRef(latestUserMessageId);
+  useLayoutEffect(() => {
+    const timeline = timelineRef.current;
+    if (timeline === null) return;
+    if (followedUserMessageId.current !== latestUserMessageId) {
+      followedUserMessageId.current = latestUserMessageId;
+      followLatest.current = true;
+    }
+    if (followLatest.current) timeline.scrollTop = timeline.scrollHeight;
+  }, [items, latestUserMessageId]);
   return (
     <div
       ref={timelineRef}
       className="timeline"
       aria-live="polite"
       aria-label="Recent activity"
-      onScroll={(event) =>
-        scrollPositions?.set(scrollKey, event.currentTarget.scrollTop)
-      }
+      onScroll={(event) => {
+        scrollPositions?.set(scrollKey, event.currentTarget.scrollTop);
+        followLatest.current = isScrolledToEnd(event.currentTarget);
+      }}
     >
       {items.length === 0 && (
         <EmptyState
@@ -6291,6 +6316,21 @@ export function Timeline({
       )}
     </div>
   );
+}
+
+function isActiveTimelineMessage(item: {
+  itemType: string;
+  streaming?: boolean;
+  working?: WorkingView | undefined;
+}): boolean {
+  return (
+    item.itemType === "message" &&
+    (item.streaming === true || item.working?.status === "running")
+  );
+}
+
+function isScrolledToEnd(element: HTMLElement): boolean {
+  return element.scrollHeight - element.scrollTop - element.clientHeight < 48;
 }
 
 export function WorkingDisclosure({
@@ -6425,7 +6465,7 @@ export function OperationCard({
           </code>
         )}
         <small>
-          {operation.status}
+          <span className="operation-status">{operation.status}</span>
           {operation.durationMs === undefined
             ? ""
             : ` · ${formatOperationDuration(operation.durationMs)}`}

@@ -2135,6 +2135,8 @@ small,
 .operation summary small {
   color: #707b82;
   font-size: 11px;
+}
+.operation-status {
   text-transform: capitalize;
 }
 .operation-running summary small {
@@ -2377,7 +2379,7 @@ small,
   background: #77868f;
 }
 .context-budget [data-token-kind="system"] {
-  background: #b7a3fb;
+  background: #ee8fc0;
 }
 .context-budget [data-token-kind="conversation"] {
   background: #61d6bc;

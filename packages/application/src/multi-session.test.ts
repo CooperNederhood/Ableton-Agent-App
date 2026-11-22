@@ -4477,7 +4477,7 @@ describe("CopilotAgentService managed sessions", () => {
       tool("submit_artifact_draft")({ summary: "Too early" }),
     ).resolves.toMatchObject({
       resultType: "failure",
-      textResultForLlm: expect.stringContaining("No draft is open"),
+      textResultForLlm: expect.stringContaining("No draft is open") as string,
     });
     await expect(
       tool("skill")({ skill_name: "update-memory" }),

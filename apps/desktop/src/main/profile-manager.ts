@@ -233,7 +233,7 @@ function layer(paths: ArtifactScopePaths) {
 }
 
 async function physicalArtifact(
-  kind: DesktopArtifactKind,
+  kind: Exclude<DesktopArtifactKind, "memory">,
   directory: ArtifactScopePaths,
   name: string,
   ensureDirectories = true,

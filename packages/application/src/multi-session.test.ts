@@ -6042,7 +6042,7 @@ describe("CopilotAgentService sub-agents", () => {
         agentName: "compose",
         agentDisplayName: "Compose",
       },
-    } as SessionEvent;
+    };
   }
 
   const compose = {

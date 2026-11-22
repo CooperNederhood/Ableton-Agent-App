@@ -4876,6 +4876,20 @@ export class HeadlessDesktopService implements DesktopService {
       boundTracks: instance.boundTracks,
       skills: instance.config.skills,
       availableSkills: this.options.agentCatalog?.runtimeSkills ?? [],
+      delegates: (this.options.agentCatalog?.current.definitions ?? [])
+        .filter((definition) => definition.delegatable === true)
+        .map((definition) => ({
+          definitionName: definition.name,
+          label: definition.label ?? definition.name,
+          description: definition.description,
+          systemPrompt: definition.systemPrompt,
+          resolvedTools: definition.resolvedTools,
+          skills: definition.skills,
+          ...(definition.model == null ? {} : { model: definition.model }),
+          ...(definition.reasoningEffort == null
+            ? {}
+            : { reasoningEffort: definition.reasoningEffort }),
+        })),
     };
   }
 

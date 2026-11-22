@@ -5236,6 +5236,7 @@ function normalizedDefinition(
     model: definition.model ?? null,
     reasoningEffort: definition.reasoningEffort ?? null,
     autoApprove: definition.autoApprove ?? false,
+    delegatable: definition.delegatable ?? false,
     eventListeners: [...(definition.eventListeners ?? [])],
   };
 }
@@ -5790,6 +5791,19 @@ function ActiveAgentCard({
                 />
                 Automatically approve eligible tool requests
               </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={draft.delegatable}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      delegatable: event.target.checked,
+                    }))
+                  }
+                />
+                Other agents can delegate tasks to this agent as a sub-agent
+              </label>
               <small>
                 Changes become the Session definition default. Active
                 conversations adopt them only after Reset.
@@ -6324,6 +6338,36 @@ export function WorkingDisclosure({
           <p>{fallback}</p>
         )}
         {working.detail && <p className="warning">{working.detail}</p>}
+        {working.subagents !== undefined && working.subagents.length > 0 && (
+          <ul className="working-subagents" aria-label="Sub-agents">
+            {working.subagents.map((subagent) => (
+              <li
+                key={subagent.id}
+                className={`working-subagent working-${subagent.status}`}
+              >
+                <strong>{subagent.label}</strong>
+                {subagent.executionMode === "background" && (
+                  <small> · background</small>
+                )}
+                <small role="status">
+                  {" "}
+                  ·{" "}
+                  {
+                    {
+                      running: "Working",
+                      completed: "Completed",
+                      failed: "Failed",
+                    }[subagent.status]
+                  }
+                </small>
+                {subagent.intent && <p>{subagent.intent}</p>}
+                {subagent.detail && (
+                  <p className="warning">{subagent.detail}</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </details>
   );
@@ -7204,6 +7248,11 @@ export function ApprovalPanel({
           <span className={`risk risk-${approval.risk}`}>
             {approval.risk} risk
           </span>
+          {approval.subagentLabel !== undefined && (
+            <small className="approval-subagent">
+              Requested via sub-agent {approval.subagentLabel}
+            </small>
+          )}
           <p>{approval.summary}</p>
           <ul>
             {approval.changes.map((change) => (

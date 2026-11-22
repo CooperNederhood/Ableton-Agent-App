@@ -5985,3 +5985,269 @@ describe("CopilotAgentService missing-session automatic recovery", () => {
     await service.stop();
   });
 });
+
+describe("CopilotAgentService sub-agents", () => {
+  function subagentEvent(
+    type: "subagent.started" | "subagent.completed" | "subagent.failed",
+    agentId: string,
+  ): SessionEvent {
+    const base = {
+      id: `${type}-${agentId}`,
+      parentId: null,
+      timestamp: "2026-08-08T00:00:01.000Z",
+      agentId,
+    };
+    if (type === "subagent.started")
+      return {
+        ...base,
+        type,
+        data: {
+          toolCallId: "task-call",
+          agentName: "compose",
+          agentDisplayName: "Compose",
+          agentDescription: "Writes MIDI",
+          executionMode: "background",
+        },
+      };
+    if (type === "subagent.failed")
+      return {
+        ...base,
+        type,
+        data: {
+          toolCallId: "task-call",
+          agentName: "compose",
+          agentDisplayName: "Compose",
+          error: "sub-agent failed",
+        },
+      };
+    return {
+      ...base,
+      type,
+      data: {
+        toolCallId: "task-call",
+        agentName: "compose",
+        agentDisplayName: "Compose",
+      },
+    } as SessionEvent;
+  }
+
+  const compose = {
+    definitionName: "compose",
+    label: "Compose",
+    description: "Writes MIDI",
+    systemPrompt: "Compose prompt",
+    resolvedTools: ["ableton_session", "ableton_midi_notes", "ask_user"],
+    skills: ["midi-compose"],
+  };
+
+  async function startWith(
+    overrides: Partial<Omit<AgentSessionConfiguration, "instanceId">>,
+    options: {
+      onSend?: NonNullable<Parameters<typeof createFakeSession>[1]>["onSend"];
+      requestToolApproval?: CopilotAgentServiceOptions["requestToolApproval"];
+    } = {},
+  ) {
+    const events = new InMemoryEventPublisher();
+    const received: AppEvent[] = [];
+    events.subscribe((event) => received.push(event));
+    const observed: AgentRuntimeEvent[] = [];
+    const configs: SessionConfig[] = [];
+    const managed = createFakeSession("managed-session", {
+      ...(options.onSend === undefined ? {} : { onSend: options.onSend }),
+    });
+    const createSession = vi.fn(async (config: SessionConfig) => {
+      configs.push(config);
+      return configs.length === 1
+        ? createFakeSession("default-session")
+        : managed;
+    });
+    const service = new CopilotAgentService(
+      baseOptions({
+        events,
+        runtimeObserver: { enqueue: (event) => observed.push(event) },
+        ...(options.requestToolApproval === undefined
+          ? {}
+          : { requestToolApproval: options.requestToolApproval }),
+        clientFactory: () => ({
+          createSession,
+          resumeSession: vi.fn(async () => {
+            throw new Error("resume not expected");
+          }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    await service.start();
+    await service.createManagedAgent(
+      configuration("parent", {
+        resolvedTools: ["ableton_session", "ableton_tracks", "task"],
+        availableSkills: [skillDescriptor("midi-compose")],
+        ...overrides,
+      }),
+    );
+    return { service, managed, config: configs[1]!, received, observed };
+  }
+
+  it("offers delegatable definitions as inferable custom agents limited to the parent's tools", async () => {
+    const { config } = await startWith({
+      delegates: [
+        compose,
+        { ...compose, definitionName: "parent-definition" },
+        {
+          ...compose,
+          definitionName: "mix",
+          resolvedTools: ["ableton_mixer"],
+          skills: [],
+        },
+      ],
+    });
+
+    expect(
+      config.customAgents?.map(({ name, infer }) => [name, infer]),
+    ).toEqual([
+      ["parent-definition", false],
+      ["compose", true],
+    ]);
+    const delegate = config.customAgents?.[1];
+    expect(delegate?.tools).toEqual(["ableton_session", "skill"]);
+    expect(delegate?.prompt).toContain("Compose prompt");
+    expect(delegate?.prompt).toContain("delegated sub-agent");
+    expect(delegate?.prompt).toContain("name: midi-compose");
+    expect(config.availableTools).toContain("builtin:task");
+    expect(config.availableTools).toContain("custom:skill");
+  });
+
+  it("does not offer sub-agents when the parent lacks the task tool", async () => {
+    const { config } = await startWith({
+      resolvedTools: ["ableton_session", "ableton_tracks"],
+      delegates: [compose],
+    });
+
+    expect(config.customAgents).toHaveLength(1);
+    expect(config.availableTools).not.toContain("builtin:task");
+  });
+
+  it("keeps sub-agent text out of the parent chat and final reply", async () => {
+    const { service, received, observed } = await startWith(
+      { delegates: [compose] },
+      {
+        onSend: async (_prompt, emit) => {
+          emit(subagentEvent("subagent.started", "sub-1"));
+          emit({ ...assistantDelta("hidden-notes"), agentId: "sub-1" });
+          emit({
+            ...assistantMessage(
+              "sub-msg",
+              "sub-msg",
+              "hidden-notes",
+              "2026-08-08T00:00:02.000Z",
+            ),
+            agentId: "sub-1",
+          });
+          emit(subagentEvent("subagent.completed", "sub-1"));
+          return { data: { content: "parent reply" } };
+        },
+      },
+    );
+
+    await expect(
+      service.sendToManagedAgent("parent", "Delegate a clip"),
+    ).resolves.toBe("parent reply");
+
+    expect(
+      received.some(
+        (event) =>
+          event.type === "agent.message_delta" &&
+          event.content === "hidden-notes",
+      ),
+    ).toBe(false);
+    const working = received.flatMap((event) =>
+      event.type === "agent.working_update" ? [event.update] : [],
+    );
+    expect(working).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "subagent_started",
+          subagentId: "sub-1",
+          label: "Compose",
+          executionMode: "background",
+        }),
+        expect.objectContaining({
+          kind: "subagent_finished",
+          subagentId: "sub-1",
+          outcome: "completed",
+        }),
+      ]),
+    );
+    expect(
+      observed.find((event) => event.type === "agent.subagent.started")?.data,
+    ).toMatchObject({ agentId: "sub-1", subagentName: "compose" });
+    expect(
+      observed.find(
+        (event) =>
+          event.type === "agent.assistant.final" &&
+          event.data.agentId === "sub-1",
+      ),
+    ).toBeDefined();
+  });
+
+  it("attributes sub-agent approvals and scopes skills to the sub-agent", async () => {
+    const requestToolApproval = vi.fn(async () => true);
+    const { managed, config } = await startWith(
+      { delegates: [compose] },
+      { requestToolApproval },
+    );
+    const renameArgs = {
+      action: "rename",
+      index: 0,
+      expectedReference: trackAReference,
+      expectedName: "Track A",
+      name: "Track A renamed",
+    };
+    managed.emit(subagentEvent("subagent.started", "sub-1"));
+    managed.emit({
+      ...toolStart("sub-call", "ableton_tracks", renameArgs),
+      agentId: "sub-1",
+    });
+
+    await config.onPermissionRequest?.(
+      {
+        kind: "custom-tool",
+        toolCallId: "sub-call",
+        toolName: "ableton_tracks",
+        toolDescription: "Rename track",
+        args: renameArgs,
+      },
+      { sessionId: "managed-session" },
+    );
+    expect(requestToolApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subagent: { agentId: "sub-1", label: "Compose" },
+      }),
+    );
+
+    const skill = config.tools?.find((tool) => tool.name === "skill");
+    await expect(
+      skill?.handler?.(
+        { skill_name: "midi-compose" },
+        {
+          sessionId: "managed-session",
+          toolCallId: "parent-skill",
+          toolName: "skill",
+          arguments: {},
+        },
+      ),
+    ).rejects.toThrow("not enabled for managed agent");
+    await expect(
+      skill?.handler?.(
+        { skill_name: "mix-review" },
+        {
+          sessionId: "managed-session",
+          toolCallId: "sub-skill",
+          toolName: "skill",
+          arguments: {},
+          agentId: "sub-1",
+        },
+      ),
+    ).rejects.toThrow("not enabled for sub-agent 'compose'");
+  });
+});

@@ -56,6 +56,24 @@ export type AgentWorkingUpdate =
       readonly kind: "intent";
       readonly activityId: string;
       readonly content: string;
+      /** Set when the intent belongs to a delegated sub-agent. */
+      readonly subagentId?: string;
+      readonly occurredAt: string;
+    }
+  | {
+      readonly kind: "subagent_started";
+      readonly activityId: string;
+      readonly subagentId: string;
+      readonly label: string;
+      readonly executionMode?: string;
+      readonly occurredAt: string;
+    }
+  | {
+      readonly kind: "subagent_finished";
+      readonly activityId: string;
+      readonly subagentId: string;
+      readonly outcome: "completed" | "failed";
+      readonly detail?: string;
       readonly occurredAt: string;
     }
   | {

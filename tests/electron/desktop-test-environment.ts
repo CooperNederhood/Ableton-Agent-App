@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
+import type { Page } from "@playwright/test";
 import { resolveLiveAgentStorage } from "../../packages/storage/src/index.js";
 import { preferencesSchema } from "../../apps/desktop/src/contracts.js";
 
@@ -114,4 +115,23 @@ export async function writeDesktopTestPreferences(
     { mode: 0o600 },
   );
   return storage;
+}
+
+const menuViews = new Set([
+  "Outputs",
+  "Settings",
+  "Events",
+  "Browser",
+  "Diagnostics",
+]);
+
+/** Opens an app view from the navigation rail or its More menu. */
+export async function openView(window: Page, label: string): Promise<void> {
+  const views = window.getByRole("navigation", { name: "Application views" });
+  if (!menuViews.has(label)) {
+    await views.getByRole("button", { name: label, exact: true }).click();
+    return;
+  }
+  await views.getByRole("button", { name: "More", exact: true }).click();
+  await views.getByRole("menuitem", { name: label, exact: true }).click();
 }

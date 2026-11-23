@@ -36,6 +36,7 @@ import {
 } from "./listening-context-fixture.js";
 import {
   createDesktopTestEnvironment,
+  openView,
   writeDesktopTestPreferences,
 } from "./desktop-test-environment.js";
 
@@ -258,7 +259,7 @@ test("binds first-connected Live ownership through production main/preload and r
     await expect(
       window.getByText("Live Set snapshot updated.", { exact: true }),
     ).toBeVisible();
-    await window.getByRole("button", { name: "Profiles", exact: true }).click();
+    await openView(window, "Profile");
     await window
       .getByRole("button", { name: "Expand unassigned Live Sets" })
       .click();
@@ -553,7 +554,7 @@ test("round-trips listening Settings through typed preload and the isolated prof
   let application = launched.application;
   try {
     let window = await application.firstWindow();
-    await window.getByRole("button", { name: "Settings", exact: true }).click();
+    await openView(window, "Settings");
     const mode = window.getByRole("combobox", {
       name: "Listening timing mode",
     });
@@ -623,7 +624,7 @@ test("round-trips listening Settings through typed preload and the isolated prof
       env: launched.environment,
     });
     window = await application.firstWindow();
-    await window.getByRole("button", { name: "Settings", exact: true }).click();
+    await openView(window, "Settings");
     await expect(
       window.getByRole("combobox", { name: "Listening timing mode" }),
     ).toHaveValue("strict");
@@ -681,7 +682,7 @@ test("shows synthetic listening lifecycle through real preload events and read-o
     await expect(
       window.getByRole("combobox", { name: "Active Agent", exact: true }),
     ).toBeEnabled({ timeout: 30_000 });
-    await window.getByRole("button", { name: "Outputs", exact: true }).click();
+    await openView(window, "Outputs");
     await expect(
       window.getByText("Listening passes", { exact: true }),
     ).toBeVisible();
@@ -725,9 +726,7 @@ test("shows synthetic listening lifecycle through real preload events and read-o
       metadata: resolveAbletonToolMetadata("ableton_listening", args)!,
       arguments: args,
     });
-    await window
-      .getByRole("button", { name: "Workspace", exact: true })
-      .click();
+    await openView(window, "Workspace");
     await application.evaluate(
       ({ BrowserWindow }, payload) => {
         const target = BrowserWindow.getAllWindows()[0];
@@ -758,7 +757,7 @@ test("shows synthetic listening lifecycle through real preload events and read-o
     ).toBe(true);
     await preview.getByRole("button", { name: "Deny", exact: true }).click();
     await expect(preview).not.toBeVisible();
-    await window.getByRole("button", { name: "Outputs", exact: true }).click();
+    await openView(window, "Outputs");
     const page: DesktopListeningPage = {
       sessionId: owner.sessionId,
       revision: 100,
@@ -972,7 +971,7 @@ test("shows synthetic listening lifecycle through real preload events and read-o
     await expect(window.locator(".trace-inspector")).toContainText(
       `Diagnostic trace: ${failedJob.trace.traceId}`,
     );
-    await window.getByRole("button", { name: "Outputs", exact: true }).click();
+    await openView(window, "Outputs");
     await expect(
       window.getByText(
         "No listening passes for this agent in this App session.",
@@ -1129,9 +1128,7 @@ for (const action of [
           window.getByRole("button", { name: "Send message", exact: true }),
         ).toHaveCount(0);
 
-        await window
-          .getByRole("button", { name: "Outputs", exact: true })
-          .click();
+        await openView(window, "Outputs");
         const cancel = window.getByRole("button", {
           name: "Cancel owned capture (not transport)",
           exact: true,
@@ -1183,18 +1180,14 @@ for (const action of [
                   .result ?? null,
             ),
           ).toBeNull();
-          await window
-            .getByRole("button", { name: "Workspace", exact: true })
-            .click();
+          await openView(window, "Workspace");
           await expect(operation).toHaveCount(1);
           await expect(operation).toHaveClass(/operation-running/u);
           await expect(operation).toContainText(`Listening pass: ${progress}`);
           await expect(
             window.getByRole("button", { name: "Stop agent", exact: true }),
           ).toBeEnabled();
-          await window
-            .getByRole("button", { name: "Outputs", exact: true })
-            .click();
+          await openView(window, "Outputs");
         }
         if (stage === "cancelled") {
           await cancel.click();
@@ -1260,9 +1253,7 @@ for (const action of [
           { ...terminal, action },
         );
         await expect(window.locator("[data-listening-stage]")).toHaveCount(0);
-        await window
-          .getByRole("button", { name: "Workspace", exact: true })
-          .click();
+        await openView(window, "Workspace");
         await expect(operation).toHaveCount(0);
         await expect(
           window
@@ -1292,9 +1283,7 @@ for (const action of [
           await expect(operation).toContainText("stale_native_preflight");
           await expect(operation).toContainText("Inspect the failure");
         }
-        await window
-          .getByRole("button", { name: "Outputs", exact: true })
-          .click();
+        await openView(window, "Outputs");
         await expect(
           window.locator(`[data-listening-stage=${stage}]`),
         ).toBeVisible();
@@ -1343,9 +1332,7 @@ test("reopens the current stream context through typed IPC after restart", async
       await expect(
         window.getByRole("combobox", { name: "Active Agent", exact: true }),
       ).toBeEnabled({ timeout: 30_000 });
-      await window
-        .getByRole("button", { name: "Outputs", exact: true })
-        .click();
+      await openView(window, "Outputs");
       await window
         .getByRole("button", { name: "Refresh Outputs", exact: true })
         .click();
@@ -1530,39 +1517,38 @@ test("launches the built desktop contract securely", async () => {
     await window
       .getByRole("button", { name: "Hide application toolbar" })
       .click();
+    await expect(window.locator("#application-toolbar")).toHaveCount(0);
     await expect(
       window.getByRole("navigation", { name: "Application views" }),
-    ).toHaveCount(0);
+    ).toBeVisible();
     await window
       .getByRole("button", { name: "Show application toolbar" })
       .click();
-    await expect(
-      window.getByRole("navigation", { name: "Application views" }),
-    ).toBeVisible();
-    await expect(
-      window.getByRole("button", { name: "Settings" }),
-    ).toBeVisible();
+    await expect(window.locator("#application-toolbar")).toBeVisible();
     const composer = window.getByRole("textbox", {
       name: "Message the Ableton agent",
     });
     await composer.fill("Keep this draft");
     const views = window.getByRole("navigation", { name: "Application views" });
+    await views.getByRole("button", { name: "More", exact: true }).click();
     for (const advanced of ["Events", "Browser", "Diagnostics"]) {
       await expect(
-        views.getByRole("button", { name: advanced, exact: true }),
+        views.getByRole("menuitem", { name: advanced, exact: true }),
       ).toHaveCount(0);
     }
-    await views.getByRole("button", { name: "Settings" }).click();
+    await views.getByRole("menuitem", { name: "Settings" }).click();
     await expect(composer).toHaveCount(0);
     await window.getByRole("checkbox", { name: "Show advanced views" }).check();
     await window.getByRole("button", { name: "Save settings" }).click();
-    await views.getByRole("button", { name: "Events", exact: true }).click();
+    await openView(window, "Events");
     await expect(window.getByRole("heading", { name: "Events" })).toBeVisible();
+    await views.getByRole("button", { name: "More", exact: true }).click();
     await expect(
-      views.getByRole("button", { name: "Diagnostics", exact: true }),
+      views.getByRole("menuitem", { name: "Diagnostics", exact: true }),
     ).toBeVisible();
+    await window.keyboard.press("Escape");
 
-    await window.getByRole("button", { name: "Agents" }).click();
+    await openView(window, "Agents");
     await expect(
       window.getByRole("heading", { name: "Agents", exact: true }),
     ).toBeVisible();
@@ -1577,12 +1563,12 @@ test("launches the built desktop contract securely", async () => {
       ),
     ).toBeVisible();
 
-    await window.getByRole("button", { name: "Skills" }).click();
+    await openView(window, "Skills");
     await expect(
       window.getByRole("heading", { name: "Skills", exact: true }),
     ).toBeVisible();
     await expect(composer).toHaveCount(0);
-    await window.getByText("mix-review", { exact: true }).first().click();
+    await window.getByText("/mix-review", { exact: true }).first().click();
     await expect(
       window.getByRole("textbox", { name: "Markdown instructions" }),
     ).toBeVisible();
@@ -1592,7 +1578,7 @@ test("launches the built desktop contract securely", async () => {
       window.getByRole("textbox", { name: "Description" }),
     ).toBeDisabled();
 
-    await window.getByRole("button", { name: "Profiles" }).click();
+    await openView(window, "Profile");
     await expect(
       window.getByRole("heading", { name: "Profiles", exact: true }),
     ).toBeVisible();
@@ -1922,7 +1908,7 @@ test("renders useful successful and blocked tool disclosures", async () => {
     );
     await expect(subagentOperation).toHaveCSS(
       "border-left-color",
-      "rgb(34, 211, 238)",
+      "rgb(224, 224, 90)",
     );
   } finally {
     await application.close();
@@ -2312,7 +2298,7 @@ test("renders plan.md in the Inspector and routes composer approval through IPC"
     await expect(meter).toHaveAttribute("aria-valuenow", "300");
     await expect(meter.locator('[data-token-kind="system"]')).toHaveCSS(
       "background-color",
-      "rgb(167, 139, 250)",
+      "rgb(180, 140, 242)",
     );
     await expect(
       meter.locator('[data-token-kind="conversation"]'),

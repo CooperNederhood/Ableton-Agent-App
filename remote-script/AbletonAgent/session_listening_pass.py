@@ -54,25 +54,6 @@ def _monitor_available(obj, field):
                for prefix in ("add_", "remove_"))
 
 
-def session_listening_pass_supported(song):
-    """Primitive detection only; admission still attests every exact binding."""
-    if not all(_monitor_available(song, field) for field in SESSION_SONG_SETTINGS + ("is_playing",)):
-        return False
-    for track in _safe_lom_getattr(song, "tracks", ())[:256]:
-        if not all(_monitor_available(track, field) for field in (
-            "name", "clip_slots", "devices", "playing_slot_index", "fired_slot_index",
-        )):
-            continue
-        for slot in _safe_lom_getattr(track, "clip_slots", ())[:256]:
-            clip = _safe_lom_getattr(slot, "clip")
-            if (_monitor_available(slot, "has_clip") and clip is not None
-                    and callable(_safe_lom_getattr(clip, "fire"))
-                    and all(_monitor_available(clip, field)
-                            for field in SESSION_CLIP_SETTINGS + SESSION_CLIP_DYNAMIC)):
-                return True
-    return False
-
-
 def validate_session_listening_pass(params):
     common = ("schemaVersion", "action", "ownerId", "passId")
     if not isinstance(params, dict):

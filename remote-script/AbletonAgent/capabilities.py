@@ -767,14 +767,11 @@ def build_capability_document(
         OWNERSHIP_LIMITATION, PLAYBACK_CAPABILITIES, POSITION_LIMITATION,
         START_LIMITATION, guarded_arrangement_start_supported,
     )
-    from .session_listening_pass import LIMITATIONS, SESSION_PASS_COMMANDS, session_listening_pass_supported
+    from .session_listening_pass import LIMITATIONS, SESSION_PASS_COMMANDS
 
-    for name, action in SESSION_PASS_COMMANDS.items():
+    for name in SESSION_PASS_COMMANDS:
         if name in capabilities:
-            capabilities[name] = (
-                live_version.startswith("11.")
-                and (action in ("inspect", "release") or session_listening_pass_supported(song))
-            )
+            capabilities[name] = live_version.startswith("11.")
     for name in PLAYBACK_CAPABILITIES:
         if name in capabilities:
             capabilities[name] = (

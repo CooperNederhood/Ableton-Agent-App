@@ -492,7 +492,10 @@ def inspect_listening_context(context, params):
         raise ProtocolFailure("ambiguous_reference", "Listener selectors resolve to the same device")
     transport["safeToStart"] = (
         transport["playing"] is False
-        and all(value is False for value in recording.values())
+        and all(
+            value is False or (key == "sessionAutomationRecord" and value is True)
+            for key, value in recording.items()
+        )
         and all(not listener["clipsTruncated"] for listener in listeners)
         and all(clip["isRecording"] is False for listener in listeners for clip in listener["clips"])
         and all("arrangement-interval-unavailable" not in listener["unknownReasons"] for listener in listeners)

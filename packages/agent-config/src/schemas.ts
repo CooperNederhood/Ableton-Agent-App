@@ -348,6 +348,8 @@ export const currentAgentDefinitionSchema = agentDefinitionCoreSchema
     reasoningEffort: agentReasoningEffortSchema.nullable(),
     autoApprove: z.boolean(),
     delegatable: z.boolean().default(false),
+    /** As a sub-agent, its final reply reaches the parent only as a fixed confirmation. */
+    hideResultFromParent: z.boolean().default(false),
     eventListeners: z
       .array(agentEventListenerSchema)
       .max(MAX_EVENT_LISTENERS_PER_AGENT),
@@ -393,6 +395,7 @@ export const agentDefinitionSchema = z
           reasoningEffort: null,
           autoApprove: false,
           delegatable: false,
+          hideResultFromParent: false,
           eventListeners: [],
         },
   );

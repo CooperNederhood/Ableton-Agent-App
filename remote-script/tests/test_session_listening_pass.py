@@ -19,7 +19,7 @@ from AbletonAgent.registry import CommandRegistry
 from AbletonAgent.protocol import FrameDecoder, encode_frame
 from AbletonAgent.session_listening_pass import (
     clear_session_listening_pass, register_session_listening_pass, session_listening_pass,
-    validate_session_listening_pass, session_listening_pass_supported,
+    validate_session_listening_pass,
 )
 from simulator import handle
 import test_session_listening_source as source_fixtures
@@ -362,7 +362,7 @@ class SessionListeningPassTest(unittest.TestCase):
         for obj, field, value in (
             ("song", "is_playing", True), ("song", "record_mode", True),
             ("song", "overdub", None), ("song", "session_record", None),
-            ("song", "session_automation_record", True),
+            ("song", "session_automation_record", None),
             ("song", "tempo", None), ("song", "tempo", 0.1),
             ("song", "current_song_time", None), ("song", "signature_denominator", None),
             ("song", "signature_numerator", 3), ("song", "clip_trigger_quantization", 5),
@@ -856,16 +856,19 @@ class SessionListeningPassTest(unittest.TestCase):
                 self.assertFalse(self.song.is_playing)
                 self.assert_no_monitors()
 
-    def test_capability_requires_real_monitor_primitives_and_simulator_refuses(self):
-        self.assertTrue(session_listening_pass_supported(self.song))
+    def test_regression_capability_is_advertised_when_live_starts_on_a_set_without_clips(self):
+        # Capabilities are computed once at script load, usually on an empty set;
+        # admission attests the real clip's monitors.
+        self.song.tracks = []
         registry = CommandRegistry()
         register_session_listening_pass(registry)
         application = types.SimpleNamespace(get_version_string=lambda: "11.3.43")
         with patch("AbletonAgent.capabilities.build_live_identity", return_value={"liveSetId": "set"}):
             document = build_capability_document(application, self.song, registry)
-        self.assertTrue(document["capabilities"]["listening.prepare_session_pass"])
-        self.clip.add_playing_status_listener = None
-        self.assertFalse(session_listening_pass_supported(self.song))
+        for action in ("prepare", "launch", "inspect", "release"):
+            self.assertTrue(document["capabilities"]["listening." + action + "_session_pass"])
+
+    def test_simulator_refuses_session_pass(self):
         result = handle({
             "kind": "request", "requestId": OWNER,
             "command": "listening.prepare_session_pass", "params": self.params,
@@ -877,7 +880,6 @@ class SessionListeningPassTest(unittest.TestCase):
         add = Mock(side_effect=RuntimeError("start_time is get-only"))
         remove = Mock(side_effect=RuntimeError("start_time is get-only"))
         self.clip.add_start_time_listener, self.clip.remove_start_time_listener = add, remove
-        self.assertTrue(session_listening_pass_supported(self.song))
         prepared = self.call()
         self.assertIn("Clip.start_time is polled", prepared["limitations"][0])
         self.assertIn("changes between observations may be missed", prepared["limitations"][0])
@@ -928,7 +930,6 @@ class SessionListeningPassTest(unittest.TestCase):
             with self.subTest(field=field):
                 self.setUp()
                 setattr(self.clip, "add_" + field + "_listener", None)
-                self.assertFalse(session_listening_pass_supported(self.song))
                 self.assert_denied()
         self.setUp()
         self.clip.start_time = None

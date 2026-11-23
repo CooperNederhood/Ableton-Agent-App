@@ -51,6 +51,7 @@ import {
 } from "./index.js";
 import {
   AUTOMATIC_LIVE_EVENT_IDENTITY_GUIDANCE,
+  hiddenSubagentResult,
   VERIFIED_TOOL_RESULT_GUIDANCE,
 } from "./agent-policy.js";
 import type { SignalTurnRequest } from "./signal-delivery.js";
@@ -6911,6 +6912,30 @@ describe("CopilotAgentService sub-agents", () => {
     expect(delegate?.prompt).toContain("name: midi-compose");
     expect(config.availableTools).toContain("builtin:task");
     expect(config.availableTools).toContain("custom:skill");
+  });
+
+  it("hides a hidden-result delegate's reply through the configured session hooks", async () => {
+    const { config } = await startWith({
+      delegates: [{ ...compose, hideResultFromParent: true }],
+    });
+
+    const stop = await config.hooks?.onSubagentStop?.(
+      {
+        sessionId: "managed-session",
+        timestamp: new Date(0),
+        workingDirectory: "/tmp",
+        transcriptPath: "/tmp/t",
+        agentId: "sub-1",
+        agentName: "compose",
+        agentType: "compose",
+        response: "notes: C1 on every beat",
+        stopReason: "end_turn",
+      },
+      { sessionId: "managed-session" },
+    );
+    expect(stop).toEqual({
+      modifiedResponse: hiddenSubagentResult("compose"),
+    });
   });
 
   it("does not offer sub-agents when the parent lacks the task tool", async () => {

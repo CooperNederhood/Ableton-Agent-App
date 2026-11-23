@@ -71,6 +71,7 @@ export function toDesktopCatalog(
       reasoningEffort: agent.definition.reasoningEffort,
       autoApprove: agent.definition.autoApprove,
       delegatable: agent.definition.delegatable,
+      hideResultFromParent: agent.definition.hideResultFromParent,
       color: agent.definition.color ?? defaultAgentColor(agent.definition.name),
       eventListeners: agent.definition.eventListeners,
       origin: "origin" in agent ? agent.origin : "bundled",

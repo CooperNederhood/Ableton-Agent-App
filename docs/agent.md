@@ -103,8 +103,7 @@ is appended only when the agent has the related tool (Set History search,
 ## Custom agents
 
 A **custom agent definition** is a YAML file describing a specialist. The
-bundled ones live in `agents/`: `default`, `compose`, `arrange`, `sound` and
-`mix`.
+bundled ones live in `agents/`: `default`, `compose`, `arrange`, `sound`, `mix` and `quiz`.
 
 ```yaml
 version: 1
@@ -122,7 +121,7 @@ inputChannels: []
 ```
 
 Version 2 adds a `label`, `model`, `reasoningEffort`, `autoApprove`,
-`delegatable` and Live Event listeners (see [live-events.md](live-events.md)). The schema is in
+`delegatable`, `hideResultFromParent` and Live Event listeners (see [live-events.md](live-events.md)). The schema is in
 `packages/agent-config/src/schemas.ts`.
 
 Key fields:
@@ -170,6 +169,14 @@ Sub-agents run inside the parent's SDK session:
 - **Visibility**: sub-agent text never reaches the parent's chat. Its start,
   intent and finish appear nested in the parent's Working timeline, and
   `agent.subagent.started|completed|failed` events record it in History.
+- **Hidden results**: a delegate with `hideResultFromParent: true` (the
+  bundled `quiz` agent) does its work, but the parent only ever gets a fixed
+  "finished; inspect Live" message. `onSubagentStop` replaces its final
+  response, and `onPostToolUse` replaces the result of a sync `task` for it
+  and of `read_agent`/`write_agent` calls that name its agent ID. A
+  background `task` result is left alone because it only carries the agent
+  ID. The `listen-and-learn` skill uses this so the main agent can't see the
+  notes it is about to transcribe by ear.
 
 An **active agent** is a running instance of a definition. It keeps a snapshot
 of its definition, so later edits to the YAML only take effect after the user
@@ -183,7 +190,7 @@ instructions. Typing `/` in the composer lists skills, and an
 `argument-hint` is shown there as the usage line (`/{name} {argument-hint}`).
 Bundled skills are in
 `skills/` (for example `midi-composition`, `mix-review`,
-`set-history-sql-search`).
+`set-history-sql-search`, `listen-and-learn`).
 
 Skills are loaded progressively so they don't bloat every prompt:
 
@@ -293,8 +300,9 @@ The SDK lets us attach hooks to a session. Ours are created by
 | `onSessionStart`        | Adds a short note about project context (or the context itself).                                                                                            |
 | `onUserPromptSubmitted` | Adds prepared project context, a changed-identity block if the Live Set changed, pending Live Event / signal context, and Browser search hints.            |
 | `onPreToolUse`          | Denies Ableton mutations during plan mode and automatic-analysis turns. Denies an exact repeat of a call that was already denied or failed non-retryably.  |
-| `onPostToolUse`         | Reminds the model to treat the verified result as the current state, plus a few tool-specific notes.                                                         |
+| `onPostToolUse`         | Reminds the model to treat the verified result as the current state, plus a few tool-specific notes. Masks results from hidden-result sub-agents.            |
 | `onPostToolUseFailure`  | Tells the model whether to retry, and records the failed call so an identical retry is blocked.                                                              |
+| `onSubagentStart`/`Stop` | Adds identity and project context to a sub-agent; replaces a hidden-result sub-agent's final response with a fixed message.                                 |
 
 Hooks are guidance and a first filter. The real enforcement (allowlist, edit
 scope, approval, locks) happens in the permission handler and the tool

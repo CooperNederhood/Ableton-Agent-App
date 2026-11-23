@@ -10,6 +10,7 @@ import {
   createAgentHooks,
   createAgentPolicy,
   formatAgentIdentityContext,
+  hiddenSubagentResult,
   type AgentIdentityContext,
   retryGuidance,
   structuredErrorCode,
@@ -459,6 +460,78 @@ describe("agent policy", () => {
       { sessionId: "sdk" },
     );
     expect(unrelated?.additionalContext).not.toContain("opaque strings");
+  });
+
+  it("hides a hidden-result sub-agent's replies from the parent", async () => {
+    const hooks = createAgentHooks({
+      getAbletonStatus: async () => connected,
+      hiddenResultSubagents: new Set(["quiz"]),
+    });
+    const base = {
+      sessionId: "sdk",
+      timestamp: new Date(),
+      workingDirectory: "/tmp",
+    };
+    const lifecycle = {
+      ...base,
+      transcriptPath: "/tmp/t",
+      agentId: "quiz-1",
+      agentType: "quiz",
+    };
+    const secret = {
+      resultType: "success" as const,
+      textResultForLlm: "Kick on 1 and 3, snare on 2 and 4",
+    };
+    const hidden = hiddenSubagentResult("quiz");
+
+    await hooks.onSubagentStart?.(
+      { ...lifecycle, agentName: "quiz" },
+      { sessionId: "sdk" },
+    );
+    const stop = await hooks.onSubagentStop?.(
+      {
+        ...lifecycle,
+        agentName: "quiz",
+        stopReason: "end_turn",
+        response: secret.textResultForLlm,
+      },
+      { sessionId: "sdk" },
+    );
+    expect(stop).toEqual({ modifiedResponse: hidden });
+
+    const post = (toolName: string, toolArgs: unknown) =>
+      hooks.onPostToolUse?.(
+        { ...base, toolName, toolArgs, toolResult: secret },
+        { sessionId: "sdk" },
+      );
+    for (const [toolName, toolArgs] of [
+      ["task", { agent_type: "quiz", prompt: "drums" }],
+      ["read_agent", { agent_id: "quiz-1" }],
+      ["write_agent", { agent_ids: ["other", "quiz-1"], message: "notes?" }],
+    ] as const) {
+      expect((await post(toolName, toolArgs))?.modifiedResult).toEqual({
+        textResultForLlm: hidden,
+        resultType: "success",
+      });
+    }
+    // The parent still needs the agent ID a background start returns.
+    expect(
+      await post("task", { agent_type: "quiz", mode: "background" }),
+    ).toBeUndefined();
+    expect(await post("read_agent", { agent_id: "compose-1" })).toBeUndefined();
+    expect(
+      await hooks.onSubagentStop?.(
+        {
+          ...lifecycle,
+          agentId: "compose-1",
+          agentName: "compose",
+          agentType: "compose",
+          stopReason: "end_turn",
+          response: "Wrote a bass line",
+        },
+        { sessionId: "sdk" },
+      ),
+    ).toBeUndefined();
   });
 
   it.each(["read", "compare", "search"])(

@@ -5759,6 +5759,7 @@ function normalizedDefinition(
     reasoningEffort: definition.reasoningEffort ?? null,
     autoApprove: definition.autoApprove ?? false,
     delegatable: definition.delegatable ?? false,
+    hideResultFromParent: definition.hideResultFromParent ?? false,
     color: definition.color,
     eventListeners: [...(definition.eventListeners ?? [])],
   };
@@ -6320,6 +6321,20 @@ function ActiveAgentCard({
                   }
                 />
                 Can be a sub-agent: other agents can hand it tasks
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={draft.hideResultFromParent}
+                  disabled={!draft.delegatable}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      hideResultFromParent: event.target.checked,
+                    }))
+                  }
+                />
+                As a sub-agent, hide its replies from the delegating agent
               </label>
               <span className="behavior-label">Color</span>
               <div

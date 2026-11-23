@@ -4901,6 +4901,7 @@ export class HeadlessDesktopService implements DesktopService {
           systemPrompt: definition.systemPrompt,
           resolvedTools: definition.resolvedTools,
           skills: definition.skills,
+          hideResultFromParent: definition.hideResultFromParent === true,
           ...(definition.model == null ? {} : { model: definition.model }),
           ...(definition.reasoningEffort == null
             ? {}

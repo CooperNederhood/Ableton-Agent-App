@@ -5273,6 +5273,7 @@ function normalizedDefinition(
     reasoningEffort: definition.reasoningEffort ?? null,
     autoApprove: definition.autoApprove ?? false,
     delegatable: definition.delegatable ?? false,
+    hideResultFromParent: definition.hideResultFromParent ?? false,
     eventListeners: [...(definition.eventListeners ?? [])],
   };
 }
@@ -5839,6 +5840,20 @@ function ActiveAgentCard({
                   }
                 />
                 Other agents can delegate tasks to this agent as a sub-agent
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={draft.hideResultFromParent}
+                  disabled={!draft.delegatable}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      hideResultFromParent: event.target.checked,
+                    }))
+                  }
+                />
+                As a sub-agent, hide its replies from the delegating agent
               </label>
               <small>
                 Changes become the Session definition default. Active

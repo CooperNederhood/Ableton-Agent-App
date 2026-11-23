@@ -361,6 +361,8 @@ export interface AgentDelegateConfiguration {
   readonly systemPrompt: string;
   readonly resolvedTools: readonly string[];
   readonly skills: readonly string[];
+  /** The parent receives only a fixed confirmation instead of the sub-agent's replies. */
+  readonly hideResultFromParent?: boolean;
   readonly model?: string;
   readonly reasoningEffort?: AgentReasoningEffort;
 }
@@ -1088,6 +1090,8 @@ const directSkillHistoryPrefix = "<!-- ableton-agent:direct-skill ";
 const TASK_TOOL_NAME = "task";
 const SUBAGENT_GUIDANCE =
   "You are running as a delegated sub-agent of the main Ableton agent. You cannot ask the user questions. Your final message is returned to the main agent as the task result, so make it a complete, self-contained report of what you observed and changed.";
+const HIDDEN_RESULT_SUBAGENT_GUIDANCE =
+  "You are running as a delegated sub-agent of the main Ableton agent. You cannot ask the user questions. The main agent never sees your messages; it is only told that you finished. Do the work in Ableton Live and end with a one-line status.";
 
 function shellSandboxConfig(
   deniedPaths: readonly string[],
@@ -4067,7 +4071,9 @@ export class CopilotAgentService implements AgentService {
         description: delegate.description,
         prompt: [
           `${delegate.systemPrompt}${guidance(tools)}`,
-          SUBAGENT_GUIDANCE,
+          delegate.hideResultFromParent === true
+            ? HIDDEN_RESULT_SUBAGENT_GUIDANCE
+            : SUBAGENT_GUIDANCE,
           skillInstructions,
         ]
           .filter((value): value is string => value !== undefined)
@@ -4475,6 +4481,11 @@ export class CopilotAgentService implements AgentService {
       });
     }
     const agentPolicy = createAgentPolicy({
+      hiddenResultSubagents: new Set(
+        (state.configuration.delegates ?? [])
+          .filter((delegate) => delegate.hideResultFromParent === true)
+          .map((delegate) => delegate.definitionName),
+      ),
       ...(this.options.artifactAuthoring === undefined
         ? {}
         : {

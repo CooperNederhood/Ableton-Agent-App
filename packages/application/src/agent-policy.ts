@@ -107,6 +107,8 @@ export interface AgentPolicyServices {
   promptContextEnabled?: () => boolean;
   mutationBlocked?: () => boolean;
   mutationBlockReason?: () => string | undefined;
+  /** Sub-agent definition names whose replies the parent must never see. */
+  hiddenResultSubagents?: ReadonlySet<string>;
   identityContext?: {
     readonly initial: AgentIdentityContext | undefined;
     current(): AgentIdentityContext | undefined;
@@ -118,6 +120,20 @@ export interface AgentPolicyServices {
     current(): Promise<string | undefined>;
     delivered?(context: string | undefined): void;
   };
+}
+
+export function hiddenSubagentResult(agentName: string): string {
+  return `The ${agentName} sub-agent finished. Its replies are hidden from you by design; inspect Ableton Live to see what it did.`;
+}
+
+function agentIdsFromArgs(toolArgs: unknown): string[] {
+  if (typeof toolArgs !== "object" || toolArgs === null) return [];
+  const { agent_id: agentId, agent_ids: agentIds } = toolArgs as {
+    agent_id?: unknown;
+    agent_ids?: unknown;
+  };
+  const ids: unknown[] = Array.isArray(agentIds) ? agentIds : [];
+  return [agentId, ...ids].filter((id): id is string => typeof id === "string");
 }
 
 export interface AgentPolicy {
@@ -264,6 +280,34 @@ function attemptKey(toolName: string, toolArgs: unknown): string {
 
 export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
   const blockedAttempts = new Map<string, string>();
+  const hiddenResultSubagents = services.hiddenResultSubagents ?? new Set();
+  /** Running or finished sub-agent IDs mapped to their hidden definition name. */
+  const hiddenSubagentIds = new Map<string, string>();
+
+  function hiddenToolResult(
+    toolName: string,
+    toolArgs: unknown,
+  ): string | undefined {
+    if (toolName === "task") {
+      const { agent_type: agentType, mode } = (toolArgs ?? {}) as {
+        agent_type?: unknown;
+        mode?: unknown;
+      };
+      // Background starts only return the agent ID the parent needs to follow up.
+      return typeof agentType === "string" &&
+        hiddenResultSubagents.has(agentType) &&
+        mode !== "background"
+        ? hiddenSubagentResult(agentType)
+        : undefined;
+    }
+    if (toolName !== "read_agent" && toolName !== "write_agent") {
+      return undefined;
+    }
+    const name = agentIdsFromArgs(toolArgs)
+      .map((id) => hiddenSubagentIds.get(id))
+      .find((value) => value !== undefined);
+    return name === undefined ? undefined : hiddenSubagentResult(name);
+  }
   let deliveredIdentityKey =
     services.identityContext?.initial === undefined
       ? undefined
@@ -367,7 +411,13 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
           .join("\n\n");
       })(),
     }),
-    onSubagentStart: async () => {
+    onSubagentStart: async (input) => {
+      if (
+        input.agentId !== undefined &&
+        hiddenResultSubagents.has(input.agentName)
+      ) {
+        hiddenSubagentIds.set(input.agentId, input.agentName);
+      }
       const identity = services.identityContext?.current();
       return {
         additionalContext: [
@@ -379,6 +429,13 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
           .filter((value): value is string => value !== undefined)
           .join("\n\n"),
       };
+    },
+    onSubagentStop: (input) => {
+      if (!hiddenResultSubagents.has(input.agentName)) return;
+      if (input.agentId !== undefined) {
+        hiddenSubagentIds.set(input.agentId, input.agentName);
+      }
+      return { modifiedResponse: hiddenSubagentResult(input.agentName) };
     },
     onPreToolUse: (input) => {
       const operation = resolveInvocationOperation(
@@ -410,6 +467,12 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
       };
     },
     onPostToolUse: (input) => {
+      const hidden = hiddenToolResult(input.toolName, input.toolArgs);
+      if (hidden !== undefined) {
+        return {
+          modifiedResult: { textResultForLlm: hidden, resultType: "success" },
+        };
+      }
       if (!abletonToolMetadata.some(({ name }) => name === input.toolName)) {
         return;
       }

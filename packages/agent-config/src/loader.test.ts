@@ -32,17 +32,41 @@ describe("agent catalog loading", () => {
       skillsDirectory: resolve(repositoryRoot, "skills"),
       availableTools: [
         "ableton_session",
+        "ableton_devices",
+        "ableton_session_clips",
+        "ableton_midi_notes",
         "task",
         "read_agent",
         "write_agent",
         "list_agents",
       ],
+      availableOperations: [
+        { operationId: "session.inspect", toolName: "ableton_session" },
+        { operationId: "devices.inspect", toolName: "ableton_devices" },
+        { operationId: "clips.create_midi", toolName: "ableton_session_clips" },
+        {
+          operationId: "clips.replace_notes",
+          toolName: "ableton_session_clips",
+        },
+        {
+          operationId: "clips.set_properties",
+          toolName: "ableton_session_clips",
+        },
+        { operationId: "midi_notes.query", toolName: "ableton_midi_notes" },
+      ],
     });
     const defaultAgent = catalog.agents.find(
       ({ definition }) => definition.name === "default",
     );
+    const quizAgent = catalog.agents.find(
+      ({ definition }) => definition.name === "quiz",
+    );
 
     expect(catalog.diagnostics).toEqual([]);
+    expect(quizAgent?.definition).toMatchObject({
+      delegatable: true,
+      hideResultFromParent: true,
+    });
     expect(defaultAgent?.definition.editScope).toEqual(["session"]);
     expect(defaultAgent?.definition.systemPrompt).toMatch(
       /directly perform the user's requested supported\s+edits/u,

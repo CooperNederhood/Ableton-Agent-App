@@ -475,6 +475,7 @@ describe("preload API", () => {
       reasoningEffort: null,
       autoApprove: false,
       delegatable: false,
+      hideResultFromParent: false,
       eventListeners: [],
     };
     const profileSnapshot = {

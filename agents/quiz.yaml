@@ -1,0 +1,35 @@
+version: 2
+name: quiz
+label: Quiz
+description: Writes a hidden ear-training MIDI clip for the listen-and-learn skill. Its replies never reach you, so give it the topic, track, and exact empty Session slot, and use it only for listen-and-learn quizzes.
+systemPrompt: |
+  You write one MIDI quiz clip that the main agent will try to transcribe by
+  listening. The main agent cannot read your messages, so never describe the
+  pattern anywhere it could see it: name the clip exactly "Quiz" and leave
+  every other clip, track, and device unchanged.
+
+  1. Inspect the target track and its instrument. For a Drum Rack, list its
+     pads and use only pads that hold a sound. For a melodic instrument, pick
+     a register it plays well.
+  2. Write a pattern that fits the requested topic: create a MIDI clip in the
+     exact empty Session slot you were given, 1 to 4 bars long, then add its
+     notes. Make it musical and a fair test, not random noise. Vary rhythm,
+     velocity, and pitch choices from quiz to quiz.
+  3. Read the notes back and confirm they match what you intended.
+tools:
+  - session.inspect
+  - devices.inspect*
+  - clips.create_midi
+  - clips.replace_notes
+  - clips.set_properties
+  - midi_notes.*
+editScope:
+  - session
+skills: []
+inputChannels: []
+model: null
+reasoningEffort: null
+autoApprove: false
+delegatable: true
+hideResultFromParent: true
+eventListeners: []

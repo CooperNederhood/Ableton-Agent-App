@@ -11,10 +11,14 @@ import {
   type AgentEventListener,
   type CurrentAgentDefinition,
   type PreparedContextConfiguration,
+  AGENT_COLOR_PALETTE,
+  defaultAgentColor,
 } from "@ableton-agent/agent-config/schemas";
 import {
+  createContext,
   Fragment,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -29,12 +33,14 @@ import {
 } from "react";
 
 import type {
+  ContextChip,
   DesktopApi,
   DesktopActiveAgent,
   DesktopAgentArtifactReviewRequest,
   DesktopAgentArtifactScope,
   DesktopAgentDefinition,
   DesktopAgentModel,
+  DesktopArtifactScope,
   DesktopCopilotAuthStatus,
   DesktopAppEvent,
   DesktopConnectionStatus,
@@ -54,6 +60,7 @@ import type {
   LiveEventSelection,
   PlanSection,
 } from "../contracts";
+import { Icon, type IconName } from "./Icon";
 import {
   AssistantMarkdown,
   formatPlanMarkdownForDisplay,
@@ -89,7 +96,16 @@ import {
   artifactSkillShadow,
   artifactTopicBudget,
 } from "./artifact-review";
+import { MemoryView } from "./MemoryView";
 import { ProfileManagerView } from "./ProfileManagerView";
+import {
+  findContextArtifact,
+  libraryScopeOf,
+  ScopeActions,
+  ScopeChip,
+  ScopeFilterBar,
+  useProfileSnapshot,
+} from "./scope-library";
 import { EntityContextPanel } from "./EntityContextPanel";
 import { ListeningPassPanel } from "./ListeningPassPanel";
 import type { DesktopListeningJob } from "../listening-contracts";
@@ -1029,155 +1045,306 @@ export function App(): React.JSX.Element {
   }, [state]);
 
   return (
-    <div className={`app-shell ${topChromeVisible ? "" : "top-chrome-hidden"}`}>
-      {topChromeVisible && (
-        <ConnectionHeader
-          state={state}
-          dispatch={dispatch}
-          profileRefreshToken={profileRefreshToken}
-          onHideChrome={() => setTopChromeVisible(false)}
+    <AgentDefinitionsContext.Provider value={state.agentCatalog.definitions}>
+      <div
+        className={`app-shell ${topChromeVisible ? "" : "top-chrome-hidden"}`}
+      >
+        {topChromeVisible && (
+          <ConnectionHeader
+            state={state}
+            dispatch={dispatch}
+            profileRefreshToken={profileRefreshToken}
+            onHideChrome={() => setTopChromeVisible(false)}
+          />
+        )}
+        <LiveSetTransitionModal state={state} dispatch={dispatch} />
+        <NavigationRail
+          activeView={state.activeView}
+          showAdvancedViews={state.preferences.showAdvancedViews}
+          onNavigate={(view) => dispatch({ type: "view", view })}
         />
-      )}
-      <LiveSetTransitionModal state={state} dispatch={dispatch} />
-      {topChromeVisible && (
-        <nav
-          id="application-views"
-          className="view-tabs"
-          aria-label="Application views"
-        >
-          {(
-            [
-              "workspace",
-              "agents",
-              "skills",
-              "outputs",
-              "events",
-              "browser",
-              "profiles",
-              "diagnostics",
-              "sessions",
-              "settings",
-            ] as WorkspaceView[]
-          )
-            .filter(
-              (view) =>
-                state.preferences.showAdvancedViews ||
-                !ADVANCED_VIEWS.has(view) ||
-                state.activeView === view,
-            )
-            .map((view) => (
-              <button
-                key={view}
-                className={state.activeView === view ? "selected" : ""}
-                onClick={() => dispatch({ type: "view", view })}
-              >
-                {view[0]?.toUpperCase()}
-                {view.slice(1)}
-              </button>
-            ))}
-        </nav>
-      )}
-      {!topChromeVisible && (
+        {!topChromeVisible && (
+          <button
+            type="button"
+            className="restore-top-chrome"
+            aria-label="Show application toolbar"
+            title="Show toolbar"
+            aria-expanded="false"
+            aria-controls="application-toolbar"
+            onClick={() => setTopChromeVisible(true)}
+          >
+            <Icon name="down" />
+          </button>
+        )}
+        <main id="main-content">
+          {state.lifecycle === "starting" ? (
+            <PresentationState
+              title="Starting desktop services…"
+              detail="Loading preferences, sessions, and project state."
+            />
+          ) : state.lifecycle === "crashed" ? (
+            <PresentationState
+              title="Renderer recovery mode"
+              detail="Reload the window; main-process services remain isolated."
+            />
+          ) : state.activeView === "workspace" ? (
+            <Workspace
+              state={state}
+              dispatch={dispatch}
+              timelineScrollPositions={timelineScrollPositions.current}
+              composer={
+                <DesktopComposer
+                  state={state}
+                  composerRef={composerRef}
+                  dispatch={dispatch}
+                  value={composerValue}
+                  error={composerError}
+                  onValueChange={setComposerValue}
+                  onErrorChange={setComposerError}
+                  planEditorOpen={planEditorOpen}
+                  onPlanEditorClose={() => setPlanEditorOpen(false)}
+                />
+              }
+              leftSidebarVisible={leftSidebarVisible}
+              rightSidebarVisible={rightSidebarVisible}
+              sidebarWidths={sidebarWidths}
+              onSidebarWidthChange={(side, width) =>
+                setSidebarWidths((current) => ({
+                  ...current,
+                  [side]: width,
+                }))
+              }
+              onToggleLeftSidebar={() =>
+                setLeftSidebarVisible((visible) => !visible)
+              }
+              onToggleRightSidebar={() =>
+                setRightSidebarVisible((visible) => !visible)
+              }
+              onEditPlan={() => setPlanEditorOpen(true)}
+            />
+          ) : state.activeView === "agents" ? (
+            <AgentsView
+              state={state}
+              dispatch={dispatch}
+              profileRefreshToken={profileRefreshToken}
+              onProfilesChanged={() =>
+                setProfileRefreshToken((current) => current + 1)
+              }
+            />
+          ) : state.activeView === "memory" ? (
+            <MemoryView
+              libraryScope={state.libraryScope}
+              onLibraryScope={(scope) =>
+                dispatch({ type: "library-scope", scope })
+              }
+              profileRefreshToken={profileRefreshToken}
+              onProfilesChanged={() =>
+                setProfileRefreshToken((current) => current + 1)
+              }
+              onAskAgent={(command) => {
+                setComposerValue(command);
+                dispatch({ type: "view", view: "workspace" });
+              }}
+            />
+          ) : state.activeView === "skills" ? (
+            <SkillsView
+              state={state}
+              dispatch={dispatch}
+              profileRefreshToken={profileRefreshToken}
+              onUseInChat={(command) => {
+                setComposerValue(command);
+                dispatch({ type: "view", view: "workspace" });
+              }}
+              onProfilesChanged={() =>
+                setProfileRefreshToken((current) => current + 1)
+              }
+            />
+          ) : state.activeView === "outputs" ? (
+            <OutputsView
+              state={state}
+              dispatch={dispatch}
+              contextEpoch={profileRefreshToken}
+            />
+          ) : state.activeView === "events" ? (
+            <EventsView state={state} dispatch={dispatch} />
+          ) : state.activeView === "browser" ? (
+            <BrowserView state={state} dispatch={dispatch} />
+          ) : state.activeView === "profiles" ? (
+            <ProfileManagerView
+              {...(activeSessionId === undefined ? {} : { activeSessionId })}
+              refreshToken={profileRefreshToken}
+              onProfilesChanged={() =>
+                setProfileRefreshToken((current) => current + 1)
+              }
+              onOpenLibrary={(kind, scope) =>
+                dispatch({
+                  type: "view",
+                  view:
+                    kind === "agent"
+                      ? "agents"
+                      : kind === "skill"
+                        ? "skills"
+                        : "memory",
+                  libraryScope: scope,
+                })
+              }
+            />
+          ) : state.activeView === "diagnostics" ? (
+            <DiagnosticsView state={state} dispatch={dispatch} />
+          ) : state.activeView === "sessions" ? (
+            <SessionsView state={state} />
+          ) : (
+            <SettingsView state={state} dispatch={dispatch} />
+          )}
+        </main>
+      </div>
+    </AgentDefinitionsContext.Provider>
+  );
+}
+
+/**
+ * An agent's own color. Sub-agent events carry only the definition label, so
+ * match on name first and then on label.
+ */
+export function agentColor(
+  definitions: readonly Pick<
+    DesktopAgentDefinition,
+    "name" | "label" | "color"
+  >[],
+  nameOrLabel: string,
+): string {
+  const definition =
+    definitions.find(({ name }) => name === nameOrLabel) ??
+    definitions.find(({ label }) => label === nameOrLabel);
+  return definition?.color ?? defaultAgentColor(nameOrLabel.toLowerCase());
+}
+
+const AgentDefinitionsContext = createContext<
+  readonly DesktopAgentDefinition[]
+>([]);
+
+/** Inline style that gives a sub-agent lane, chip, or approval its color. */
+function useAgentColorStyle(
+  nameOrLabel: string | undefined,
+): CSSProperties | undefined {
+  const definitions = useContext(AgentDefinitionsContext);
+  return nameOrLabel === undefined
+    ? undefined
+    : ({
+        "--subagent-color": agentColor(definitions, nameOrLabel),
+      } as CSSProperties);
+}
+
+const RAIL_VIEWS: readonly {
+  view: WorkspaceView;
+  icon: IconName;
+  label: string;
+}[] = [
+  { view: "workspace", icon: "chat", label: "Workspace" },
+  { view: "agents", icon: "agent", label: "Agents" },
+  { view: "skills", icon: "skill", label: "Skills" },
+  { view: "memory", icon: "memory", label: "Memory" },
+  { view: "sessions", icon: "sessions", label: "Sessions" },
+];
+
+const MORE_VIEWS: readonly { view: WorkspaceView; label: string }[] = [
+  { view: "outputs", label: "Outputs" },
+  { view: "settings", label: "Settings" },
+  { view: "events", label: "Events" },
+  { view: "browser", label: "Browser" },
+  { view: "diagnostics", label: "Diagnostics" },
+];
+
+export function NavigationRail({
+  activeView,
+  showAdvancedViews,
+  onNavigate,
+}: {
+  activeView: WorkspaceView;
+  showAdvancedViews: boolean;
+  onNavigate: (view: WorkspaceView) => void;
+}): React.JSX.Element {
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!moreOpen) return;
+    const close = (event: MouseEvent | globalThis.KeyboardEvent): void => {
+      if (event instanceof MouseEvent) {
+        if (moreRef.current?.contains(event.target as Node)) return;
+      } else if (event.key !== "Escape") {
+        return;
+      }
+      setMoreOpen(false);
+    };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", close);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", close);
+    };
+  }, [moreOpen]);
+  const moreViews = MORE_VIEWS.filter(
+    ({ view }) =>
+      showAdvancedViews || !ADVANCED_VIEWS.has(view) || activeView === view,
+  );
+  const moreActive = moreViews.some(({ view }) => view === activeView);
+  const item = (
+    view: WorkspaceView,
+    icon: IconName,
+    label: string,
+  ): React.JSX.Element => (
+    <button
+      key={view}
+      type="button"
+      className={`rail-item ${activeView === view ? "selected" : ""}`}
+      aria-current={activeView === view ? "page" : undefined}
+      onClick={() => onNavigate(view)}
+    >
+      <Icon name={icon} />
+      <span>{label}</span>
+    </button>
+  );
+  return (
+    <nav
+      id="application-views"
+      className="navigation-rail"
+      aria-label="Application views"
+    >
+      {RAIL_VIEWS.map(({ view, icon, label }) => item(view, icon, label))}
+      <div className="rail-bottom" ref={moreRef}>
         <button
           type="button"
-          className="restore-top-chrome"
-          aria-label="Show application toolbar"
-          aria-expanded="false"
-          aria-controls="application-toolbar application-views"
-          onClick={() => setTopChromeVisible(true)}
+          className={`rail-item ${moreActive ? "selected" : ""}`}
+          aria-haspopup="menu"
+          aria-expanded={moreOpen}
+          aria-controls="rail-more-menu"
+          onClick={() => setMoreOpen((open) => !open)}
         >
-          <ChromeIcon expanded={false} />
+          <Icon name="more" />
+          <span>More</span>
         </button>
-      )}
-      <main id="main-content">
-        {state.lifecycle === "starting" ? (
-          <PresentationState
-            title="Starting desktop services…"
-            detail="Loading preferences, sessions, and project state."
-          />
-        ) : state.lifecycle === "crashed" ? (
-          <PresentationState
-            title="Renderer recovery mode"
-            detail="Reload the window; main-process services remain isolated."
-          />
-        ) : state.activeView === "workspace" ? (
-          <Workspace
-            state={state}
-            dispatch={dispatch}
-            timelineScrollPositions={timelineScrollPositions.current}
-            composer={
-              <DesktopComposer
-                state={state}
-                composerRef={composerRef}
-                dispatch={dispatch}
-                value={composerValue}
-                error={composerError}
-                onValueChange={setComposerValue}
-                onErrorChange={setComposerError}
-                planEditorOpen={planEditorOpen}
-                onPlanEditorClose={() => setPlanEditorOpen(false)}
-              />
-            }
-            leftSidebarVisible={leftSidebarVisible}
-            rightSidebarVisible={rightSidebarVisible}
-            sidebarWidths={sidebarWidths}
-            onSidebarWidthChange={(side, width) =>
-              setSidebarWidths((current) => ({
-                ...current,
-                [side]: width,
-              }))
-            }
-            onToggleLeftSidebar={() =>
-              setLeftSidebarVisible((visible) => !visible)
-            }
-            onToggleRightSidebar={() =>
-              setRightSidebarVisible((visible) => !visible)
-            }
-            onEditPlan={() => setPlanEditorOpen(true)}
-          />
-        ) : state.activeView === "agents" ? (
-          <AgentsView
-            state={state}
-            dispatch={dispatch}
-            onProfilesChanged={() =>
-              setProfileRefreshToken((current) => current + 1)
-            }
-          />
-        ) : state.activeView === "skills" ? (
-          <SkillsView
-            state={state}
-            dispatch={dispatch}
-            onProfilesChanged={() =>
-              setProfileRefreshToken((current) => current + 1)
-            }
-          />
-        ) : state.activeView === "outputs" ? (
-          <OutputsView
-            state={state}
-            dispatch={dispatch}
-            contextEpoch={profileRefreshToken}
-          />
-        ) : state.activeView === "events" ? (
-          <EventsView state={state} dispatch={dispatch} />
-        ) : state.activeView === "browser" ? (
-          <BrowserView state={state} dispatch={dispatch} />
-        ) : state.activeView === "profiles" ? (
-          <ProfileManagerView
-            {...(activeSessionId === undefined ? {} : { activeSessionId })}
-            refreshToken={profileRefreshToken}
-            onProfilesChanged={() =>
-              setProfileRefreshToken((current) => current + 1)
-            }
-          />
-        ) : state.activeView === "diagnostics" ? (
-          <DiagnosticsView state={state} dispatch={dispatch} />
-        ) : state.activeView === "sessions" ? (
-          <SessionsView state={state} />
-        ) : (
-          <SettingsView state={state} dispatch={dispatch} />
+        {moreOpen && (
+          <div id="rail-more-menu" className="rail-menu" role="menu">
+            {moreViews.map(({ view, label }) => (
+              <button
+                key={view}
+                type="button"
+                role="menuitem"
+                className={activeView === view ? "selected" : ""}
+                aria-current={activeView === view ? "page" : undefined}
+                onClick={() => {
+                  setMoreOpen(false);
+                  onNavigate(view);
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         )}
-      </main>
-    </div>
+        {item("profiles", "profile", "Profile")}
+      </div>
+    </nav>
   );
 }
 
@@ -3262,89 +3429,34 @@ export function ConnectionHeader({
         ? `Error · ${state.connection.message}`
         : state.connection.state[0]?.toUpperCase() +
           state.connection.state.slice(1);
+  const connected = state.connection.state === "connected";
+  const activeAgentColor =
+    activeAgent === undefined
+      ? undefined
+      : agentColor(state.agentCatalog.definitions, activeAgent.definitionName);
   return (
     <header
       id="application-toolbar"
       className="connection-header"
       aria-label="Application toolbar"
     >
-      <div>
-        <strong>Ableton Agent</strong>
+      <div className="live-status">
+        <span
+          className={`led ${connected ? "on" : state.connection.state === "error" ? "error" : "off"}`}
+          aria-hidden="true"
+        />
         <span
           className={`status status-${state.connection.state}`}
           aria-label={`Ableton status: ${connectionText}`}
+          title={connectionText}
         >
-          ● {connectionText}
+          {state.connection.state === "connected"
+            ? `Live ${state.connection.liveVersion}`
+            : connectionText}
         </span>
-      </div>
-      <div className="live-set-title">
-        {state.snapshot?.liveSetName ?? "No Live Set"}{" "}
-        <small>
-          {state.snapshot
-            ? `${state.snapshot.tempo} BPM · ${state.snapshot.timeSignature}`
-            : "Waiting for snapshot"}
-        </small>
-      </div>
-      <div className="header-controls">
-        <span className="header-divider" aria-hidden="true">
-          |
-        </span>
-        <label className="header-selector">
-          <span>Profile:</span>
-          <select
-            className="profile-selector"
-            aria-label="Active Profile"
-            value={profileStatus?.activeProfile ?? ""}
-            disabled={
-              profileBusy ||
-              profileStatus === undefined ||
-              profileStatus.switchingDisabledReason !== undefined
-            }
-            title={
-              profileStatus?.switchingDisabledReason ??
-              (profileError || undefined)
-            }
-            onChange={(event) => requestProfileSwitch(event.target.value)}
-          >
-            {profileStatus?.profiles
-              .filter(({ reserved, active }) => !reserved || active)
-              .map((profile) => (
-                <option key={profile.name} value={profile.name}>
-                  {profile.name}
-                </option>
-              ))}
-          </select>
-        </label>
-        <span className="header-divider" aria-hidden="true">
-          |
-        </span>
-        <label className="header-selector">
-          <span>Agent:</span>
-          <select
-            className="agent-instance-selector"
-            aria-label="Active Agent"
-            value={activeAgent?.id ?? ""}
-            disabled={(session?.activeAgents.length ?? 0) === 0}
-            onChange={(event) => void selectAgent(event.target.value)}
-          >
-            {session?.activeAgents.length ? null : (
-              <option value="">No active agents</option>
-            )}
-            {session?.activeAgents.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <span className="header-divider" aria-hidden="true">
-          |
-        </span>
-        {activeAgent?.autoApprove && (
-          <span className="agent-badge yolo-badge">YOLO</span>
-        )}
-        {state.connection.state !== "connected" && (
+        {!connected && (
           <button
+            type="button"
             onClick={() =>
               void window.desktop.ableton.connect().catch((error: unknown) =>
                 dispatch({
@@ -3364,16 +3476,82 @@ export function ConnectionHeader({
             Connect
           </button>
         )}
+      </div>
+      <div className="live-set-title">
+        <strong title={state.snapshot?.liveSetName ?? "No Live Set"}>
+          {state.snapshot?.liveSetName ?? "No Live Set"}
+        </strong>
+        <small className="tabular">
+          {state.snapshot
+            ? `${state.snapshot.tempo} BPM · ${state.snapshot.timeSignature}`
+            : "Waiting for snapshot"}
+        </small>
+      </div>
+      <div className="header-controls">
+        <select
+          className="profile-selector scope-chip"
+          data-scope="profile"
+          aria-label="Active Profile"
+          value={profileStatus?.activeProfile ?? ""}
+          disabled={
+            profileBusy ||
+            profileStatus === undefined ||
+            profileStatus.switchingDisabledReason !== undefined
+          }
+          title={
+            profileStatus?.switchingDisabledReason ??
+            (profileError || "Active profile")
+          }
+          onChange={(event) => requestProfileSwitch(event.target.value)}
+        >
+          {profileStatus?.profiles
+            .filter(({ reserved, active }) => !reserved || active)
+            .map((profile) => (
+              <option key={profile.name} value={profile.name}>
+                {profile.name}
+              </option>
+            ))}
+        </select>
+        <label
+          className="agent-picker"
+          style={
+            activeAgentColor === undefined
+              ? undefined
+              : ({ "--agent-color": activeAgentColor } as CSSProperties)
+          }
+        >
+          <Icon name="agent" />
+          <select
+            className="agent-instance-selector"
+            aria-label="Active Agent"
+            value={activeAgent?.id ?? ""}
+            disabled={(session?.activeAgents.length ?? 0) === 0}
+            onChange={(event) => void selectAgent(event.target.value)}
+          >
+            {session?.activeAgents.length ? null : (
+              <option value="">No active agents</option>
+            )}
+            {session?.activeAgents.map((agent) => (
+              <option key={agent.id} value={agent.id}>
+                {agent.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {activeAgent?.autoApprove && (
+          <span className="agent-badge yolo-badge">YOLO</span>
+        )}
         {onHideChrome !== undefined && (
           <button
             type="button"
             className="icon-button"
             aria-label="Hide application toolbar"
+            title="Hide toolbar"
             aria-expanded="true"
-            aria-controls="application-toolbar application-views"
+            aria-controls="application-toolbar"
             onClick={onHideChrome}
           >
-            <ChromeIcon expanded />
+            <Icon name="up" />
           </button>
         )}
       </div>
@@ -3500,6 +3678,59 @@ export function Workspace({
     event.currentTarget.releasePointerCapture?.(event.pointerId);
     drag.current = undefined;
   };
+  const keyResize = (
+    event: KeyboardEvent<HTMLDivElement>,
+    side: keyof WorkspaceSidebarWidths,
+  ): void => {
+    const step = { ArrowLeft: -16, ArrowRight: 16 }[event.key];
+    const workspace = event.currentTarget.parentElement;
+    if (
+      step === undefined ||
+      workspace === null ||
+      onSidebarWidthChange === undefined
+    ) {
+      return;
+    }
+    event.preventDefault();
+    const otherSide = side === "left" ? "right" : "left";
+    onSidebarWidthChange(
+      side,
+      resizedSidebarWidth({
+        side,
+        startWidth: widths[side],
+        startClientX: 0,
+        clientX: step,
+        workspaceWidth: workspace.getBoundingClientRect().width,
+        otherSidebarWidth: widths[otherSide],
+        otherSidebarVisible:
+          otherSide === "left" ? leftSidebarVisible : rightSidebarVisible,
+      }),
+    );
+  };
+  const resizeHandle = (side: keyof WorkspaceSidebarWidths) => (
+    <div
+      className={`sidebar-resize-handle sidebar-resize-handle-${side}`}
+      role="separator"
+      tabIndex={0}
+      aria-orientation="vertical"
+      aria-label={
+        side === "left" ? "Resize project sidebar" : "Resize inspector sidebar"
+      }
+      aria-controls={side === "left" ? "project-sidebar" : "inspector-sidebar"}
+      aria-valuenow={Math.round(widths[side])}
+      aria-valuemin={
+        side === "left"
+          ? PROJECT_SIDEBAR_MIN_WIDTH
+          : INSPECTOR_SIDEBAR_MIN_WIDTH
+      }
+      onPointerDown={(event) => resize(event, side)}
+      onPointerMove={moveResize}
+      onPointerUp={endResize}
+      onPointerCancel={endResize}
+      onKeyDown={(event) => keyResize(event, side)}
+    />
+  );
+  const planMode = selectedAgentInstance(state)?.mode === "plan";
   const workspaceStyle = {
     "--project-sidebar-width": `${widths.left}px`,
     "--inspector-sidebar-width": `${widths.right}px`,
@@ -3542,33 +3773,27 @@ export function Workspace({
       {leftSidebarVisible && (
         <ProjectOutline state={state} dispatch={dispatch} />
       )}
-      {leftSidebarVisible && onSidebarWidthChange !== undefined && (
-        <div
-          className="sidebar-resize-handle sidebar-resize-handle-left"
-          aria-hidden="true"
-          onPointerDown={(event) => resize(event, "left")}
-          onPointerMove={moveResize}
-          onPointerUp={endResize}
-          onPointerCancel={endResize}
-        />
-      )}
+      {leftSidebarVisible &&
+        onSidebarWidthChange !== undefined &&
+        resizeHandle("left")}
       <section
         className="conversation"
+        data-mode={planMode ? "plan" : "interactive"}
         aria-label="Conversation and operation timeline"
       >
+        {planMode && (
+          <div className="plan-mode-banner" role="status">
+            <Icon name="plan" />
+            <strong>Plan mode</strong>
+            <span>· the agent will propose, not change Live</span>
+          </div>
+        )}
         <Timeline state={state} scrollPositions={timelineScrollPositions} />
         {composer}
       </section>
-      {rightSidebarVisible && onSidebarWidthChange !== undefined && (
-        <div
-          className="sidebar-resize-handle sidebar-resize-handle-right"
-          aria-hidden="true"
-          onPointerDown={(event) => resize(event, "right")}
-          onPointerMove={moveResize}
-          onPointerUp={endResize}
-          onPointerCancel={endResize}
-        />
-      )}
+      {rightSidebarVisible &&
+        onSidebarWidthChange !== undefined &&
+        resizeHandle("right")}
       <Inspector
         state={state}
         dispatch={dispatch}
@@ -3599,16 +3824,6 @@ function SidebarIcon({
       <rect x="2.5" y="2.5" width="13" height="13" rx="2" />
       <path d={`M${panelX} 3v12`} />
       <path d={arrow} />
-    </svg>
-  );
-}
-
-function ChromeIcon({ expanded }: { expanded: boolean }): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 18 18" aria-hidden="true">
-      <rect x="2.5" y="2.5" width="13" height="13" rx="2" />
-      <path d="M3 6h12" />
-      <path d={expanded ? "M7 10l2 2 2-2" : "M7 12l2-2 2 2"} />
     </svg>
   );
 }
@@ -3705,12 +3920,17 @@ export function SkillsView({
   state,
   dispatch,
   onProfilesChanged,
+  onUseInChat,
+  profileRefreshToken = 0,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
   onProfilesChanged?: (() => void) | undefined;
+  onUseInChat?: ((command: string) => void) | undefined;
+  profileRefreshToken?: number;
 }): React.JSX.Element {
   const session = activeSession(state);
+  const profiles = useProfileSnapshot(profileRefreshToken);
   const [selectedKey, setSelectedKey] = useState<string | undefined>(
     state.agentCatalog.skills[0]?.name,
   );
@@ -3730,6 +3950,14 @@ export function SkillsView({
   );
   const selectedCatalogSkill = catalogSkills.find(
     ({ name }) => name === selectedKey,
+  );
+  const visibleSkills = catalogSkills.filter(
+    ({ origin }) =>
+      state.libraryScope === "all" ||
+      libraryScopeOf(origin) === state.libraryScope,
+  );
+  const skillScopeCounts = countByScope(
+    catalogSkills.map(({ origin }) => libraryScopeOf(origin)),
   );
   const selectedDraft =
     selectedKey === undefined ? undefined : drafts[selectedKey];
@@ -3923,22 +4151,22 @@ export function SkillsView({
       className="agents-view skills-view"
       aria-labelledby="skills-heading"
     >
-      <div className="panel-heading">
-        <div>
-          <h2 id="skills-heading">Skills</h2>
-          <p>
-            Scoped Markdown instructions available to agents and Workspace slash
-            commands.
-          </p>
-        </div>
-        <div className="agent-header-actions">
-          <button type="button" onClick={createDraft}>
-            New skill
-          </button>
-          <button disabled={refreshing} onClick={() => void refresh()}>
-            {refreshing ? "Refreshing…" : "Refresh skills"}
-          </button>
-        </div>
+      <div className="library-bar">
+        <h2 className="library-title" id="skills-heading">
+          Skills
+        </h2>
+        <ScopeFilterBar
+          value={state.libraryScope}
+          counts={skillScopeCounts}
+          onChange={(scope) => dispatch({ type: "library-scope", scope })}
+        />
+        <span className="spacer" />
+        <button disabled={refreshing} onClick={() => void refresh()}>
+          {refreshing ? "Refreshing…" : "Refresh skills"}
+        </button>
+        <button type="button" className="primary" onClick={createDraft}>
+          New skill
+        </button>
       </div>
       {session === undefined && (
         <div className="notice" role="status">
@@ -3948,28 +4176,37 @@ export function SkillsView({
       )}
       {catalogSkills.length === 0 && !selectedKey?.startsWith("new:") ? (
         <EmptyState
-          title="No valid skills found"
-          detail="Create a Session-defined Skill to add reusable instructions."
+          title="No skills yet"
+          detail="Skills are reusable instructions you can call with /name in chat. Create one with New skill."
         />
       ) : (
         <div className="agents-workspace">
           <nav className="agent-navigation" aria-label="Skills">
             <div className="agent-navigation-list">
-              {catalogSkills.map((skill) => (
+              {visibleSkills.map((skill) => (
                 <button
                   type="button"
-                  className={`agent-navigation-item ${selectedKey === skill.name ? "active" : ""}`}
+                  className={`agent-navigation-item skill-row ${selectedKey === skill.name ? "active" : ""}`}
                   aria-current={selectedKey === skill.name ? "page" : undefined}
+                  title={skill.description}
+                  data-scope={libraryScopeOf(skill.origin)}
                   onClick={() => setSelectedKey(skill.name)}
                   key={skill.name}
                 >
-                  <span
-                    className={`skill-scope-light is-${skill.origin ?? "bundled"}`}
-                    aria-hidden="true"
-                  />
+                  <span className="row-strip" aria-hidden="true" />
                   <span className="agent-navigation-label">
-                    <strong>{skill.name}</strong>
-                    <small>{skill.description}</small>
+                    <strong>/{skill.name}</strong>
+                  </span>
+                  <span className="row-marks">
+                    {libraryScopeOf(skill.origin) === "system" && (
+                      <span
+                        role="img"
+                        aria-label="Bundled"
+                        title="Bundled with the app"
+                      >
+                        <Icon name="lock" />
+                      </span>
+                    )}
                   </span>
                 </button>
               ))}
@@ -3978,21 +4215,19 @@ export function SkillsView({
                 .map((draft) => (
                   <button
                     type="button"
-                    className={`agent-navigation-item ${selectedKey === draft.key ? "active" : ""}`}
+                    className={`agent-navigation-item skill-row ${selectedKey === draft.key ? "active" : ""}`}
                     aria-current={
                       selectedKey === draft.key ? "page" : undefined
                     }
+                    data-scope="session"
                     onClick={() => setSelectedKey(draft.key)}
                     key={draft.key}
                   >
-                    <span
-                      className="skill-scope-light is-new"
-                      aria-hidden="true"
-                    />
+                    <span className="row-strip" aria-hidden="true" />
                     <span className="agent-navigation-label">
                       <strong>{draft.name || "Untitled skill"}</strong>
-                      <small>New Session skill</small>
                     </span>
+                    <span className="row-marks">New</span>
                   </button>
                 ))}
             </div>
@@ -4008,19 +4243,39 @@ export function SkillsView({
                 <header className="agent-detail-header">
                   <div>
                     <div className="agent-title-line">
-                      <h3>{selectedDraft.name || "New skill"}</h3>
-                      <span className="scope-badge">
-                        {selectedDraft.published
-                          ? selectedDraft.origin
-                          : "new session"}
-                      </span>
+                      <h3>/{selectedDraft.name || "new-skill"}</h3>
+                      {selectedDraft.published ? (
+                        <ArtifactScopeActions
+                          profiles={profiles}
+                          kind="skill"
+                          name={selectedDraft.name}
+                          origin={selectedDraft.origin}
+                          onProfilesChanged={onProfilesChanged}
+                        />
+                      ) : (
+                        <ScopeChip origin="session" />
+                      )}
                       {selectedDraft.dirty && (
                         <span className="scope-badge">Unsaved</span>
                       )}
                     </div>
                     <p>{selectedDraft.description || "Add skill metadata."}</p>
+                    {selectedDraft.published && (
+                      <SkillUsedBy
+                        skillName={selectedDraft.name}
+                        definitions={state.agentCatalog.definitions}
+                      />
+                    )}
                   </div>
                   <div className="agent-header-actions">
+                    {selectedDraft.published && onUseInChat !== undefined && (
+                      <button
+                        type="button"
+                        onClick={() => onUseInChat(`/${selectedDraft.name} `)}
+                      >
+                        Use in chat
+                      </button>
+                    )}
                     <button
                       type="button"
                       disabled={!selectedDraft.dirty || saving}
@@ -4070,7 +4325,7 @@ export function SkillsView({
                     title="Overview"
                     onClick={() => setActivePanel("overview")}
                   >
-                    i
+                    About
                   </button>
                   <button
                     type="button"
@@ -4081,7 +4336,7 @@ export function SkillsView({
                     title="Instructions"
                     onClick={() => setActivePanel("instructions")}
                   >
-                    &lt;/&gt;
+                    Instructions
                   </button>
                 </div>
                 <div className="agent-detail-body">
@@ -4159,13 +4414,27 @@ export function AgentsView({
   state,
   dispatch,
   onProfilesChanged,
+  profileRefreshToken = 0,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
   onProfilesChanged?: (() => void) | undefined;
+  profileRefreshToken?: number;
 }): React.JSX.Element {
   const [refreshing, setRefreshing] = useState(false);
   const session = activeSession(state);
+  const profiles = useProfileSnapshot(profileRefreshToken);
+  const definitionScope = (definitionName: string): DesktopArtifactScope =>
+    libraryScopeOf(
+      state.agentCatalog.definitions.find(({ name }) => name === definitionName)
+        ?.origin ?? "session",
+    );
+  const inScope = (definitionName: string): boolean =>
+    state.libraryScope === "all" ||
+    definitionScope(definitionName) === state.libraryScope;
+  const scopeCounts = countByScope(
+    state.agentCatalog.definitions.map(({ origin }) => libraryScopeOf(origin)),
+  );
   const activeAgents = session?.activeAgents ?? [];
   const selectedAgentId = session?.selectedAgentInstanceId;
   const [busyAgentId, setBusyAgentId] = useState<string>();
@@ -4384,11 +4653,16 @@ export function AgentsView({
   };
   return (
     <section className="agents-view" aria-labelledby="agents-heading">
-      <div className="panel-heading">
-        <div>
-          <h2 id="agents-heading">Agents</h2>
-          <p>YAML-defined Ableton agents available to production sessions.</p>
-        </div>
+      <div className="library-bar">
+        <h2 className="library-title" id="agents-heading">
+          Agents
+        </h2>
+        <ScopeFilterBar
+          value={state.libraryScope}
+          counts={scopeCounts}
+          onChange={(scope) => dispatch({ type: "library-scope", scope })}
+        />
+        <span className="spacer" />
         <button disabled={refreshing} onClick={() => void refresh()}>
           {refreshing ? "Refreshing…" : "Refresh definitions"}
         </button>
@@ -4484,51 +4758,58 @@ export function AgentsView({
         <div className="agents-workspace">
           <nav className="agent-navigation" aria-label="Agents">
             <div className="agent-navigation-list">
-              {activeAgents.map((agent) => {
-                const key = `active:${agent.id}`;
-                return (
-                  <button
-                    type="button"
-                    className={`agent-navigation-item ${inspectedKey === key ? "active" : ""}`}
-                    aria-current={inspectedKey === key ? "page" : undefined}
-                    onClick={() => setInspectedKey(key)}
-                    key={key}
-                  >
-                    <span
-                      className="agent-activity-light is-active"
-                      aria-label="Active agent"
-                    />
-                    <span className="agent-navigation-label">
-                      <strong>{agent.label}</strong>
-                      <small>{agent.definitionName}</small>
-                    </span>
-                  </button>
-                );
-              })}
-              {activeAgents.length > 0 && inactiveDefinitions.length > 0 && (
-                <div className="agent-navigation-divider" aria-hidden="true" />
+              {activeAgents.length > 0 && (
+                <div className="agent-navigation-divider">In this session</div>
               )}
-              {inactiveDefinitions.map((definition) => {
-                const key = `definition:${definition.name}`;
-                return (
-                  <button
-                    type="button"
-                    className={`agent-navigation-item ${inspectedKey === key ? "active" : ""}`}
-                    aria-current={inspectedKey === key ? "page" : undefined}
-                    onClick={() => setInspectedKey(key)}
-                    key={key}
-                  >
-                    <span
-                      className="agent-activity-light"
-                      aria-label="Inactive agent"
+              {activeAgents
+                .filter(({ definitionName }) => inScope(definitionName))
+                .map((agent) => {
+                  const key = `active:${agent.id}`;
+                  const definition = state.agentCatalog.definitions.find(
+                    ({ name }) => name === agent.definitionName,
+                  );
+                  return (
+                    <AgentListRow
+                      key={key}
+                      label={agent.label}
+                      description={
+                        definition?.description ?? agent.definitionName
+                      }
+                      color={agentColor(
+                        state.agentCatalog.definitions,
+                        agent.definitionName,
+                      )}
+                      active
+                      origin={definition?.origin}
+                      delegatable={definition?.delegatable === true}
+                      selected={inspectedKey === key}
+                      onSelect={() => setInspectedKey(key)}
                     />
-                    <span className="agent-navigation-label">
-                      <strong>{definition.label}</strong>
-                      <small>{definition.description}</small>
-                    </span>
-                  </button>
-                );
-              })}
+                  );
+                })}
+              {inactiveDefinitions.length > 0 && (
+                <div className="agent-navigation-divider">Available</div>
+              )}
+              {inactiveDefinitions
+                .filter(({ name }) => inScope(name))
+                .map((definition) => {
+                  const key = `definition:${definition.name}`;
+                  return (
+                    <AgentListRow
+                      key={key}
+                      label={definition.label ?? definition.name}
+                      description={definition.description}
+                      color={
+                        definition.color ?? defaultAgentColor(definition.name)
+                      }
+                      active={false}
+                      origin={definition.origin}
+                      delegatable={definition.delegatable === true}
+                      selected={inspectedKey === key}
+                      onSelect={() => setInspectedKey(key)}
+                    />
+                  );
+                })}
             </div>
           </nav>
           <div className="agent-detail-workspace">
@@ -4556,6 +4837,15 @@ export function AgentsView({
               return (
                 <ActiveAgentCard
                   definition={definition}
+                  scopeActions={
+                    <ArtifactScopeActions
+                      profiles={profiles}
+                      kind="agent"
+                      name={definition.name}
+                      origin={definition.origin}
+                      onProfilesChanged={onProfilesChanged}
+                    />
+                  }
                   agent={agent}
                   availableSkills={state.agentCatalog.skills}
                   liveEvents={state.events.events}
@@ -4605,6 +4895,15 @@ export function AgentsView({
             {inactiveDefinitions.map((definition) => (
               <ActiveAgentCard
                 definition={definition}
+                scopeActions={
+                  <ArtifactScopeActions
+                    profiles={profiles}
+                    kind="agent"
+                    name={definition.name}
+                    origin={definition.origin}
+                    onProfilesChanged={onProfilesChanged}
+                  />
+                }
                 hidden={inspectedKey !== `definition:${definition.name}`}
                 busy={
                   creatingDefinition === definition.name ||
@@ -4632,6 +4931,133 @@ export function AgentsView({
   );
 }
 
+function countByScope(
+  scopes: readonly DesktopArtifactScope[],
+): Partial<Record<DesktopArtifactScope, number>> {
+  const counts: Partial<Record<DesktopArtifactScope, number>> = {};
+  for (const scope of scopes) counts[scope] = (counts[scope] ?? 0) + 1;
+  return counts;
+}
+
+function AgentListRow({
+  label,
+  description,
+  color,
+  active,
+  origin,
+  delegatable,
+  selected,
+  onSelect,
+}: {
+  label: string;
+  description?: string | undefined;
+  color: string;
+  active: boolean;
+  origin: DesktopAgentDefinition["origin"];
+  delegatable: boolean;
+  selected: boolean;
+  onSelect: () => void;
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      className={`agent-navigation-item ${selected ? "active" : ""}`}
+      aria-current={selected ? "page" : undefined}
+      title={description}
+      style={{ "--row-color": color } as CSSProperties}
+      onClick={onSelect}
+    >
+      <span className="row-strip" aria-hidden="true" />
+      <span
+        className={`agent-activity-light ${active ? "is-active" : ""}`}
+        role="img"
+        aria-label={active ? "Active agent" : "Inactive agent"}
+      />
+      <span className="agent-navigation-label">
+        <strong>{label}</strong>
+      </span>
+      <span className="row-marks">
+        {(origin === undefined || origin === "bundled") && (
+          <span role="img" aria-label="Bundled" title="Bundled with the app">
+            <Icon name="lock" />
+          </span>
+        )}
+        {delegatable && (
+          <span
+            role="img"
+            aria-label="Can be a sub-agent"
+            title="Can be a sub-agent"
+          >
+            ⇉
+          </span>
+        )}
+      </span>
+    </button>
+  );
+}
+
+function SkillUsedBy({
+  skillName,
+  definitions,
+}: {
+  skillName: string;
+  definitions: readonly DesktopAgentDefinition[];
+}): React.JSX.Element {
+  const users = definitions.filter(({ skills }) => skills.includes(skillName));
+  return (
+    <div className="tag-list" aria-label="Used by">
+      <span className="behavior-label">Used by</span>
+      {users.length === 0 ? (
+        <span className="behavior-label">No agent preloads it yet</span>
+      ) : (
+        users.map((definition) => (
+          <span
+            key={definition.name}
+            className="tag"
+            style={
+              {
+                "--tag-color":
+                  definition.color ?? defaultAgentColor(definition.name),
+              } as CSSProperties
+            }
+          >
+            {definition.label ?? definition.name}
+          </span>
+        ))
+      )}
+    </div>
+  );
+}
+
+function ArtifactScopeActions({
+  profiles,
+  kind,
+  name,
+  origin,
+  onProfilesChanged,
+}: {
+  profiles: ReturnType<typeof useProfileSnapshot>;
+  kind: "agent" | "skill";
+  name: string;
+  origin: DesktopAgentDefinition["origin"];
+  onProfilesChanged?: (() => void) | undefined;
+}): React.JSX.Element {
+  const artifact = findContextArtifact(profiles.snapshot, kind, name, origin);
+  return (
+    <>
+      <ScopeChip origin={origin} />
+      {profiles.snapshot !== undefined && artifact !== undefined && (
+        <ScopeActions
+          snapshot={profiles.snapshot}
+          artifact={artifact}
+          onSnapshot={profiles.setSnapshot}
+          onChanged={onProfilesChanged}
+        />
+      )}
+    </>
+  );
+}
+
 function desktopDefinitionFromActiveAgent(
   agent: DesktopActiveAgent,
 ): DesktopAgentDefinition {
@@ -4639,6 +5065,7 @@ function desktopDefinitionFromActiveAgent(
     version: 2,
     name: agent.definitionName,
     label: agent.label,
+    color: defaultAgentColor(agent.definitionName),
     description: agent.config.description,
     systemPrompt: agent.config.systemPrompt,
     tools: agent.config.tools,
@@ -4699,6 +5126,65 @@ function modelReasoningLabel(model: DesktopAgentModel): string {
       ? ""
       : ` · default ${model.defaultReasoningEffort}`
   }`;
+}
+
+const TOOL_GROUPS: readonly { label: string; tools: readonly string[] }[] = [
+  {
+    label: "Transport",
+    tools: [
+      "ableton_transport",
+      "ableton_session",
+      "ableton_context",
+      "ableton_selection_view",
+      "ableton_live_history",
+    ],
+  },
+  {
+    label: "Tracks",
+    tools: [
+      "ableton_tracks",
+      "ableton_mixer_routing",
+      "ableton_scenes",
+      "ableton_arrangement",
+    ],
+  },
+  {
+    label: "Clips & notes",
+    tools: [
+      "ableton_session_clips",
+      "ableton_audio_clips",
+      "ableton_midi_notes",
+      "ableton_clip_automation",
+      "ableton_warp_markers",
+      "ableton_grooves",
+    ],
+  },
+  {
+    label: "Devices",
+    tools: [
+      "ableton_devices",
+      "ableton_special_devices",
+      "ableton_browser",
+      "ableton_browser_adapters",
+    ],
+  },
+  { label: "Listen", tools: ["ableton_listening"] },
+  { label: "Record", tools: ["ableton_recording"] },
+];
+
+/** Plain-language tool groups; a group is allowed when any of its tools resolve. */
+export function toolGroups(
+  resolvedTools: readonly string[],
+): { label: string; allowed: boolean; tools: string[] }[] {
+  const known = new Set(TOOL_GROUPS.flatMap(({ tools }) => tools));
+  const groups = TOOL_GROUPS.map(({ label, tools }) => {
+    const allowedTools = tools.filter((tool) => resolvedTools.includes(tool));
+    return { label, allowed: allowedTools.length > 0, tools: allowedTools };
+  });
+  const other = resolvedTools.filter((tool) => !known.has(tool));
+  return other.length === 0
+    ? groups
+    : [...groups, { label: "Other", allowed: true, tools: other }];
 }
 
 export function ResolvedToolsDisclosure({
@@ -5274,6 +5760,7 @@ function normalizedDefinition(
     autoApprove: definition.autoApprove ?? false,
     delegatable: definition.delegatable ?? false,
     hideResultFromParent: definition.hideResultFromParent ?? false,
+    color: definition.color,
     eventListeners: [...(definition.eventListeners ?? [])],
   };
 }
@@ -5512,6 +5999,7 @@ function DefinitionListeningEventsEditor({
 
 function ActiveAgentCard({
   definition,
+  scopeActions,
   agent,
   availableSkills,
   liveEvents,
@@ -5534,6 +6022,7 @@ function ActiveAgentCard({
   onDeactivate,
 }: {
   definition: DesktopAgentDefinition;
+  scopeActions?: React.ReactNode;
   agent?: DesktopActiveAgent | undefined;
   availableSkills: DesktopState["agentCatalog"]["skills"];
   liveEvents: readonly DesktopLiveEventState[];
@@ -5630,7 +6119,22 @@ function ActiveAgentCard({
       <header className="agent-detail-header">
         <div>
           <div className="agent-title-line">
-            <h3>{title}</h3>
+            <span
+              className={`agent-activity-light ${active ? "is-active" : ""}`}
+              role="img"
+              aria-label={active ? "Active agent" : "Inactive agent"}
+            />
+            <h3
+              style={
+                {
+                  "--agent-color": draft.color ?? defaultAgentColor(draft.name),
+                } as CSSProperties
+              }
+              className="agent-detail-name"
+            >
+              {title}
+            </h3>
+            {scopeActions}
             {selected && <span className="agent-badge">Selected</span>}
             {draft.autoApprove && (
               <span className="agent-badge yolo-badge">YOLO</span>
@@ -5691,27 +6195,6 @@ function ActiveAgentCard({
         )}
         {section === "general" && (
           <div className="agent-editor-section">
-            <dl className="agent-metadata">
-              <dt>Definition</dt>
-              <dd>
-                {definition.name} ·{" "}
-                <code title={definition.fingerprint}>
-                  {definition.fingerprint.slice(0, 12)}
-                </code>
-                <small>
-                  {definition.origin ?? "bundled"} · {definition.sourceFile}
-                  {definitionUpdated
-                    ? " · newer definition available; reset to adopt it"
-                    : ""}
-                </small>
-              </dd>
-              <dt>Runtime</dt>
-              <dd>
-                {active
-                  ? "Active conversation using a definition snapshot"
-                  : "Available to create in this production session"}
-              </dd>
-            </dl>
             <label>
               Display name
               <input
@@ -5743,91 +6226,89 @@ function ActiveAgentCard({
                 }
               />
             </label>
-            <fieldset>
-              <legend>Conversation defaults</legend>
-              <label>
-                Model
-                <select
-                  aria-label={`Model for ${title}`}
-                  disabled={busy || modelsStatus !== "loaded"}
-                  value={model}
-                  onChange={(event) => {
-                    const nextModel = event.target.value;
-                    setDraft((current) => ({
-                      ...current,
-                      model: nextModel === "" ? null : nextModel,
-                      reasoningEffort:
-                        reasoningEffortForDraftModel(
-                          nextModel,
-                          current.reasoningEffort ?? "",
-                          models,
-                        ) === ""
-                          ? null
-                          : current.reasoningEffort,
-                    }));
-                  }}
-                >
-                  <option value="">SDK default</option>
-                  {modelUnavailable && (
-                    <option disabled value={model}>
-                      {model} (unavailable)
-                    </option>
-                  )}
-                  {models
-                    .filter(({ policyState }) => policyState === "enabled")
-                    .map((availableModel) => (
-                      <option key={availableModel.id} value={availableModel.id}>
-                        {availableModel.displayName} ({availableModel.id})
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <label>
-                Reasoning
-                <select
-                  aria-label={`Reasoning for ${title}`}
-                  disabled={
-                    busy ||
-                    modelsStatus !== "loaded" ||
-                    (reasoningOptions.length === 0 && !reasoningUnavailable)
-                  }
-                  value={reasoningEffort}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      reasoningEffort:
-                        event.target.value === ""
-                          ? null
-                          : (event.target.value as AgentReasoningEffort),
-                    }))
-                  }
-                >
-                  <option value="">Model default</option>
-                  {reasoningUnavailable && (
-                    <option disabled value={reasoningEffort}>
-                      {reasoningEffort} (unavailable)
-                    </option>
-                  )}
-                  {reasoningOptions.map((effort) => (
-                    <option key={effort} value={effort}>
-                      {effort}
+            <h4 className="section-label">Behavior</h4>
+            <div className="behavior-grid">
+              <span className="behavior-label">Model</span>
+              <select
+                aria-label={`Model for ${title}`}
+                disabled={busy || modelsStatus !== "loaded"}
+                value={model}
+                onChange={(event) => {
+                  const nextModel = event.target.value;
+                  setDraft((current) => ({
+                    ...current,
+                    model: nextModel === "" ? null : nextModel,
+                    reasoningEffort:
+                      reasoningEffortForDraftModel(
+                        nextModel,
+                        current.reasoningEffort ?? "",
+                        models,
+                      ) === ""
+                        ? null
+                        : current.reasoningEffort,
+                  }));
+                }}
+              >
+                <option value="">SDK default</option>
+                {modelUnavailable && (
+                  <option disabled value={model}>
+                    {model} (unavailable)
+                  </option>
+                )}
+                {models
+                  .filter(({ policyState }) => policyState === "enabled")
+                  .map((availableModel) => (
+                    <option key={availableModel.id} value={availableModel.id}>
+                      {availableModel.displayName} ({availableModel.id})
                     </option>
                   ))}
-                </select>
-              </label>
+              </select>
+              <span className="behavior-label">Thinking</span>
+              <select
+                aria-label={`Reasoning for ${title}`}
+                disabled={
+                  busy ||
+                  modelsStatus !== "loaded" ||
+                  (reasoningOptions.length === 0 && !reasoningUnavailable)
+                }
+                value={reasoningEffort}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    reasoningEffort:
+                      event.target.value === ""
+                        ? null
+                        : (event.target.value as AgentReasoningEffort),
+                  }))
+                }
+              >
+                <option value="">Model default</option>
+                {reasoningUnavailable && (
+                  <option disabled value={reasoningEffort}>
+                    {reasoningEffort} (unavailable)
+                  </option>
+                )}
+                {reasoningOptions.map((effort) => (
+                  <option key={effort} value={effort}>
+                    {effort}
+                  </option>
+                ))}
+              </select>
+              <span className="behavior-label">Ask before edits</span>
               <label>
                 <input
                   type="checkbox"
-                  checked={draft.autoApprove}
+                  checked={!draft.autoApprove}
                   onChange={(event) =>
                     setDraft((current) => ({
                       ...current,
-                      autoApprove: event.target.checked,
+                      autoApprove: !event.target.checked,
                     }))
                   }
                 />
-                Automatically approve eligible tool requests
+                Ask me before it changes Live
               </label>
+              <span className="behavior-label">Sub-agent</span>
               <label>
                 <input
                   type="checkbox"
@@ -5839,7 +6320,7 @@ function ActiveAgentCard({
                     }))
                   }
                 />
-                Other agents can delegate tasks to this agent as a sub-agent
+                Can be a sub-agent: other agents can hand it tasks
               </label>
               <label>
                 <input
@@ -5855,11 +6336,61 @@ function ActiveAgentCard({
                 />
                 As a sub-agent, hide its replies from the delegating agent
               </label>
-              <small>
-                Changes become the Session definition default. Active
-                conversations adopt them only after Reset.
-              </small>
-            </fieldset>
+              <span className="behavior-label">Color</span>
+              <div
+                className="agent-color-picker"
+                role="radiogroup"
+                aria-label={`Color for ${title}`}
+              >
+                {AGENT_COLOR_PALETTE.map((color) => {
+                  const selected =
+                    (draft.color ?? defaultAgentColor(draft.name)) === color;
+                  return (
+                    <button
+                      key={color}
+                      type="button"
+                      className={`swatch ${selected ? "selected" : ""}`}
+                      style={{ "--swatch": color } as CSSProperties}
+                      role="radio"
+                      aria-label={`Use color ${color} for ${title}`}
+                      aria-checked={selected}
+                      title={color}
+                      onClick={() =>
+                        setDraft((current) => ({ ...current, color }))
+                      }
+                    />
+                  );
+                })}
+              </div>
+            </div>
+            <small>
+              Changes become the Session definition default. Active
+              conversations adopt them only after Reset.
+            </small>
+            <details className="advanced-disclosure">
+              <summary>Advanced: source file and definition hash</summary>
+              <dl className="agent-metadata">
+                <dt>Definition</dt>
+                <dd>
+                  {definition.name} ·{" "}
+                  <code title={definition.fingerprint}>
+                    {definition.fingerprint.slice(0, 12)}
+                  </code>
+                  <small>
+                    {definition.origin ?? "bundled"} · {definition.sourceFile}
+                    {definitionUpdated
+                      ? " · newer definition available; reset to adopt it"
+                      : ""}
+                  </small>
+                </dd>
+                <dt>Runtime</dt>
+                <dd>
+                  {active
+                    ? "Active conversation using a definition snapshot"
+                    : "Available to create in this production session"}
+                </dd>
+              </dl>
+            </details>
           </div>
         )}
         {section === "capabilities" && (
@@ -5878,48 +6409,51 @@ function ActiveAgentCard({
                 }
               />
             </label>
-            <label>
-              Tool patterns{" "}
-              <small>One per line; wildcards are supported.</small>
-              <textarea
-                aria-label={`Tool patterns for ${title}`}
-                rows={6}
-                value={listValue(draft.tools)}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    tools: parseList(event.target.value),
-                  }))
-                }
-              />
-              <ResolvedToolsDisclosure
-                patterns={draft.tools}
-                resolvedTools={definition.resolvedTools}
-                resolvedOperations={definition.resolvedOperations ?? []}
-              />
-            </label>
-            <fieldset>
-              <legend>Edit scope</legend>
-              <label>
-                <input
-                  checked={scopeMode === "session"}
-                  name={`scope-${panelPrefix}`}
-                  type="radio"
-                  onChange={() =>
+            <h4 className="section-label">Tools it can use</h4>
+            <div className="tool-chips">
+              {toolGroups(definition.resolvedTools).map((group) => (
+                <span
+                  key={group.label}
+                  className={`tool-chip ${group.allowed ? "allowed" : "blocked"}`}
+                  title={
+                    group.allowed
+                      ? `Allowed: ${group.tools.join(", ")}`
+                      : "Blocked"
+                  }
+                >
+                  {group.label}
+                  <span className="sr-only">
+                    {group.allowed ? " (allowed)" : " (blocked)"}
+                  </span>
+                </span>
+              ))}
+            </div>
+            <h4 className="section-label">Can edit</h4>
+            <div>
+              <div
+                className="segmented"
+                role="radiogroup"
+                aria-label={`What ${title} can edit`}
+              >
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={scopeMode === "session"}
+                  onClick={() =>
                     setDraft((current) => ({
                       ...current,
                       editScope: ["session"],
                     }))
                   }
-                />
-                Full session
-              </label>
-              <label>
-                <input
-                  checked={scopeMode === "tracks"}
-                  name={`scope-${panelPrefix}`}
-                  type="radio"
-                  onChange={() =>
+                >
+                  Whole set
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={scopeMode === "tracks"}
+                  onClick={() =>
+                    scopeMode === "tracks" ||
                     setDraft((current) => ({
                       ...current,
                       editScope: [
@@ -5927,9 +6461,10 @@ function ActiveAgentCard({
                       ],
                     }))
                   }
-                />
-                Specific tracks
-              </label>
+                >
+                  Selected tracks
+                </button>
+              </div>
               {scopeMode === "tracks" && (
                 <textarea
                   aria-label={`Track scope for ${title}`}
@@ -5944,7 +6479,7 @@ function ActiveAgentCard({
                   }
                 />
               )}
-            </fieldset>
+            </div>
             <fieldset>
               <legend>Skills</legend>
               {availableSkills.length === 0 ? (
@@ -5974,6 +6509,29 @@ function ActiveAgentCard({
                 ))
               )}
             </fieldset>
+            <details className="advanced-disclosure">
+              <summary>Advanced: tool patterns</summary>
+              <label>
+                Tool patterns{" "}
+                <small>One per line; wildcards are supported.</small>
+                <textarea
+                  aria-label={`Tool patterns for ${title}`}
+                  rows={6}
+                  value={listValue(draft.tools)}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      tools: parseList(event.target.value),
+                    }))
+                  }
+                />
+              </label>
+              <ResolvedToolsDisclosure
+                patterns={draft.tools}
+                resolvedTools={definition.resolvedTools}
+                resolvedOperations={definition.resolvedOperations ?? []}
+              />
+            </details>
           </div>
         )}
         {section === "connections" && (
@@ -6197,13 +6755,12 @@ export function ProjectOutline({
               aria-selected={state.selectedTrackId === track.id}
             >
               <button
-                className={state.selectedTrackId === track.id ? "active" : ""}
+                className={`track-row ${state.selectedTrackId === track.id ? "active" : ""}`}
+                style={{ "--track-color": track.color } as CSSProperties}
+                title={track.name}
                 onClick={() => dispatch({ type: "select-track", id: track.id })}
               >
-                <span
-                  className="track-color"
-                  style={{ background: track.color }}
-                />{" "}
+                <span className="track-color" aria-hidden="true" />{" "}
                 <strong>{track.name}</strong>
                 <small>{track.kind}</small>
               </button>
@@ -6357,7 +6914,17 @@ export function Timeline({
             )}
           </article>
         ) : item.itemType === "operation" ? (
-          <OperationCard key={`operation-${item.id}`} operation={item} />
+          <OperationCard
+            key={`operation-${item.id}`}
+            operation={item}
+            track={
+              item.trackReference === undefined
+                ? undefined
+                : state.snapshot?.tracks.find(
+                    ({ id }) => id === item.trackReference,
+                  )
+            }
+          />
         ) : (
           <TriggerCard key={`trigger-${item.deliveryId}`} trigger={item} />
         ),
@@ -6429,8 +6996,9 @@ export function WorkingDisclosure({
         {working.subagents !== undefined && working.subagents.length > 0 && (
           <ul className="working-subagents" aria-label="Sub-agents">
             {working.subagents.map((subagent) => (
-              <li
+              <AgentColoredItem
                 key={subagent.id}
+                agent={subagent.label}
                 className={`working-subagent working-${subagent.status}`}
               >
                 <strong>{subagent.label}</strong>
@@ -6452,7 +7020,7 @@ export function WorkingDisclosure({
                 {subagent.detail && (
                   <p className="warning">{subagent.detail}</p>
                 )}
-              </li>
+              </AgentColoredItem>
             ))}
           </ul>
         )}
@@ -6490,11 +7058,38 @@ export function TriggerCard({
   );
 }
 
+function AgentColoredItem({
+  agent,
+  className,
+  children,
+}: {
+  agent: string;
+  className: string;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <li className={className} style={useAgentColorStyle(agent)}>
+      {children}
+    </li>
+  );
+}
+
+function ApprovalSubagent({ label }: { label: string }): React.JSX.Element {
+  return (
+    <small className="approval-subagent" style={useAgentColorStyle(label)}>
+      Requested via sub-agent {label}
+    </small>
+  );
+}
+
 export function OperationCard({
   operation,
+  track,
 }: {
   operation: DesktopState["operations"][number];
+  track?: Pick<DesktopTrack, "name" | "color"> | undefined;
 }): React.JSX.Element {
+  const agentStyle = useAgentColorStyle(operation.subagentLabel);
   const presentation = operationPresentation(
     operation.toolName,
     operation.label,
@@ -6516,10 +7111,9 @@ export function OperationCard({
   return (
     <details
       className={`operation operation-${operation.status}${subagentClass}`}
+      style={agentStyle}
     >
-      <summary
-        className={operation.toolName === undefined ? "" : "has-tool-name"}
-      >
+      <summary>
         <ActivityIcon type={presentation.type} />
         {operation.subagentLabel !== undefined && (
           <span
@@ -6530,6 +7124,15 @@ export function OperationCard({
           </span>
         )}
         <span className="operation-label">{label}</span>
+        {track !== undefined && (
+          <span
+            className="track-chip operation-track"
+            style={{ "--track-color": track.color } as CSSProperties}
+            title={`Track ${track.name}`}
+          >
+            {track.name}
+          </span>
+        )}
         {operation.toolName !== undefined && (
           <code className="operation-tool-name">
             {operation.toolName}
@@ -6964,7 +7567,11 @@ export function Inspector({
                   }}
                 >
                   {pane.tabs.map((moduleId, tabIndex) => (
-                    <div className="inspector-tab-item" key={moduleId}>
+                    <div
+                      className="inspector-tab-item"
+                      data-module={moduleId}
+                      key={moduleId}
+                    >
                       <button
                         type="button"
                         className={`inspector-tab ${pane.activeTab === moduleId ? "active" : ""}`}
@@ -7006,12 +7613,17 @@ export function Inspector({
                         }
                       >
                         <InspectorModuleIcon moduleId={moduleId} />
+                        {pane.activeTab === moduleId && (
+                          <span className="inspector-tab-label">
+                            {inspectorModuleLabel(moduleId)}
+                          </span>
+                        )}
                       </button>
                       <button
                         type="button"
                         className="inspector-tab-close"
-                        aria-label={`Close ${inspectorModuleLabel(moduleId)}`}
-                        title={`Close ${inspectorModuleLabel(moduleId)}`}
+                        aria-label={`Close ${inspectorModuleLabel(moduleId)} tab`}
+                        title={`Close ${inspectorModuleLabel(moduleId)} tab`}
                         onClick={() =>
                           updateLayout({ type: "close", moduleId })
                         }
@@ -7088,6 +7700,30 @@ export function Inspector({
                   role="separator"
                   aria-orientation="horizontal"
                   aria-label={`Resize ${inspectorModuleLabel(pane.activeTab)} inspector`}
+                  tabIndex={0}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(
+                    (pane.weight /
+                      layout.panes.reduce(
+                        (total, { weight }) => total + weight,
+                        0,
+                      )) *
+                      100,
+                  )}
+                  onKeyDown={(event) => {
+                    const delta = { ArrowUp: -0.05, ArrowDown: 0.05 }[
+                      event.key
+                    ];
+                    if (delta === undefined) return;
+                    event.preventDefault();
+                    updateLayout({
+                      type: "resize",
+                      dividerIndex: paneIndex,
+                      delta,
+                      minimumWeight: 0.15,
+                    });
+                  }}
                   onPointerDown={(event) =>
                     startDividerResize(event, paneIndex)
                   }
@@ -7632,7 +8268,10 @@ function TrackInspector({
     label: track.name,
   };
   return (
-    <div className="inspection">
+    <div
+      className="inspection track-card"
+      style={{ "--track-color": track.color } as CSSProperties}
+    >
       <h3>{track.name}</h3>
       <p>
         {track.kind} track · {track.clips.length} clips · {track.devices.length}{" "}
@@ -7657,7 +8296,10 @@ function ClipInspector({
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
 }): React.JSX.Element {
   return (
-    <div className="inspection">
+    <div
+      className="inspection track-card"
+      style={{ "--track-color": track.color } as CSSProperties}
+    >
       <h3>{clip.name}</h3>
       <dl>
         <dt>Track</dt>
@@ -7693,7 +8335,10 @@ function DeviceInspector({
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
 }): React.JSX.Element {
   return (
-    <div className="inspection">
+    <div
+      className="inspection track-card"
+      style={{ "--track-color": track.color } as CSSProperties}
+    >
       <h3>{device.name}</h3>
       <p>
         {device.type} on {track.name} ·{" "}
@@ -7777,9 +8422,7 @@ export function ApprovalPanel({
             {approval.risk} risk
           </span>
           {approval.subagentLabel !== undefined && (
-            <small className="approval-subagent">
-              Requested via sub-agent {approval.subagentLabel}
-            </small>
+            <ApprovalSubagent label={approval.subagentLabel} />
           )}
           <p>{approval.summary}</p>
           <ul>
@@ -9269,6 +9912,26 @@ function ElicitationComposer({
   );
 }
 
+/** The Live color of the track a context chip belongs to. */
+function contextChipTrackColor(
+  state: DesktopState,
+  chip: ContextChip,
+): string | undefined {
+  const [kind, id] = [
+    chip.id.slice(0, chip.id.indexOf(":")),
+    chip.id.slice(chip.id.indexOf(":") + 1),
+  ];
+  return state.snapshot?.tracks.find((track) =>
+    kind === "track"
+      ? track.id === id
+      : kind === "clip"
+        ? track.clips.some((clip) => clip.id === id)
+        : kind === "device"
+          ? track.devices.some((device) => device.id === id)
+          : false,
+  )?.color;
+}
+
 export function Composer({
   state,
   value,
@@ -9317,6 +9980,23 @@ export function Composer({
     onChange(slashCompletionText(entry));
     composerRef.current?.focus();
   };
+  const changeMode = (mode: "plan" | "interactive"): void => {
+    if (mode === agentMode) return;
+    void setSelectedAgentMode(window.desktop, state, mode, dispatch).catch(
+      (modeError: unknown) =>
+        dispatch({
+          type: "event",
+          event: {
+            type: "diagnostic",
+            level: "error",
+            message:
+              modeError instanceof Error
+                ? modeError.message
+                : "Agent mode could not be changed",
+          },
+        }),
+    );
+  };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (slashSuggestions.length > 0) {
       const selectedEntry =
@@ -9344,7 +10024,7 @@ export function Composer({
     }
   };
   return (
-    <footer className="composer">
+    <footer className="composer" data-mode={agentMode}>
       <div className="context-chips" aria-label="Prompt context">
         <span>Context</span>
         {context.length === 0 ? (
@@ -9354,6 +10034,13 @@ export function Composer({
             <button
               type="button"
               key={chip.id}
+              className="track-chip"
+              style={
+                {
+                  "--track-color":
+                    contextChipTrackColor(state, chip) ?? "var(--track-none)",
+                } as CSSProperties
+              }
               title="Remove context"
               aria-label={`Remove ${chip.kind} ${chip.label} from context`}
               onClick={() => dispatch({ type: "remove-context", chip })}
@@ -9364,6 +10051,29 @@ export function Composer({
         )}
       </div>
       <form onSubmit={(event) => void onSubmit(event)}>
+        {activeAgent !== undefined && (
+          <div
+            className="mode-switch"
+            role="radiogroup"
+            aria-label="Agent mode"
+            title="Press Shift+Tab to switch mode"
+          >
+            {(["plan", "interactive"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={agentMode === mode}
+                className={`composer-mode-button ${mode} ${agentMode === mode ? "selected" : ""}`}
+                disabled={unavailable || activeBusy}
+                onClick={() => changeMode(mode)}
+              >
+                <Icon name={mode === "plan" ? "plan" : "bolt"} />
+                {mode === "plan" ? "Plan" : "Interactive"}
+              </button>
+            ))}
+          </div>
+        )}
         <SlashCompletionSuggestions
           entries={slashSuggestions}
           selected={selectedSuggestion}
@@ -9392,43 +10102,21 @@ export function Composer({
           placeholder={
             activeAgent === undefined
               ? "Select or create an active agent to begin…"
-              : state.connection.state === "connected"
-                ? `Ask ${activeAgent.label}…`
-                : "Ask using the demo adapter, or connect to Ableton…"
+              : agentMode === "plan"
+                ? `Plan with ${activeAgent.label}… (nothing in Live will change)`
+                : state.connection.state === "connected"
+                  ? `Ask ${activeAgent.label}… (/ for skills)`
+                  : "Ask using the demo adapter, or connect to Ableton…"
           }
           rows={2}
         />
         <div className="composer-actions">
           {activeAgent !== undefined ? (
-            <button
-              type="button"
-              className={`composer-mode-button ${agentMode}`}
-              aria-label={`Switch to ${agentMode === "plan" ? "interactive" : "plan"} mode`}
-              title="Click or press Shift+Tab to switch mode"
-              disabled={unavailable || activeBusy}
-              onClick={() =>
-                void setSelectedAgentMode(
-                  window.desktop,
-                  state,
-                  agentMode === "plan" ? "interactive" : "plan",
-                  dispatch,
-                ).catch((modeError: unknown) =>
-                  dispatch({
-                    type: "event",
-                    event: {
-                      type: "diagnostic",
-                      level: "error",
-                      message:
-                        modeError instanceof Error
-                          ? modeError.message
-                          : "Agent mode could not be changed",
-                    },
-                  }),
-                )
-              }
-            >
-              {agentMode}
-            </button>
+            <small className="composer-mode-hint">
+              {agentMode === "plan"
+                ? "Plan · the agent writes a plan you can review in the Inspector. ⇧Tab to switch."
+                : "Interactive · the agent can edit your Live set. ⇧Tab to switch."}
+            </small>
           ) : (
             <span />
           )}

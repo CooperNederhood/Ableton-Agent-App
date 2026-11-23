@@ -4,6 +4,7 @@ import { basename, join } from "node:path";
 import { readFile } from "node:fs/promises";
 
 import {
+  defaultAgentColor,
   loadAgentCatalog,
   loadLayeredAgentCatalog,
   MEMORY_SCOPE_ORDER,
@@ -71,6 +72,7 @@ export function toDesktopCatalog(
       autoApprove: agent.definition.autoApprove,
       delegatable: agent.definition.delegatable,
       hideResultFromParent: agent.definition.hideResultFromParent,
+      color: agent.definition.color ?? defaultAgentColor(agent.definition.name),
       eventListeners: agent.definition.eventListeners,
       origin: "origin" in agent ? agent.origin : "bundled",
       inherited: "inherited" in agent ? agent.inherited : false,

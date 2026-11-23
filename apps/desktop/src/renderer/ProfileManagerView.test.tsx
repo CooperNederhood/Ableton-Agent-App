@@ -276,6 +276,30 @@ describe("ProfileManagerView", () => {
     expect(container.textContent).toContain("compose");
   });
 
+  it("counts what applies now per scope and opens the filtered tab", async () => {
+    window.desktop = api();
+    const onOpenLibrary = vi.fn();
+    await act(async () => {
+      root.render(
+        <ProfileManagerView
+          activeSessionId="session-1"
+          onOpenLibrary={onOpenLibrary}
+        />,
+      );
+    });
+
+    const cell = (label: string): HTMLButtonElement | null =>
+      container.querySelector<HTMLButtonElement>(
+        `button[aria-label="${label}"]`,
+      );
+    expect(cell("Show 2 System agents")).not.toBeNull();
+    expect(cell("Show 1 Profile skills")).not.toBeNull();
+    expect(cell("Show 1 Session agents")).not.toBeNull();
+
+    await act(async () => cell("Show 1 Profile skills")?.click());
+    expect(onOpenLibrary).toHaveBeenCalledWith("skill", "profile");
+  });
+
   it("shows an active in-memory session before it is persisted", async () => {
     window.desktop = api({
       get: vi.fn().mockResolvedValue(

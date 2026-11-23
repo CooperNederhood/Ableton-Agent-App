@@ -371,6 +371,13 @@ describe("DesktopProfileManager", () => {
       state: "local",
     });
 
+    const memory = await manager.readMemory({
+      name: "taste",
+      location: session,
+    });
+    expect(memory).toMatchObject({ name: "taste", description: "Older note" });
+    expect(memory.content).toContain("Notes.");
+
     const conflict = await manager.copyArtifact({
       kind: "memory",
       name: "taste",
@@ -415,7 +422,7 @@ describe("DesktopProfileManager", () => {
       }),
     ).rejects.toThrow("cannot be disabled");
 
-    const renamed = await manager.renameArtifact({
+    await manager.renameArtifact({
       kind: "memory",
       name: "taste",
       newName: "sound",
@@ -425,11 +432,36 @@ describe("DesktopProfileManager", () => {
     expect(await readFile(join(sessionMemory, "sound.md"), "utf8")).toContain(
       "name: sound",
     );
+    const sound = await manager.readMemory({
+      name: "sound",
+      location: session,
+    });
+    const edited = memoryTopic("sound", "Prefers dry kicks");
+    await expect(
+      manager.saveMemory({
+        name: "sound",
+        location: session,
+        content: edited,
+        expectedFingerprint: "0".repeat(64),
+      }),
+    ).rejects.toThrow("changed since");
+    const saved = await manager.saveMemory({
+      name: "sound",
+      location: session,
+      content: edited,
+      expectedFingerprint: sound.fingerprint,
+    });
+    expect(await readFile(join(sessionMemory, "sound.md"), "utf8")).toBe(
+      edited,
+    );
+    expect(await readFile(join(sessionMemory, "INDEX.md"), "utf8")).toBe(
+      "sound | Prefers dry kicks | ./sound.md\n",
+    );
     const deleted = await manager.deleteArtifact({
       kind: "memory",
       name: "sound",
       location: session,
-      expectedRevision: renamed.revision,
+      expectedRevision: saved.revision,
     });
     expect(deleted.artifacts.some(({ kind }) => kind === "memory")).toBe(false);
     expect(refreshActiveCatalog).not.toHaveBeenCalled();

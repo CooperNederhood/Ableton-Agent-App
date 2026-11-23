@@ -11,6 +11,7 @@ import {
   disableArtifact,
   loadLayeredAgentCatalog,
   moveArtifact,
+  publishMemoryChanges,
   readMemoryScope,
   renameMemoryTopic,
   transferMemoryTopic,
@@ -57,6 +58,7 @@ import {
   type DesktopArtifactLocation,
   type DesktopArtifactMutationResult,
   type DesktopArtifactScope,
+  type DesktopMemoryDocument,
   type DesktopAgentCatalog,
   type DesktopProfileManagerSnapshot,
   type DesktopScopedArtifact,
@@ -871,6 +873,55 @@ export class DesktopProfileManager implements ProfileManagerActions {
         return this.get(snapshot.selectedProfile);
       },
     );
+  }
+
+  public async readMemory(
+    request: Parameters<ProfileManagerActions["readMemory"]>[0],
+  ): Promise<DesktopMemoryDocument> {
+    return this.#artifactOperation("read", "memory", request.name, async () => {
+      const snapshot = await this.get(this.options.getActiveProfile());
+      const { directory } = await this.#memoryLocation(
+        request.location,
+        snapshot,
+        "source",
+      );
+      const topic = (await readMemoryScope(directory)).topics.find(
+        ({ name }) => name === request.name,
+      );
+      if (topic === undefined) {
+        throw new Error(`Memory topic '${request.name}' does not exist`);
+      }
+      return {
+        name: topic.name,
+        description: topic.description,
+        content: topic.content,
+        fingerprint: topic.fingerprint,
+      };
+    });
+  }
+
+  /** Replaces one topic file with hand-edited Markdown, refusing stale edits. */
+  public async saveMemory(
+    request: Parameters<ProfileManagerActions["saveMemory"]>[0],
+  ): Promise<DesktopProfileManagerSnapshot> {
+    return this.#artifactOperation("save", "memory", request.name, async () => {
+      const snapshot = await this.get(this.options.getActiveProfile());
+      const location = await this.#memoryLocation(request.location, snapshot);
+      await publishMemoryChanges([
+        {
+          ...location,
+          writes: [
+            {
+              name: request.name,
+              content: request.content,
+              baseFingerprint: request.expectedFingerprint,
+            },
+          ],
+          deletes: [],
+        },
+      ]);
+      return this.get(snapshot.selectedProfile);
+    });
   }
 
   public async setArtifactDisabled(

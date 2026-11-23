@@ -633,7 +633,10 @@ describe("desktop components", () => {
       />,
     );
 
-    expect(idle).toContain('class="composer-mode-button interactive"');
+    expect(idle).toContain('aria-label="Agent mode"');
+    expect(idle).toMatch(
+      /aria-checked="true" class="composer-mode-button interactive selected"/,
+    );
     expect(idle).toContain('aria-label="Send message"');
     expect(idle).not.toContain("Send <kbd>");
     expect(busy).toContain('aria-label="Stop agent"');
@@ -796,9 +799,7 @@ describe("desktop components", () => {
 
     expect(html).toContain('aria-label="Application toolbar"');
     expect(html).toContain('aria-label="Hide application toolbar"');
-    expect(html).toContain(
-      'aria-controls="application-toolbar application-views"',
-    );
+    expect(html).toContain('aria-controls="application-toolbar"');
   });
 
   it("renders only the selected agent conversation", () => {
@@ -1565,6 +1566,7 @@ describe("desktop components", () => {
             definitions: [
               {
                 name: "default",
+                color: "#ffa529",
                 description: "General-purpose Ableton agent.",
                 systemPrompt: "Help with Ableton.",
                 tools: ["*"],
@@ -1578,6 +1580,7 @@ describe("desktop components", () => {
               },
               {
                 name: "compose",
+                color: "#ffa529",
                 description: "Composition-focused Ableton agent.",
                 systemPrompt: "Develop musical ideas.",
                 tools: ["ableton_*"],
@@ -1914,6 +1917,30 @@ describe("desktop components", () => {
     expect(html).toContain("1.3 s");
     expect(html).toContain(
       '<small><span class="operation-status">partial</span> · 1.3 s</small>',
+    );
+  });
+
+  it("shows the targeted Live track as a chip in its color", () => {
+    const html = renderToStaticMarkup(
+      <OperationCard
+        operation={{
+          id: "track-1",
+          label: "Rename track",
+          toolName: "ableton_tracks",
+          trackReference: "track-ref-1",
+          status: "completed",
+          warnings: [],
+          changed: [],
+          unchanged: [],
+          retryable: false,
+          undoable: false,
+          timestamp: 1,
+        }}
+        track={{ name: "Bass", color: "#ff9a3c" }}
+      />,
+    );
+    expect(html).toContain(
+      '<span class="track-chip operation-track" style="--track-color:#ff9a3c" title="Track Bass">Bass</span>',
     );
   });
 

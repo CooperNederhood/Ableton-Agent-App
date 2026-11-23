@@ -143,6 +143,7 @@ function rendererState(active = true): DesktopState {
         {
           version: 2,
           name: "default",
+          color: "#ffa529",
           label: "Default",
           description: "General agent.",
           systemPrompt: "Help.",
@@ -203,7 +204,13 @@ function desktopApi(
       ...skillOverrides,
     },
     profiles: {
-      get: vi.fn().mockResolvedValue({ revision: "a".repeat(64) }),
+      get: vi.fn().mockResolvedValue({
+        revision: "a".repeat(64),
+        activeProfile: "default",
+        selectedProfile: "default",
+        profiles: [],
+        artifacts: [],
+      }),
       status: vi.fn().mockResolvedValue({
         revision: "a".repeat(64),
         activeProfile: "default",
@@ -860,7 +867,7 @@ describe("desktop component interactions", () => {
 
     expect(read).not.toHaveBeenCalled();
     expect(container.textContent).not.toContain("interview-me");
-    expect(container.textContent).toContain("No valid skills found");
+    expect(container.textContent).toContain("No skills yet");
   });
 
   it("publishes new skill metadata and adds the skill to the navigator", async () => {
@@ -1096,6 +1103,7 @@ describe("desktop component interactions", () => {
     state.agentCatalog.definitions.push({
       version: 2,
       name: "compose",
+      color: "#e0e05a",
       label: "Compose",
       description: "Composition agent.",
       systemPrompt: "Compose.",
@@ -1141,9 +1149,9 @@ describe("desktop component interactions", () => {
       ),
     ];
     expect(navigationItems.map((item) => item.textContent)).toEqual([
-      "Defaultdefault",
-      "Default 2default",
-      "ComposeComposition agent.",
+      "Default",
+      "Default 2",
+      "Compose",
     ]);
     expect(
       navigationItems.map((item) =>
@@ -1194,6 +1202,7 @@ describe("desktop component interactions", () => {
     state.agentCatalog.definitions.push({
       version: 2,
       name: "compose",
+      color: "#e0e05a",
       label: "Compose",
       description: "Composition agent.",
       systemPrompt: "Compose.",
@@ -1269,13 +1278,14 @@ describe("desktop component interactions", () => {
       ),
     ].find((input) =>
       input.parentElement?.textContent?.includes(
-        "Automatically approve eligible tool requests",
+        "Ask me before it changes Live",
       ),
     );
     if (automaticApproval === undefined) {
       throw new Error("Automatic approval control not found");
     }
     await act(async () => automaticApproval.click());
+    await clickAria(container, "Use color #d47fd4 for New Compose");
     const connectionsTab = visibleDetail.querySelector<HTMLButtonElement>(
       'button[aria-label="Connections"]',
     );
@@ -1314,6 +1324,7 @@ describe("desktop component interactions", () => {
         model: "model-b",
         reasoningEffort: "xhigh",
         autoApprove: true,
+        color: "#d47fd4",
         eventListeners: [
           expect.objectContaining({
             eventId,
@@ -1747,20 +1758,25 @@ describe("desktop component interactions", () => {
       if (prompt === null) throw new Error("Expected Workspace composer");
       await replaceText(prompt, "Preserve this workspace draft");
 
+      await click(container, "More");
       const navigation = [
         ...container.querySelectorAll("#application-views button"),
       ].map((button) => button.textContent);
       for (const advanced of ["Events", "Browser", "Diagnostics"]) {
         expect(navigation.includes(advanced)).toBe(showAdvancedViews);
       }
-      expect(navigation).toContain("Settings");
+      expect(navigation).toEqual(
+        expect.arrayContaining(["Agents", "Memory", "Outputs", "Settings"]),
+      );
+      await click(container, "More");
 
-      for (const view of [
-        "Agents",
-        "Outputs",
-        ...(showAdvancedViews ? ["Events"] : []),
-        "Settings",
-      ]) {
+      for (const [view, inMoreMenu] of [
+        ["Agents", false],
+        ["Outputs", true],
+        ...(showAdvancedViews ? [["Events", true] as const] : []),
+        ["Settings", true],
+      ] as const) {
+        if (inMoreMenu) await click(container, "More");
         await click(container, view);
         expect(container.querySelector("#prompt")).toBeNull();
       }
@@ -1837,6 +1853,7 @@ describe("desktop component interactions", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+    await click(container, "More");
     await click(container, "Outputs");
     const request = {
       requestId: "plan-routing",
@@ -1855,9 +1872,7 @@ describe("desktop component interactions", () => {
       });
       await Promise.resolve();
     });
-    expect(button(container, "Outputs").classList.contains("selected")).toBe(
-      true,
-    );
+    expect(button(container, "More").classList.contains("selected")).toBe(true);
 
     await act(async () => {
       publish({
@@ -3081,7 +3096,7 @@ describe("desktop component interactions", () => {
     expect(container.textContent).toContain("Create two arrangement clips.");
 
     const closeApproval = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Close Approval"]',
+      'button[aria-label="Close Approval tab"]',
     );
     if (closeApproval === null) throw new Error("Approval close not found");
     await act(async () => closeApproval.click());

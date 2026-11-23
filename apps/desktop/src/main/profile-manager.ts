@@ -11,6 +11,7 @@ import {
   disableArtifact,
   loadLayeredAgentCatalog,
   moveArtifact,
+  publishMemoryChanges,
   readMemoryScope,
   renameMemoryTopic,
   transferMemoryTopic,
@@ -46,7 +47,11 @@ import {
   type LiveAgentStorageLayout,
   type ProfileRegistry,
 } from "@ableton-agent/storage";
-import { abletonToolMetadata } from "@ableton-agent/tools";
+import {
+  abletonCompatibilityAliases,
+  abletonToolMetadata,
+  abletonToolOperationPatterns,
+} from "@ableton-agent/tools";
 
 import {
   desktopProfileManagerSnapshotSchema,
@@ -57,6 +62,7 @@ import {
   type DesktopArtifactLocation,
   type DesktopArtifactMutationResult,
   type DesktopArtifactScope,
+  type DesktopMemoryDocument,
   type DesktopAgentCatalog,
   type DesktopProfileManagerSnapshot,
   type DesktopScopedArtifact,
@@ -66,12 +72,16 @@ import {
 import type { ProfileManagerActions } from "./ipc.js";
 import { JsonLiveSetSessionStore } from "./live-set-session-store.js";
 
-const availableTools = [
-  ...abletonToolMetadata.map((tool) => tool.name),
-  ...APPLICATION_TOOL_NAMES,
-  ...APPROVED_BUILTIN_TOOL_NAMES,
-];
-const wildcardExcludedTools = EXPLICIT_ONLY_BUILTIN_TOOL_NAMES;
+const catalogTools = {
+  availableTools: [
+    ...abletonToolMetadata.map((tool) => tool.name),
+    ...APPLICATION_TOOL_NAMES,
+    ...APPROVED_BUILTIN_TOOL_NAMES,
+  ],
+  availableOperations: abletonToolOperationPatterns,
+  compatibilityAliases: abletonCompatibilityAliases,
+  wildcardExcludedTools: EXPLICIT_ONLY_BUILTIN_TOOL_NAMES,
+};
 const maximumSessionsFileBytes = 4 * 1024 * 1024;
 
 type TelemetryWriter = (event: {
@@ -456,8 +466,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
             profile: layer(profile),
             ...(project === undefined ? {} : { project: layer(project) }),
             session: layer(sessionPaths),
-            availableTools,
-            wildcardExcludedTools,
+            ...catalogTools,
           });
         const current = (await load()).agents.find(
           ({ definition: candidate }) => candidate.name === definition.name,
@@ -873,6 +882,55 @@ export class DesktopProfileManager implements ProfileManagerActions {
     );
   }
 
+  public async readMemory(
+    request: Parameters<ProfileManagerActions["readMemory"]>[0],
+  ): Promise<DesktopMemoryDocument> {
+    return this.#artifactOperation("read", "memory", request.name, async () => {
+      const snapshot = await this.get(this.options.getActiveProfile());
+      const { directory } = await this.#memoryLocation(
+        request.location,
+        snapshot,
+        "source",
+      );
+      const topic = (await readMemoryScope(directory)).topics.find(
+        ({ name }) => name === request.name,
+      );
+      if (topic === undefined) {
+        throw new Error(`Memory topic '${request.name}' does not exist`);
+      }
+      return {
+        name: topic.name,
+        description: topic.description,
+        content: topic.content,
+        fingerprint: topic.fingerprint,
+      };
+    });
+  }
+
+  /** Replaces one topic file with hand-edited Markdown, refusing stale edits. */
+  public async saveMemory(
+    request: Parameters<ProfileManagerActions["saveMemory"]>[0],
+  ): Promise<DesktopProfileManagerSnapshot> {
+    return this.#artifactOperation("save", "memory", request.name, async () => {
+      const snapshot = await this.get(this.options.getActiveProfile());
+      const location = await this.#memoryLocation(request.location, snapshot);
+      await publishMemoryChanges([
+        {
+          ...location,
+          writes: [
+            {
+              name: request.name,
+              content: request.content,
+              baseFingerprint: request.expectedFingerprint,
+            },
+          ],
+          deletes: [],
+        },
+      ]);
+      return this.get(snapshot.selectedProfile);
+    });
+  }
+
   public async setArtifactDisabled(
     request: Parameters<ProfileManagerActions["setArtifactDisabled"]>[0],
   ): Promise<DesktopProfileManagerSnapshot> {
@@ -1223,15 +1281,13 @@ export class DesktopProfileManager implements ProfileManagerActions {
     const systemCatalog = await loadLayeredAgentCatalog({
       bundled,
       system: layer(system),
-      availableTools,
-      wildcardExcludedTools,
+      ...catalogTools,
     });
     const profileCatalog = await loadLayeredAgentCatalog({
       bundled,
       system: layer(system),
       profile: layer(profile),
-      availableTools,
-      wildcardExcludedTools,
+      ...catalogTools,
     });
     const selectedProjectRegistry = await readLiveProjectsRegistry(
       selectedLayout.liveProjectsRegistryPath,
@@ -1257,8 +1313,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
             system: layer(system),
             profile: layer(profile),
             project: layer(projectPaths),
-            availableTools,
-            wildcardExcludedTools,
+            ...catalogTools,
           });
           projectCatalogs.set(liveProjectId, catalog);
           const artifacts = catalogArtifacts(
@@ -1310,8 +1365,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
             profile: layer(profile),
             ...(project === undefined ? {} : { project: layer(project) }),
             session: layer(session),
-            availableTools,
-            wildcardExcludedTools,
+            ...catalogTools,
           });
           const artifacts = catalogArtifacts(
             "session",
@@ -1393,8 +1447,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
       system,
       await loadLayeredAgentCatalog({
         bundled,
-        availableTools,
-        wildcardExcludedTools,
+        ...catalogTools,
       }),
     );
     await this.#appendDisabledArtifacts(
@@ -1658,8 +1711,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
       profile: layer(profile),
       ...(project === undefined ? {} : { project: layer(project) }),
       ...(session === undefined ? {} : { session: layer(session) }),
-      availableTools,
-      wildcardExcludedTools,
+      ...catalogTools,
     });
   }
 

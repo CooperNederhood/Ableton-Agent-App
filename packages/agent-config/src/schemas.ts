@@ -307,14 +307,49 @@ const versionOneAgentDefinitionSchema = agentDefinitionCoreSchema.extend({
   version: z.literal(1),
 });
 
+export const AGENT_COLOR_PALETTE = [
+  "#ffa529",
+  "#ff5f8a",
+  "#7ddc5a",
+  "#d47fd4",
+  "#e0e05a",
+  "#8fd6ff",
+] as const;
+
+const BUNDLED_AGENT_COLORS: Readonly<Record<string, string>> = {
+  default: "#ffa529",
+  mix: "#ff5f8a",
+  sound: "#7ddc5a",
+  arrange: "#d47fd4",
+  compose: "#e0e05a",
+};
+
+export const agentColorSchema = z
+  .string()
+  .regex(/^#[0-9a-f]{6}$/u, "Agent color must be a lowercase #rrggbb hex");
+
+/** Color shown for an agent that has not picked one: stable per name. */
+export function defaultAgentColor(name: string): string {
+  const bundled = BUNDLED_AGENT_COLORS[name];
+  if (bundled !== undefined) return bundled;
+  let hash = 0;
+  for (const character of name) {
+    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  }
+  return AGENT_COLOR_PALETTE[hash % AGENT_COLOR_PALETTE.length]!;
+}
+
 export const currentAgentDefinitionSchema = agentDefinitionCoreSchema
   .extend({
     version: z.literal(2),
     label: z.string().trim().min(1).max(128),
+    color: agentColorSchema.optional(),
     model: z.string().trim().min(1).max(256).nullable(),
     reasoningEffort: agentReasoningEffortSchema.nullable(),
     autoApprove: z.boolean(),
     delegatable: z.boolean().default(false),
+    /** As a sub-agent, its final reply reaches the parent only as a fixed confirmation. */
+    hideResultFromParent: z.boolean().default(false),
     eventListeners: z
       .array(agentEventListenerSchema)
       .max(MAX_EVENT_LISTENERS_PER_AGENT),
@@ -360,6 +395,7 @@ export const agentDefinitionSchema = z
           reasoningEffort: null,
           autoApprove: false,
           delegatable: false,
+          hideResultFromParent: false,
           eventListeners: [],
         },
   );

@@ -217,6 +217,34 @@ const clip = z
     },
   );
 
+export interface ListeningRecordingFlags {
+  readonly recordMode: boolean | null;
+  readonly sessionRecord: boolean | null;
+  readonly arrangementOverdub: boolean | null;
+  readonly sessionAutomationRecord: boolean | null;
+}
+
+/**
+ * Recording flags that make starting playback unsafe. Automation Arm alone
+ * writes nothing during playback, so it is reported but does not block.
+ * Unknown (null) flags always block.
+ */
+export function listeningRecordingBlockers(
+  recording: ListeningRecordingFlags,
+): (keyof ListeningRecordingFlags)[] {
+  return (
+    Object.entries(recording) as [
+      keyof ListeningRecordingFlags,
+      boolean | null,
+    ][]
+  )
+    .filter(
+      ([key, value]) =>
+        value === null || (value === true && key !== "sessionAutomationRecord"),
+    )
+    .map(([key]) => key);
+}
+
 export const inspectListeningContextResultSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -329,9 +357,7 @@ export const inspectListeningContextResultSchema = z
     (value) =>
       !value.transport.safeToStart ||
       (value.transport.playing === false &&
-        Object.values(value.transport.recording).every(
-          (flag) => flag === false,
-        ) &&
+        listeningRecordingBlockers(value.transport.recording).length === 0 &&
         value.listeners.every(
           (listener) =>
             !listener.clipsTruncated &&

@@ -74,6 +74,9 @@ def _transport_guards(context, params, identity_builder, check_revision=True,
         "session_automation_record", "loop", "back_to_arranger",
     ):
         value = _safe_lom_getattr(song, field)
+        # Automation Arm alone writes nothing during playback; only unknown blocks.
+        if field == "session_automation_record" and isinstance(value, bool):
+            continue
         if value is not False:
             raise ProtocolFailure("conflict", "Listening requires known stopped/recording-off/Arrangement state",
                                   details={"reason": "unsafe_or_unknown_" + field, "mutated": False})

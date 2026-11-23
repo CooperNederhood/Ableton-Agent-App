@@ -171,6 +171,7 @@ async function fixture(
     refreshActiveCatalog,
     layout,
     persistActiveSession,
+    bundledAgentsDirectory,
   };
 }
 
@@ -371,6 +372,13 @@ describe("DesktopProfileManager", () => {
       state: "local",
     });
 
+    const memory = await manager.readMemory({
+      name: "taste",
+      location: session,
+    });
+    expect(memory).toMatchObject({ name: "taste", description: "Older note" });
+    expect(memory.content).toContain("Notes.");
+
     const conflict = await manager.copyArtifact({
       kind: "memory",
       name: "taste",
@@ -415,7 +423,7 @@ describe("DesktopProfileManager", () => {
       }),
     ).rejects.toThrow("cannot be disabled");
 
-    const renamed = await manager.renameArtifact({
+    await manager.renameArtifact({
       kind: "memory",
       name: "taste",
       newName: "sound",
@@ -425,11 +433,36 @@ describe("DesktopProfileManager", () => {
     expect(await readFile(join(sessionMemory, "sound.md"), "utf8")).toContain(
       "name: sound",
     );
+    const sound = await manager.readMemory({
+      name: "sound",
+      location: session,
+    });
+    const edited = memoryTopic("sound", "Prefers dry kicks");
+    await expect(
+      manager.saveMemory({
+        name: "sound",
+        location: session,
+        content: edited,
+        expectedFingerprint: "0".repeat(64),
+      }),
+    ).rejects.toThrow("changed since");
+    const saved = await manager.saveMemory({
+      name: "sound",
+      location: session,
+      content: edited,
+      expectedFingerprint: sound.fingerprint,
+    });
+    expect(await readFile(join(sessionMemory, "sound.md"), "utf8")).toBe(
+      edited,
+    );
+    expect(await readFile(join(sessionMemory, "INDEX.md"), "utf8")).toBe(
+      "sound | Prefers dry kicks | ./sound.md\n",
+    );
     const deleted = await manager.deleteArtifact({
       kind: "memory",
       name: "sound",
       location: session,
-      expectedRevision: renamed.revision,
+      expectedRevision: saved.revision,
     });
     expect(deleted.artifacts.some(({ kind }) => kind === "memory")).toBe(false);
     expect(refreshActiveCatalog).not.toHaveBeenCalled();
@@ -760,6 +793,7 @@ describe("DesktopProfileManager", () => {
         reasoningEffort: null,
         autoApprove: true,
         delegatable: false,
+        hideResultFromParent: false,
         eventListeners: [],
       },
       expectedRevision: initial.revision,
@@ -802,6 +836,62 @@ describe("DesktopProfileManager", () => {
     ).toBe(true);
   });
 
+  it("saves a definition whose tools name Ableton operations", async () => {
+    const { manager, bundledAgentsDirectory } = await fixture({
+      activeSessionId: "session-1",
+    });
+    await writeFile(
+      join(bundledAgentsDirectory, "quiz.yaml"),
+      [
+        "version: 1",
+        "name: quiz",
+        "description: Writes a quiz clip.",
+        "systemPrompt: Write a quiz clip.",
+        "tools:",
+        "  - session.inspect",
+        "  - midi_notes.*",
+        "editScope:",
+        "  - session",
+        "skills: []",
+        "inputChannels: []",
+      ].join("\n"),
+    );
+    const initial = await manager.get();
+    const inherited = initial.artifacts.find(
+      ({ kind, name }) => kind === "agent" && name === "quiz",
+    );
+    expect(inherited).toBeDefined();
+
+    const result = await manager.saveAgentDefinition({
+      definition: {
+        version: 2,
+        name: "quiz",
+        label: "Quiz",
+        description: "Writes a quiz clip.",
+        systemPrompt: "Never describe the quiz clip.",
+        tools: ["session.inspect", "midi_notes.*"],
+        editScope: ["session"],
+        skills: [],
+        inputChannels: [],
+        model: null,
+        reasoningEffort: null,
+        autoApprove: false,
+        delegatable: false,
+        hideResultFromParent: false,
+        eventListeners: [],
+      },
+      expectedRevision: initial.revision,
+      expectedFingerprint: inherited!.fingerprint!,
+    });
+
+    expect(
+      result.profileSnapshot.artifacts.find(
+        ({ scope, kind, name }) =>
+          scope === "session" && kind === "agent" && name === "quiz",
+      ),
+    ).toMatchObject({ origin: "session", sessionId: "session-1" });
+  });
+
   it("persists an ephemeral active session before saving its definition", async () => {
     const { manager, layout, persistActiveSession } = await fixture({
       activeSessionId: "session-1",
@@ -832,6 +922,7 @@ describe("DesktopProfileManager", () => {
         reasoningEffort: null,
         autoApprove: false,
         delegatable: false,
+        hideResultFromParent: false,
         eventListeners: [],
       },
       expectedRevision: initial.revision,
@@ -870,6 +961,7 @@ describe("DesktopProfileManager", () => {
         reasoningEffort: null,
         autoApprove: false,
         delegatable: false,
+        hideResultFromParent: false,
         eventListeners: [],
       },
       expectedRevision: initial.revision,
@@ -923,6 +1015,7 @@ describe("DesktopProfileManager", () => {
         reasoningEffort: null,
         autoApprove: false,
         delegatable: false,
+        hideResultFromParent: false,
         eventListeners: [],
       },
       expectedRevision: initial.revision,
@@ -961,6 +1054,7 @@ describe("DesktopProfileManager", () => {
       reasoningEffort: null,
       autoApprove: false,
       delegatable: false,
+      hideResultFromParent: false,
       eventListeners: [],
     };
 
@@ -1038,6 +1132,7 @@ describe("DesktopProfileManager", () => {
           reasoningEffort: null,
           autoApprove: false,
           delegatable: false,
+          hideResultFromParent: false,
           eventListeners: [],
         },
         expectedRevision: initial.revision,

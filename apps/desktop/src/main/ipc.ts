@@ -70,6 +70,12 @@ export interface ProfileManagerActions {
   setArtifactDisabled(
     request: RequestOf<"profiles:set-artifact-disabled">,
   ): Promise<ResponseOf<"profiles:set-artifact-disabled">>;
+  readMemory(
+    request: RequestOf<"profiles:read-memory">,
+  ): Promise<ResponseOf<"profiles:read-memory">>;
+  saveMemory(
+    request: RequestOf<"profiles:save-memory">,
+  ): Promise<ResponseOf<"profiles:save-memory">>;
 }
 
 const unavailableProfiles: ProfileManagerActions = new Proxy(
@@ -256,6 +262,8 @@ export function createIpcHandlers(
     "profiles:delete-artifact": (request) => profiles.deleteArtifact(request),
     "profiles:set-artifact-disabled": (request) =>
       profiles.setArtifactDisabled(request),
+    "profiles:read-memory": (request) => profiles.readMemory(request),
+    "profiles:save-memory": (request) => profiles.saveMemory(request),
     "ableton:connect": () => service.connect(),
     "ableton:status": () => service.getStatus(),
     "ableton:capabilities": () => service.getCapabilities(),

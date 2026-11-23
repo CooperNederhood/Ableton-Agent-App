@@ -28,6 +28,7 @@ import {
   listeningTimingPolicySchema,
   listeningMusicalAlignmentSchema,
   readListeningFailureEvidence,
+  listeningRecordingBlockers,
   NATIVE_METRIC_LISTENING_SCOPE,
   NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
   MAX_CONTINUOUS_METRIC_LISTENING_SECONDS,
@@ -845,6 +846,10 @@ export function createListeningRuntimeHost(
           }),
       );
       context.signal?.throwIfAborted();
+      if (inspection.transport.recording.sessionAutomationRecord === true)
+        progress(
+          "Session Automation Arm is on; continuing because playback alone does not write automation",
+        );
       const confirmedIdentity = await dependencies.ableton.getLiveIdentity();
       if (confirmedIdentity.liveSetId !== expectedOwner.liveSetId)
         deny("live_set_changed", undefined, [
@@ -1489,7 +1494,11 @@ export function createListeningRuntimeHost(
         return {
           liveSetId: pass.owner.liveSetId,
           isPlaying: snapshot.inspection.transport.playing !== false,
-          isRecording: recording.some((value) => value === true),
+          isRecording: listeningRecordingBlockers(
+            snapshot.inspection.transport.recording,
+          ).some(
+            (key) => snapshot.inspection.transport.recording[key] === true,
+          ),
           recordingStateKnown: recording.every((value) => value !== null),
           identityVerified: snapshot.inspection.transport.safeToStart,
         };

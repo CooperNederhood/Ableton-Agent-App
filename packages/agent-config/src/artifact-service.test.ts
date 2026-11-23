@@ -165,6 +165,7 @@ describe("artifact service", () => {
           reasoningEffort: null,
           autoApprove: false,
           delegatable: false,
+          hideResultFromParent: false,
           eventListeners: [],
         },
         validatePublishedCatalog: () =>
@@ -254,6 +255,7 @@ describe("artifact service", () => {
           reasoningEffort: null,
           autoApprove: false,
           delegatable: false,
+          hideResultFromParent: false,
           eventListeners: [],
         },
         validatePublishedCatalog: () => Promise.resolve(),

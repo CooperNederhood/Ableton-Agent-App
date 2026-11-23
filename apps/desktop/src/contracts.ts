@@ -800,6 +800,7 @@ export const operationSchema = z.object({
   operationDescriptorId: z.string().min(1).max(128).optional(),
   action: z.string().min(1).max(128).optional(),
   subagentLabel: z.string().min(1).max(128).optional(),
+  trackReference: z.string().min(1).max(128).optional(),
   status: z.enum(["running", "completed", "partial", "failed", "cancelled"]),
   detail: z.string().optional(),
   request: operationDisclosureSchema.optional(),
@@ -1415,6 +1416,8 @@ export const desktopAgentDefinitionSchema = z.object({
   reasoningEffort: agentReasoningEffortSchema.nullable().optional(),
   autoApprove: z.boolean().optional(),
   delegatable: z.boolean().optional(),
+  hideResultFromParent: z.boolean().optional(),
+  color: z.string().regex(/^#[0-9a-f]{6}$/u),
   eventListeners: z.array(agentEventListenerSchema).optional(),
   origin: z
     .enum(["bundled", "system", "profile", "project", "session"])
@@ -1481,6 +1484,16 @@ export const desktopSkillDocumentSchema = z
   })
   .strict();
 export type DesktopSkillDocument = z.infer<typeof desktopSkillDocumentSchema>;
+
+export const desktopMemoryDocumentSchema = z
+  .object({
+    name: z.string().min(1).max(128),
+    description: z.string().max(2_048),
+    content: z.string().max(64 * 1024),
+    fingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+  })
+  .strict();
+export type DesktopMemoryDocument = z.infer<typeof desktopMemoryDocumentSchema>;
 
 export const desktopArtifactKindSchema = z.enum(["agent", "skill", "memory"]);
 export type DesktopArtifactKind = z.infer<typeof desktopArtifactKindSchema>;
@@ -2321,6 +2334,26 @@ export const ipcSchemas = {
       .strict(),
     response: desktopProfileManagerSnapshotSchema,
   },
+  "profiles:read-memory": {
+    request: z
+      .object({
+        name: z.string().min(1).max(128),
+        location: desktopArtifactLocationSchema,
+      })
+      .strict(),
+    response: desktopMemoryDocumentSchema,
+  },
+  "profiles:save-memory": {
+    request: z
+      .object({
+        name: z.string().min(1).max(128),
+        location: desktopArtifactLocationSchema,
+        content: z.string().max(64 * 1024),
+        expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    response: desktopProfileManagerSnapshotSchema,
+  },
   "profiles:set-artifact-disabled": {
     request: z
       .object({
@@ -2810,6 +2843,16 @@ export interface DesktopApi {
       location: DesktopArtifactLocation;
       disabled: boolean;
       expectedRevision: string;
+    }): Promise<DesktopProfileManagerSnapshot>;
+    readMemory(request: {
+      name: string;
+      location: DesktopArtifactLocation;
+    }): Promise<DesktopMemoryDocument>;
+    saveMemory(request: {
+      name: string;
+      location: DesktopArtifactLocation;
+      content: string;
+      expectedFingerprint: string;
     }): Promise<DesktopProfileManagerSnapshot>;
   };
   ableton: {

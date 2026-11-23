@@ -383,6 +383,7 @@ describe("desktop IPC", () => {
         reasoningEffort: null,
         autoApprove: false,
         delegatable: false,
+        hideResultFromParent: false,
         eventListeners: [],
       },
       expectedRevision: "a".repeat(64),

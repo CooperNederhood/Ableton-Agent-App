@@ -47,7 +47,11 @@ import {
   type LiveAgentStorageLayout,
   type ProfileRegistry,
 } from "@ableton-agent/storage";
-import { abletonToolMetadata } from "@ableton-agent/tools";
+import {
+  abletonCompatibilityAliases,
+  abletonToolMetadata,
+  abletonToolOperationPatterns,
+} from "@ableton-agent/tools";
 
 import {
   desktopProfileManagerSnapshotSchema,
@@ -68,12 +72,16 @@ import {
 import type { ProfileManagerActions } from "./ipc.js";
 import { JsonLiveSetSessionStore } from "./live-set-session-store.js";
 
-const availableTools = [
-  ...abletonToolMetadata.map((tool) => tool.name),
-  ...APPLICATION_TOOL_NAMES,
-  ...APPROVED_BUILTIN_TOOL_NAMES,
-];
-const wildcardExcludedTools = EXPLICIT_ONLY_BUILTIN_TOOL_NAMES;
+const catalogTools = {
+  availableTools: [
+    ...abletonToolMetadata.map((tool) => tool.name),
+    ...APPLICATION_TOOL_NAMES,
+    ...APPROVED_BUILTIN_TOOL_NAMES,
+  ],
+  availableOperations: abletonToolOperationPatterns,
+  compatibilityAliases: abletonCompatibilityAliases,
+  wildcardExcludedTools: EXPLICIT_ONLY_BUILTIN_TOOL_NAMES,
+};
 const maximumSessionsFileBytes = 4 * 1024 * 1024;
 
 type TelemetryWriter = (event: {
@@ -458,8 +466,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
             profile: layer(profile),
             ...(project === undefined ? {} : { project: layer(project) }),
             session: layer(sessionPaths),
-            availableTools,
-            wildcardExcludedTools,
+            ...catalogTools,
           });
         const current = (await load()).agents.find(
           ({ definition: candidate }) => candidate.name === definition.name,
@@ -1274,15 +1281,13 @@ export class DesktopProfileManager implements ProfileManagerActions {
     const systemCatalog = await loadLayeredAgentCatalog({
       bundled,
       system: layer(system),
-      availableTools,
-      wildcardExcludedTools,
+      ...catalogTools,
     });
     const profileCatalog = await loadLayeredAgentCatalog({
       bundled,
       system: layer(system),
       profile: layer(profile),
-      availableTools,
-      wildcardExcludedTools,
+      ...catalogTools,
     });
     const selectedProjectRegistry = await readLiveProjectsRegistry(
       selectedLayout.liveProjectsRegistryPath,
@@ -1308,8 +1313,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
             system: layer(system),
             profile: layer(profile),
             project: layer(projectPaths),
-            availableTools,
-            wildcardExcludedTools,
+            ...catalogTools,
           });
           projectCatalogs.set(liveProjectId, catalog);
           const artifacts = catalogArtifacts(
@@ -1361,8 +1365,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
             profile: layer(profile),
             ...(project === undefined ? {} : { project: layer(project) }),
             session: layer(session),
-            availableTools,
-            wildcardExcludedTools,
+            ...catalogTools,
           });
           const artifacts = catalogArtifacts(
             "session",
@@ -1444,8 +1447,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
       system,
       await loadLayeredAgentCatalog({
         bundled,
-        availableTools,
-        wildcardExcludedTools,
+        ...catalogTools,
       }),
     );
     await this.#appendDisabledArtifacts(
@@ -1709,8 +1711,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
       profile: layer(profile),
       ...(project === undefined ? {} : { project: layer(project) }),
       ...(session === undefined ? {} : { session: layer(session) }),
-      availableTools,
-      wildcardExcludedTools,
+      ...catalogTools,
     });
   }
 

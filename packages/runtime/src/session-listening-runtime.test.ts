@@ -292,6 +292,7 @@ async function fixture(
   const startListeningPlayback = vi.fn(async () => {
     throw new Error("Session source must not use Arrangement playback");
   });
+  const telemetry = { enqueue: vi.fn<(event: unknown) => boolean>(() => true) };
   const dependencies = {
     ableton: {
       getLiveIdentity: vi.fn(async () => ({
@@ -345,7 +346,7 @@ async function fixture(
     },
     signals: { listeners: service, listenerTransport: service },
     events: { publish: vi.fn(), subscribe: vi.fn(() => () => {}) },
-    telemetry: { enqueue: vi.fn(() => true) },
+    telemetry,
   } as unknown as ListeningRuntimeDependencies;
   const host = createListeningRuntimeHost(dependencies, {
     independentMetricListeners: enabled,
@@ -381,7 +382,7 @@ async function fixture(
     sessionListeningPass,
     inspectSessionListeningSource,
     inspectListeningContext,
-    telemetry: dependencies.telemetry as { enqueue: ReturnType<typeof vi.fn> },
+    telemetry,
     stopTransport,
     positionListeningPlayback,
     startListeningPlayback,

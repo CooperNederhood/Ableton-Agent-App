@@ -800,6 +800,7 @@ export const operationSchema = z.object({
   operationDescriptorId: z.string().min(1).max(128).optional(),
   action: z.string().min(1).max(128).optional(),
   subagentLabel: z.string().min(1).max(128).optional(),
+  trackReference: z.string().min(1).max(128).optional(),
   status: z.enum(["running", "completed", "partial", "failed", "cancelled"]),
   detail: z.string().optional(),
   request: operationDisclosureSchema.optional(),

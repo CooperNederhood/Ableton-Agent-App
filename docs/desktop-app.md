@@ -113,7 +113,8 @@ A few Workspace details worth knowing:
   compact row that you can expand to see the request, result, and any failure
   with a hint on how to fix it. Calls made by a sub-agent use that agent's
   colour and a chip with its name; the `task` call that launches a sub-agent
-  has the same colour. A turn reads top to bottom: your message, its
+  has the same colour. A call aimed at a track shows a chip with
+  that track's name in its Live colour. A turn reads top to bottom: your message, its
   tool calls, then the reply. The in-progress reply stays last, and the
   conversation follows new activity while you are scrolled to the end; scroll
   up to stop following, and sending a message resumes it.

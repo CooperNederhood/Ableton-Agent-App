@@ -1920,6 +1920,30 @@ describe("desktop components", () => {
     );
   });
 
+  it("shows the targeted Live track as a chip in its color", () => {
+    const html = renderToStaticMarkup(
+      <OperationCard
+        operation={{
+          id: "track-1",
+          label: "Rename track",
+          toolName: "ableton_tracks",
+          trackReference: "track-ref-1",
+          status: "completed",
+          warnings: [],
+          changed: [],
+          unchanged: [],
+          retryable: false,
+          undoable: false,
+          timestamp: 1,
+        }}
+        track={{ name: "Bass", color: "#ff9a3c" }}
+      />,
+    );
+    expect(html).toContain(
+      '<span class="track-chip operation-track" style="--track-color:#ff9a3c" title="Track Bass">Bass</span>',
+    );
+  });
+
   it("distinguishes sub-agent operations with a labeled accent", () => {
     const operation = {
       id: "sub-1",

@@ -2590,19 +2590,41 @@ small,
   white-space: pre-wrap;
 }
 .operation summary {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
+  display: flex;
   align-items: center;
   gap: 8px;
   min-height: 26px;
   cursor: pointer;
   list-style: none;
 }
-.operation summary.has-tool-name {
-  grid-template-columns: 18px minmax(0, max-content) minmax(0, 1fr) auto;
-}
 .operation summary::-webkit-details-marker {
   display: none;
+}
+.operation summary > :first-child {
+  flex: 0 0 18px;
+}
+.operation-label {
+  flex: 0 1 auto;
+}
+.operation-tool-name {
+  flex: 1 1 0;
+}
+.operation summary > small {
+  flex: none;
+  margin-left: auto;
+}
+.operation-subagent-label,
+.operation-track {
+  flex: 0 1 auto;
+}
+.operation-track {
+  max-width: 16ch;
+  overflow: hidden;
+  border-radius: var(--radius);
+  padding: 1px 6px;
+  font-size: 1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .operation-label,
 .operation-tool-name {
@@ -2673,12 +2695,6 @@ small,
     var(--surface-list)
   );
   color: var(--text);
-}
-.operation-subagent summary {
-  grid-template-columns: 18px auto minmax(0, 1fr) auto;
-}
-.operation-subagent summary.has-tool-name {
-  grid-template-columns: 18px auto minmax(0, max-content) minmax(0, 1fr) auto;
 }
 
 .operation-subagent-label {

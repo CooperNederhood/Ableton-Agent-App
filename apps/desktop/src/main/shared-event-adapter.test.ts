@@ -261,6 +261,28 @@ describe("shared application event adapter", () => {
     });
   });
 
+  it("carries the targeted track reference from tool arguments", () => {
+    expect(
+      normalizeSharedEvent(
+        {
+          type: "operation.started",
+          operationId: "op-track",
+          label: "Rename track",
+          toolName: "ableton_tracks",
+          arguments: {
+            action: "rename",
+            expectedReference: "track-ref-1",
+            expectedName: "Bass",
+          },
+        },
+        () => "message-track",
+      ),
+    ).toMatchObject({
+      type: "operation.changed",
+      operation: { trackReference: "track-ref-1" },
+    });
+  });
+
   it("bounds shared tool names without rejecting shared punctuation", () => {
     const event = normalizeSharedEvent(
       {

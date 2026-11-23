@@ -22,6 +22,7 @@ function desktopOperationMetadata(event: DesktopSharedEvent): {
   readonly operationDescriptorId?: string;
   readonly action?: string;
   readonly subagentLabel?: string;
+  readonly trackReference?: string;
 } {
   const record = event as unknown as Readonly<Record<string, unknown>>;
   const operationDescriptorId =
@@ -37,6 +38,16 @@ function desktopOperationMetadata(event: DesktopSharedEvent): {
       ? event.arguments.action
       : undefined;
   const action = (directAction ?? argumentAction)?.slice(0, 128);
+  const argumentsValue =
+    "arguments" in event && event.arguments !== undefined
+      ? event.arguments
+      : undefined;
+  const trackReferenceValue =
+    argumentsValue?.trackReference ?? argumentsValue?.expectedReference;
+  const trackReference =
+    typeof trackReferenceValue === "string"
+      ? trackReferenceValue.slice(0, 128)
+      : undefined;
   const subagentLabel =
     typeof record.subagentLabel === "string"
       ? record.subagentLabel.trim().slice(0, 128)
@@ -49,6 +60,9 @@ function desktopOperationMetadata(event: DesktopSharedEvent): {
     ...(subagentLabel === undefined || subagentLabel === ""
       ? {}
       : { subagentLabel }),
+    ...(trackReference === undefined || trackReference === ""
+      ? {}
+      : { trackReference }),
   };
 }
 

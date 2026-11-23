@@ -6449,15 +6449,6 @@ function ActiveAgentCard({
                 >
                   Selected tracks
                 </button>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={false}
-                  disabled
-                  title="Remove the agent's editing tools under Advanced to make it read-only."
-                >
-                  Nothing (read-only)
-                </button>
               </div>
               {scopeMode === "tracks" && (
                 <textarea
@@ -6908,7 +6899,17 @@ export function Timeline({
             )}
           </article>
         ) : item.itemType === "operation" ? (
-          <OperationCard key={`operation-${item.id}`} operation={item} />
+          <OperationCard
+            key={`operation-${item.id}`}
+            operation={item}
+            track={
+              item.trackReference === undefined
+                ? undefined
+                : state.snapshot?.tracks.find(
+                    ({ id }) => id === item.trackReference,
+                  )
+            }
+          />
         ) : (
           <TriggerCard key={`trigger-${item.deliveryId}`} trigger={item} />
         ),
@@ -7068,8 +7069,10 @@ function ApprovalSubagent({ label }: { label: string }): React.JSX.Element {
 
 export function OperationCard({
   operation,
+  track,
 }: {
   operation: DesktopState["operations"][number];
+  track?: Pick<DesktopTrack, "name" | "color"> | undefined;
 }): React.JSX.Element {
   const agentStyle = useAgentColorStyle(operation.subagentLabel);
   const presentation = operationPresentation(
@@ -7095,9 +7098,7 @@ export function OperationCard({
       className={`operation operation-${operation.status}${subagentClass}`}
       style={agentStyle}
     >
-      <summary
-        className={operation.toolName === undefined ? "" : "has-tool-name"}
-      >
+      <summary>
         <ActivityIcon type={presentation.type} />
         {operation.subagentLabel !== undefined && (
           <span
@@ -7108,6 +7109,15 @@ export function OperationCard({
           </span>
         )}
         <span className="operation-label">{label}</span>
+        {track !== undefined && (
+          <span
+            className="track-chip operation-track"
+            style={{ "--track-color": track.color } as CSSProperties}
+            title={`Track ${track.name}`}
+          >
+            {track.name}
+          </span>
+        )}
         {operation.toolName !== undefined && (
           <code className="operation-tool-name">
             {operation.toolName}

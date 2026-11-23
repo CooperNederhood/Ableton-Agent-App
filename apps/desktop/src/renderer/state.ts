@@ -975,6 +975,8 @@ function upsertOperation(
                 action: operation.action ?? candidate.action,
                 subagentLabel:
                   operation.subagentLabel ?? candidate.subagentLabel,
+                trackReference:
+                  operation.trackReference ?? candidate.trackReference,
                 detail: operation.detail ?? candidate.detail,
                 request: operation.request ?? candidate.request,
               }

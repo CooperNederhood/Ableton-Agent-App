@@ -7,12 +7,20 @@ import {
   statSync,
   unlinkSync,
 } from "node:fs";
-import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import type {
   PermissionRequest,
   PermissionRequestResult,
 } from "@github/copilot-sdk";
+
+import { MAX_ARTIFACT_FILE_CONTENT_LENGTH } from "./artifact-authoring.js";
+import {
+  artifactWorkspaceDirectoryError,
+  artifactWorkspaceWriteError,
+  isWithin,
+  type ArtifactWorkspaceAccess,
+} from "./artifact-workspace.js";
 
 const allowedCommands = new Set(["grep", "head", "jq", "tail", "wc"]);
 const spillFilePattern = /^\d+-copilot-tool-output-[a-f0-9]+\.txt$/u;
@@ -33,6 +41,8 @@ export type SpillShellPolicyStage =
   | "invalid_arguments"
   | "invalid_spill_path"
   | "invalid_syntax"
+  | "invalid_workspace_delete"
+  | "invalid_workspace_directory"
   | "managed_approval_required"
   | "missing_segments"
   | "missing_spill_operand"
@@ -59,6 +69,8 @@ export interface SpillShellPolicyDiagnostics {
 export interface ShellPolicyOptions {
   /** The session runs shell commands inside the SDK OS sandbox. */
   readonly sandboxed?: boolean;
+  /** Memory and skills workspace that non-sandboxed bash may inspect. */
+  readonly workspace?: ArtifactWorkspaceAccess;
 }
 
 export interface SpillShellPolicyEvaluation {
@@ -114,13 +126,6 @@ export function prepareSpillDirectory(
 
 function reject(feedback: string): PermissionRequestResult {
   return { kind: "reject", feedback };
-}
-
-function isWithin(parent: string, child: string): boolean {
-  const candidate = relative(parent, child);
-  return (
-    candidate === "" || (!candidate.startsWith("..") && !isAbsolute(candidate))
-  );
 }
 
 function hasUnsafeShellSyntax(command: string): boolean {
@@ -521,7 +526,52 @@ function parseCommand(
     return parseHeadOrTailCommand(identifier, tokens);
   }
   if (identifier === "wc") return parseWcCommand(tokens);
+  if (identifier === "rm") {
+    const operands = tokens.slice(1);
+    return operands.some((token) => token.startsWith("-"))
+      ? undefined
+      : { fileOperands: operands };
+  }
+  if (identifier === "mkdir") {
+    const operands = tokens.slice(1).filter((token) => token !== "-p");
+    return operands.length === 1 && !operands[0]!.startsWith("-")
+      ? { fileOperands: operands }
+      : undefined;
+  }
   return undefined;
+}
+
+/**
+ * Canonical path of a shell file operand when it names a regular file (not a
+ * symbolic link) of at most `maximumBytes` inside `root`.
+ */
+function confinedRegularFile(
+  requestedPath: string,
+  resolvedPath: string | undefined,
+  workingDirectory: string,
+  root: string,
+  maximumBytes: number,
+): string | undefined {
+  const absoluteRequestedPath = isAbsolute(requestedPath)
+    ? requestedPath
+    : resolve(workingDirectory, requestedPath);
+  try {
+    const details = lstatSync(absoluteRequestedPath);
+    const canonical = realpathSync(absoluteRequestedPath);
+    if (
+      (resolvedPath !== undefined &&
+        realpathSync.native(resolvedPath) !== canonical) ||
+      details.isSymbolicLink() ||
+      !details.isFile() ||
+      details.size > maximumBytes ||
+      !isWithin(root, canonical)
+    ) {
+      return undefined;
+    }
+    return canonical;
+  } catch {
+    return undefined;
+  }
 }
 
 function validateSpillPath(
@@ -530,36 +580,39 @@ function validateSpillPath(
   workingDirectory: string,
   spillDirectory: string,
 ): boolean {
-  const absoluteRequestedPath = isAbsolute(requestedPath)
-    ? requestedPath
-    : resolve(workingDirectory, requestedPath);
-  let requestedDetails;
-  let canonicalRequestedPath;
-  try {
-    requestedDetails = lstatSync(absoluteRequestedPath);
-    canonicalRequestedPath = realpathSync(absoluteRequestedPath);
-    if (
-      resolvedPath !== undefined &&
-      realpathSync.native(resolvedPath) !== canonicalRequestedPath
-    ) {
-      return false;
-    }
-  } catch {
-    return false;
-  }
-  if (requestedDetails.isSymbolicLink() || !requestedDetails.isFile()) {
-    return false;
-  }
-  if (
-    !isWithin(spillDirectory, canonicalRequestedPath) ||
-    !spillFilePattern.test(basename(canonicalRequestedPath)) ||
-    requestedDetails.size > maximumSpillFileBytes
-  ) {
-    return false;
-  }
-  return true;
+  const canonical = confinedRegularFile(
+    requestedPath,
+    resolvedPath,
+    workingDirectory,
+    spillDirectory,
+    maximumSpillFileBytes,
+  );
+  return canonical !== undefined && spillFilePattern.test(basename(canonical));
 }
 
+/** Workspace-relative path of a regular file operand, if it is inside it. */
+function workspaceFilePath(
+  requestedPath: string,
+  resolvedPath: string | undefined,
+  workingDirectory: string,
+  workspaceDirectory: string,
+): string | undefined {
+  const canonical = confinedRegularFile(
+    requestedPath,
+    resolvedPath,
+    workingDirectory,
+    workspaceDirectory,
+    MAX_ARTIFACT_FILE_CONTENT_LENGTH,
+  );
+  return canonical === undefined
+    ? undefined
+    : relative(workspaceDirectory, canonical).split(sep).join("/");
+}
+
+/**
+ * Approves read-only shell commands over spill files and the memory and skills
+ * workspace, plus `rm` of memory topics the open draft may delete.
+ */
 export function evaluateSpillFileShellPolicy(
   request: PermissionRequest,
   spillDirectory: string,
@@ -567,6 +620,7 @@ export function evaluateSpillFileShellPolicy(
 ): SpillShellPolicyEvaluation {
   if (request.kind !== "shell") return { result: undefined };
   const sandboxed = options.sandboxed === true;
+  const workspace = options.workspace;
   const startedAt = performance.now();
   const commandIdentifiers = (request.commandSegments ?? [])
     .slice(0, 8)
@@ -652,7 +706,12 @@ export function evaluateSpillFileShellPolicy(
   const fileOperands: string[] = [];
   for (const [index, segment] of request.commandSegments.entries()) {
     if (
-      !allowedCommands.has(segment.identifier) ||
+      !(
+        allowedCommands.has(segment.identifier) ||
+        ((segment.identifier === "rm" || segment.identifier === "mkdir") &&
+          workspace?.draft !== undefined &&
+          request.commandSegments.length === 1)
+      ) ||
       pipelineSegments[index] !== segment.fullCommandText.trim()
     ) {
       return finish(
@@ -710,26 +769,66 @@ export function evaluateSpillFileShellPolicy(
   }
   const workingDirectory =
     request.resolvedWorkingDirectory ?? canonicalSpillDirectory;
-  if (
-    !fileOperands.every((path) =>
-      validateSpillPath(
-        path,
-        request.resolvedPaths?.[path],
-        workingDirectory,
-        canonicalSpillDirectory,
-      ),
-    ) ||
-    !request.possiblePaths.every((path) =>
-      validateSpillPath(
-        path,
-        request.resolvedPaths?.[path],
-        workingDirectory,
-        canonicalSpillDirectory,
-      ),
-    )
-  ) {
+  let canonicalWorkspaceDirectory: string | undefined;
+  try {
+    canonicalWorkspaceDirectory =
+      workspace === undefined ? undefined : realpathSync(workspace.root);
+  } catch {
+    canonicalWorkspaceDirectory = undefined;
+  }
+  const inWorkspace = (path: string): string | undefined =>
+    canonicalWorkspaceDirectory === undefined
+      ? undefined
+      : workspaceFilePath(
+          path,
+          request.resolvedPaths?.[path],
+          workingDirectory,
+          canonicalWorkspaceDirectory,
+        );
+  if (request.commandSegments[0]!.identifier === "mkdir") {
+    for (const path of new Set([...fileOperands, ...request.possiblePaths])) {
+      const error = artifactWorkspaceDirectoryError(
+        workspace!,
+        isAbsolute(path) ? path : resolve(workingDirectory, path),
+      );
+      if (error !== undefined) {
+        return finish(
+          reject(error),
+          "invalid_workspace_directory",
+          fileOperands,
+        );
+      }
+    }
+    return finish({ kind: "approve-once" }, "approved", fileOperands);
+  }
+  if (request.commandSegments[0]!.identifier === "rm") {
+    for (const path of new Set([...fileOperands, ...request.possiblePaths])) {
+      const relativePath = inWorkspace(path);
+      const error =
+        relativePath === undefined
+          ? "rm is limited to memory topic files in the workspace."
+          : artifactWorkspaceWriteError(workspace!, relativePath, "delete")
+              ?.feedback;
+      if (error !== undefined) {
+        return finish(reject(error), "invalid_workspace_delete", fileOperands);
+      }
+    }
+    return finish({ kind: "approve-once" }, "approved", fileOperands);
+  }
+  const readable = (path: string): boolean =>
+    validateSpillPath(
+      path,
+      request.resolvedPaths?.[path],
+      workingDirectory,
+      canonicalSpillDirectory,
+    ) || inWorkspace(path) !== undefined;
+  if (!fileOperands.every(readable) || !request.possiblePaths.every(readable)) {
     return finish(
-      reject("Shell access is limited to current profile Copilot spill files."),
+      reject(
+        workspace === undefined
+          ? "Shell access is limited to current profile Copilot spill files."
+          : "Shell access is limited to Copilot spill files and the memory and skills workspace.",
+      ),
       "invalid_spill_path",
       fileOperands,
     );

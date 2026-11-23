@@ -77,51 +77,102 @@ resumes a saved session (`main/lifecycle.ts`).
 
 ## Screens
 
-The top bar holds the connection status and these tabs (list in
-`renderer/App.tsx`). **Events**, **Browser**, and **Diagnostics** are advanced
-views: they are hidden unless **Show advanced views** is on in Settings, but an
-in-app link can still open one and its tab shows while it is open.
+A narrow icon rail on the left switches screens (list in `renderer/App.tsx`).
+Each item is an icon with a short label: Workspace, Agents, Skills, Memory,
+Sessions, and Profile at the bottom. **More** holds Outputs and Settings,
+plus **Events**, **Browser**, and **Diagnostics** when **Show advanced views**
+is on in Settings. An in-app link can still open an advanced view. The top bar
+shows the Live connection LED, the Set name and tempo, the profile, and the
+agent picker.
 
-| Tab             | What you do there                                                                                                          |
+| Screen          | What you do there                                                                                                          |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| **Workspace**   | The main screen. Three columns: Project outline, Conversation, Inspector. The chat composer lives only here.               |
-| **Agents**      | Browse agent definitions, start/rename/reset active agents, and edit their instructions, tools and listened-to events.    |
-| **Skills**      | Read and edit `SKILL.md` skills. Saved skills show up as slash commands in the composer.                                   |
+| **Workspace**   | The main screen. Three columns: Tracks, Conversation, Inspector. The chat composer lives only here.                       |
+| **Agents**      | Browse agents, start/rename/reset active ones, pick each agent's colour, and edit its behavior, tools, edit scope and events. |
+| **Skills**      | Read and edit `SKILL.md` skills, see which agents use one, and insert it into chat. Skills also work as slash commands.   |
+| **Memory**      | Read memory topics as tiles, move them between scopes, delete them, or start an `/update-memory` edit in chat.             |
 | **Outputs**     | Route MIDI/audio observations from Max for Live devices to agents; see listening passes and stored listening context.     |
 | **Events**      | Define Live Events (watch a parameter, or a track's clip/recording changes). A **History** toggle opens the event journal. |
 | **Browser**     | Look through Live's browser and installed plug-ins.                                                                        |
-| **Profiles**    | Manage storage profiles and copy or move agents and skills between sessions.                                               |
+| **Profile**     | A scope ladder counts agents, skills and memory per scope (click a count to open that list), above the full file manager. |
 | **Diagnostics** | Check the bridge, Remote Script compatibility, Copilot auth; copy a summary or export a support bundle.                    |
 | **Sessions**    | List saved App sessions and resume one.                                                                                    |
 | **Settings**    | Approval policy, work timeout, reasoning visibility, ports, Remote Script location, logging, history retention, "Always on top", "Show advanced views". |
+
+Agents, Skills and Memory share one layout (`renderer/scope-library.tsx`):
+scope chips in the bar filter a list on the left, and the reader on the right
+shows the item's scope with **Move ▾**. The menu lists every scope; ones that
+don't exist yet (Project needs a Set saved in a Live Project folder) are greyed
+out with the reason. Bundled items are locked and offer
+**Duplicate to Profile** instead. A memory topic can be changed through chat
+(**Edit in chat**) or by editing its Markdown file directly
+(**Update manually**); a manual save is refused if the file changed since it
+was opened. Scope colours (System grey, Profile gold,
+Project teal, Session purple) appear only on scope chips, row strips and the
+ladder; agent colours mark sub-agent work; Live track colours mark tracks. The
+design rules live in `.github/skills/frontend-design/SKILL.md`.
 
 A few Workspace details worth knowing:
 
 - **Conversation.** Assistant replies are rendered Markdown. Each tool call is a
   compact row that you can expand to see the request, result, and any failure
-  with a hint on how to fix it. Calls made by a sub-agent have a cyan accent
-  and a chip with the sub-agent's name; the `task` call that launches a
-  sub-agent has the same accent. A turn reads top to bottom: your message, its
+  with a hint on how to fix it. Calls made by a sub-agent use that agent's
+  colour and a chip with its name; the `task` call that launches a sub-agent
+  has the same colour. A call aimed at a track shows a chip with
+  that track's name in its Live colour. A turn reads top to bottom: your message, its
   tool calls, then the reply. The in-progress reply stays last, and the
   conversation follows new activity while you are scrolled to the end; scroll
   up to stop following, and sending a message resumes it.
 - **Composer.** Type a message or a slash command. While the slash menu is
   open, Tab or Enter completes the highlighted command; Enter on a fully typed
-  command such as `/yolo` runs it. `/plan` (or Shift+Tab)
-  switches the selected agent between plan and interactive mode. Selected
+  command such as `/yolo` runs it. The **Plan | Interactive**
+  switch on top (or `/plan`, or Shift+Tab) changes the selected agent's mode.
+  Interactive is orange; Plan turns the composer blue and adds a "Plan mode"
+  banner, because nothing in Live will change. Selected
   tracks, clips and devices are attached as context chips.
 - **Inspector.** Modular tabs for the current Selection, the session Plan,
-  pending Approvals, and Context. You can reorder and split them. Context shows
-  the selected conversation's latest Copilot-reported token usage and limit. A
-  segmented bar with matching colored labels separates system messages, tool
-  definitions, and conversation, in that order; used tokens without a reported breakdown
-  are neutral. It counts completed and failed compactions observed since the
-  app connected to that conversation, not historical ones.
+  pending Approvals, memory or skill drafts to review, and Context. You can
+  reorder and split them. Context shows the selected conversation's latest
+  Copilot-reported token usage and limit. A segmented bar with matching colored
+  labels separates system messages, tool definitions, and conversation, in that
+  order; used tokens without a reported breakdown are neutral. It counts
+  completed and failed compactions observed since the app connected to that
+  conversation, not historical ones.
 - **Hiding panels.** Both sidebars and the top bar can be hidden, down to a
   small chat-only window (320×360).
 
 [live-events.md](live-events.md), [listening.md](listening.md) and
 [observability.md](observability.md) cover Events, Outputs and History in depth.
+
+### Memory and skill review
+
+`/update-memory` and `/learn-skill` drafts are reviewed like plans. When the
+agent submits a draft, the Inspector gets a **Review draft** tab and the
+composer shows **Approve & publish**, **Request changes** (with feedback) and
+**Discard**.
+
+The tab shows:
+
+- a scope ladder (System ◆, Profile ●, Project ■, Live Set ▲, Session ○), each
+  with its own colour. Clicking a rung moves every movable file there; locked
+  scopes are disabled and say why on hover;
+- each file with an added, modified or deleted badge, `+N −M` line counts and
+  its own scope picker (deleted topics stay where they are);
+- a topic budget meter per memory scope; and
+- Diff, Preview and Source views. Changing scope re-diffs against that scope's
+  current content.
+
+The publish button takes the target scope's colour. It is disabled, with the
+reason shown, when a move would exceed a topic limit, collide with another
+file, or publish a skill hidden by a narrower one. Code:
+`ArtifactReviewModule` in `renderer/App.tsx`.
+
+After publishing, memory topics also appear in **Profiles** under a
+**Memory topics** group at each System, Profile, Project and Session node.
+Copy, move (drag, or Cut and Paste), rename and delete work like they do for
+skills, and both scopes' `INDEX.md` files are rebuilt together. Topics can't
+be disabled. The Profiles tree has no Live Set level, so Live Set memory is
+managed only through `/update-memory`.
 
 ## Approvals
 

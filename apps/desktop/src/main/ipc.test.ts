@@ -530,6 +530,9 @@ describe("desktop IPC", () => {
       bytes: 6,
     });
     const resolveActiveAgentElicitation = vi.fn().mockResolvedValue(true);
+    const resolveActiveAgentArtifactReview = vi
+      .fn()
+      .mockResolvedValue({ outcome: "changes_requested" });
     const cancelActiveAgent = vi.fn().mockResolvedValue({ cancelled: true });
     const handlers = createIpcHandlers(
       {
@@ -540,6 +543,7 @@ describe("desktop IPC", () => {
         readActiveAgentPlan,
         writeActiveAgentPlan,
         resolveActiveAgentElicitation,
+        resolveActiveAgentArtifactReview,
         cancelActiveAgent,
       } as unknown as DesktopService,
       {} as DiagnosticsActions,
@@ -569,6 +573,15 @@ describe("desktop IPC", () => {
         feedback: "Use fewer tracks",
       }),
     ).resolves.toEqual({ resolved: true });
+    await expect(
+      handlers["agents:resolve-artifact-review"]({
+        instanceId,
+        requestId: "review-1",
+        revision: 1,
+        decision: "request_changes",
+        feedback: "Shorter",
+      }),
+    ).resolves.toEqual({ outcome: "changes_requested" });
     await handlers["agents:read-plan"]({ instanceId });
     await handlers["agents:write-plan"]({
       instanceId,
@@ -605,6 +618,12 @@ describe("desktop IPC", () => {
       approved: false,
       planRevision: "a".repeat(64),
       feedback: "Use fewer tracks",
+    });
+    expect(resolveActiveAgentArtifactReview).toHaveBeenCalledWith(instanceId, {
+      requestId: "review-1",
+      revision: 1,
+      decision: "request_changes",
+      feedback: "Shorter",
     });
     expect(readActiveAgentPlan).toHaveBeenCalledWith(instanceId);
     expect(writeActiveAgentPlan).toHaveBeenCalledWith(instanceId, {

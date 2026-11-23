@@ -1,9 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import {
+  memoryFingerprint,
   readSkillDocument,
   type AgentEventListener,
 } from "@ableton-agent/agent-config";
@@ -36,6 +44,8 @@ import {
   PLAN_REMINDER_VERSION,
   type AgentRuntimeEvent,
   type AgentSkillDescriptor,
+  type ArtifactAuthoringContext,
+  type ArtifactAuthoringPort,
   type AgentSessionConfiguration,
   type CopilotAgentServiceOptions,
 } from "./index.js";
@@ -46,6 +56,7 @@ import {
 import type { SignalTurnRequest } from "./signal-delivery.js";
 import type { LiveEventTurnRequest } from "./live-event-delivery.js";
 import { ListeningFailure } from "./listening-coordinator.js";
+import { ArtifactWorkspace } from "./artifact-workspace.js";
 import {
   agentSchemaActionVariant,
   analysisPageSchema,
@@ -223,6 +234,7 @@ function baseOptions(
   return {
     events: new InMemoryEventPublisher(),
     largeOutputDirectory: join(sessionStateDirectory, "tool-output"),
+    artifactWorkspaceDirectory: join(sessionStateDirectory, "workspaces"),
     resolvePlanArtifactPaths: (productionSessionId: string) => {
       const sessionDirectory = join(sessionStateDirectory, productionSessionId);
       const artifactsDirectory = join(sessionDirectory, "artifacts");
@@ -4316,6 +4328,8 @@ describe("CopilotAgentService managed sessions", () => {
     const midiSkillTool = midiConfig?.tools?.find(
       (tool) => tool.name === "skill",
     );
+    // Without this the runtime runs its own built-in skill tool instead.
+    expect(midiSkillTool?.overridesBuiltInTool).toBe(true);
     await expect(
       midiSkillTool?.handler?.(
         { skill_name: "midi-compose" },
@@ -4464,6 +4478,461 @@ describe("CopilotAgentService managed sessions", () => {
     ).resolves.toContain("use the revised instructions");
     expect(midiSession.prompts.at(-1)).toContain("# Changed");
 
+    await service.stop();
+  });
+
+  it("drafts memory through the authoring skill and publishes only after review", async () => {
+    const events = new InMemoryEventPublisher();
+    const received: AppEvent[] = [];
+    const runtimeEvents: AgentRuntimeEvent[] = [];
+    events.subscribe((event) => received.push(event));
+    const root = await mkdtemp(join(tmpdir(), "ableton-agent-authoring-"));
+    const updateMemory = await createSkillDescriptor(
+      root,
+      "update-memory",
+      "# Update memory\n\nChoose a scope.",
+    );
+    const existing =
+      "---\nname: mixing\ndescription: Mix habits\n---\n\nKeep headroom.\n";
+    const context: ArtifactAuthoringContext = {
+      memory: [
+        {
+          scope: "profile",
+          available: true,
+          topics: [
+            {
+              name: "mixing",
+              description: "Mix habits",
+              content: existing,
+              fingerprint: memoryFingerprint(existing),
+            },
+          ],
+        },
+        { scope: "session", available: true, topics: [] },
+      ],
+      skillScopes: [{ scope: "profile", available: true }],
+      skills: [],
+    };
+    const publish = vi.fn<ArtifactAuthoringPort["publish"]>(async () => ({
+      published: [
+        { scope: "profile", path: "/memory/genres.md", change: "added" },
+      ],
+    }));
+    const session = createFakeSession("authoring-session");
+    let config: SessionConfig | undefined;
+    const workspaceDirectory = join(root, "workspaces");
+    const workspace = ArtifactWorkspace.forSession(
+      workspaceDirectory,
+      "production-writer",
+    );
+    const service = new CopilotAgentService(
+      baseOptions({
+        events,
+        artifactWorkspaceDirectory: workspaceDirectory,
+        artifactAuthoring: { loadContext: async () => context, publish },
+        runtimeObserver: { enqueue: (event) => runtimeEvents.push(event) },
+        clientFactory: () => ({
+          createSession: vi.fn(async (next: SessionConfig) => {
+            config = next;
+            return session;
+          }),
+          resumeSession: vi.fn(async () => {
+            throw new Error("resume not expected");
+          }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    await service.start();
+    await service.createManagedAgent(
+      configuration("writer", { skills: [], availableSkills: [updateMemory] }),
+    );
+    expect(config?.systemMessage?.content).toContain("name: update-memory");
+    expect(config?.systemMessage?.content).toContain(
+      "mixing | Mix habits | ./mixing.md",
+    );
+    const tool = (name: string) => {
+      const found = config?.tools?.find((candidate) => candidate.name === name);
+      if (found?.handler === undefined) throw new Error(`missing ${name}`);
+      return (args: Record<string, unknown>) =>
+        found.handler!(args, {
+          sessionId: "authoring-session",
+          toolCallId: `${name}-call`,
+          toolName: name,
+          arguments: args,
+        });
+    };
+    expect(config?.availableTools).toEqual(
+      expect.arrayContaining(
+        ["view", "create", "edit", "glob", "grep"].map((n) => `builtin:${n}`),
+      ),
+    );
+    expect(config?.systemMessage?.content).toContain(workspace.root);
+    const permission = async (request: Record<string, unknown>) =>
+      config!.onPermissionRequest!(request as never, {
+        sessionId: "authoring-session",
+      });
+    const genres = join(workspace.root, "memory/session/genres.md");
+    await expect(
+      readFile(join(workspace.root, "memory/profile/mixing.md"), "utf8"),
+    ).resolves.toBe(existing);
+    await expect(
+      permission({
+        kind: "read",
+        toolCallId: "view-1",
+        intention: "Read",
+        path: join(workspace.root, "memory/profile/mixing.md"),
+      }),
+    ).resolves.toMatchObject({ kind: "approve-once" });
+    await expect(
+      permission({
+        kind: "read",
+        toolCallId: "view-2",
+        intention: "Read",
+        path: join(root, "update-memory/SKILL.md"),
+      }),
+    ).resolves.toMatchObject({ kind: "reject" });
+    await expect(
+      permission({
+        kind: "write",
+        toolCallId: "create-1",
+        intention: "Create",
+        fileName: genres,
+        diff: "",
+      }),
+    ).resolves.toMatchObject({ kind: "reject" });
+    expect(
+      JSON.stringify(
+        await permission({
+          kind: "write",
+          toolCallId: "create-1b",
+          intention: "Create",
+          fileName: genres,
+          diff: "",
+        }),
+      ),
+    ).toContain("read-only");
+    await expect(
+      tool("submit_artifact_draft")({ summary: "Too early" }),
+    ).resolves.toMatchObject({
+      resultType: "failure",
+      textResultForLlm: expect.stringContaining("No draft is open") as string,
+    });
+    await expect(
+      tool("skill")({ skill_name: "update-memory" }),
+    ).resolves.toContain(workspace.root);
+    await expect(
+      permission({
+        kind: "write",
+        toolCallId: "create-2",
+        intention: "Create",
+        fileName: genres,
+        diff: "",
+      }),
+    ).resolves.toMatchObject({ kind: "approve-once" });
+    await expect(
+      permission({
+        kind: "write",
+        toolCallId: "edit-index",
+        intention: "Edit",
+        fileName: join(workspace.root, "memory/session/INDEX.md"),
+        diff: "",
+      }),
+    ).resolves.toMatchObject({ kind: "reject" });
+    // The model may issue create and submit in parallel; submit must wait.
+    session.emit(toolStart("create-2", "create"));
+    const submitted = tool("submit_artifact_draft")({
+      summary: "Remember the user's genre",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(
+      received.some(
+        (event) => event.type === "agent.artifact_review_requested",
+      ),
+    ).toBe(false);
+    await writeFile(
+      genres,
+      "---\nname: genres\ndescription: Genres the user makes\n---\n\nDrum and bass only.\n",
+    );
+    session.emit(toolComplete("create-2"));
+    await vi.waitFor(() =>
+      expect(
+        received.some(
+          (event) => event.type === "agent.artifact_review_requested",
+        ),
+      ).toBe(true),
+    );
+    const requested = received.find(
+      (event) => event.type === "agent.artifact_review_requested",
+    );
+    if (requested?.type !== "agent.artifact_review_requested") {
+      throw new Error("missing review");
+    }
+    await expect(
+      permission({
+        kind: "write",
+        toolCallId: "create-3",
+        intention: "Create",
+        fileName: join(workspace.root, "memory/session/other.md"),
+        diff: "",
+      }),
+    ).resolves.toMatchObject({
+      kind: "reject",
+      feedback: "The draft is waiting for the user's review.",
+    });
+    await expect(
+      service.resolveManagedAgentArtifactReview("writer", {
+        requestId: requested.request.requestId,
+        revision: requested.request.revision + 1,
+        decision: "approve",
+      }),
+    ).rejects.toThrow("changed while it was being reviewed");
+    await expect(
+      service.resolveManagedAgentArtifactReview("writer", {
+        requestId: requested.request.requestId,
+        revision: requested.request.revision,
+        decision: "approve",
+        targets: [{ fileId: "memory:genres@session", scope: "profile" }],
+      }),
+    ).resolves.toMatchObject({ outcome: "published" });
+    await expect(submitted).resolves.toContain("Published");
+    expect(publish).toHaveBeenCalledWith(
+      "production-writer",
+      expect.objectContaining({
+        kind: "memory",
+        scopes: [
+          expect.objectContaining({
+            scope: "profile",
+            writes: [expect.objectContaining({ name: "genres" })],
+          }),
+        ],
+      }),
+    );
+    expect(received).toContainEqual(
+      expect.objectContaining({
+        type: "agent.artifact_review_completed",
+        outcome: "published",
+      }),
+    );
+    expect(runtimeEvents.map(({ type }) => type)).toEqual(
+      expect.arrayContaining([
+        "agent.artifact_workspace.completed",
+        "agent.artifact_draft.started",
+        "agent.artifact_draft.progress",
+        "agent.artifact_review.scope_changed",
+        "agent.artifact_publish.completed",
+      ]),
+    );
+    expect(
+      runtimeEvents.find(
+        (event) =>
+          event.type === "agent.permission.requested" &&
+          JSON.stringify(event).includes("generated_index"),
+      ),
+    ).toMatchObject({
+      data: {
+        artifactWorkspacePolicy: {
+          stage: "generated_index",
+          workspacePath: "memory/session/INDEX.md",
+        },
+      },
+    });
+    expect(JSON.stringify(runtimeEvents)).not.toContain("Drum and bass only.");
+
+    const prompt = await service.sendToManagedAgent(
+      "writer",
+      "/update-memory remember sidechain --scope session",
+    );
+    expect(prompt).toContain("remember sidechain");
+    expect(session.prompts.at(-1)).toContain(
+      "Write every topic to memory/session/",
+    );
+    expect(session.prompts.at(-1)).not.toContain("--scope");
+    await expect(
+      permission({
+        kind: "write",
+        toolCallId: "create-4",
+        intention: "Create",
+        fileName: genres,
+        diff: "",
+      }),
+    ).resolves.toMatchObject({ kind: "reject" });
+    await service.stop();
+    await vi.waitFor(() => expect(stat(workspace.root)).rejects.toThrow());
+  });
+
+  it("reports every review outcome to the agent and keeps unsaved edits out", async () => {
+    const events = new InMemoryEventPublisher();
+    const received: AppEvent[] = [];
+    events.subscribe((event) => received.push(event));
+    const root = await mkdtemp(join(tmpdir(), "ableton-agent-outcomes-"));
+    const updateMemory = await createSkillDescriptor(
+      root,
+      "update-memory",
+      "# Update memory",
+    );
+    const context: ArtifactAuthoringContext = {
+      memory: [{ scope: "session", available: true, topics: [] }],
+      skillScopes: [{ scope: "profile", available: true }],
+      skills: [],
+    };
+    const publish = vi.fn<ArtifactAuthoringPort["publish"]>(async () => {
+      throw new Error("disk full");
+    });
+    const session = createFakeSession("outcome-session");
+    let config: SessionConfig | undefined;
+    const workspaceDirectory = join(root, "workspaces");
+    const workspace = ArtifactWorkspace.forSession(
+      workspaceDirectory,
+      "production-writer",
+    );
+    const service = new CopilotAgentService(
+      baseOptions({
+        events,
+        artifactWorkspaceDirectory: workspaceDirectory,
+        artifactAuthoring: { loadContext: async () => context, publish },
+        clientFactory: () => ({
+          createSession: vi.fn(async (next: SessionConfig) => {
+            config = next;
+            return session;
+          }),
+          resumeSession: vi.fn(async () => {
+            throw new Error("resume not expected");
+          }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    await service.start();
+    await service.createManagedAgent(
+      configuration("writer", { skills: [], availableSkills: [updateMemory] }),
+    );
+    const tool = (name: string) => {
+      const found = config?.tools?.find((candidate) => candidate.name === name);
+      if (found?.handler === undefined) throw new Error(`missing ${name}`);
+      return (args: Record<string, unknown>) =>
+        found.handler!(args, {
+          sessionId: "outcome-session",
+          toolCallId: `${name}-call`,
+          toolName: name,
+          arguments: args,
+        }) as Promise<unknown>;
+    };
+    const genres = join(workspace.root, "memory/session/genres.md");
+    const draftGenres = async (body: string) => {
+      await tool("skill")({ skill_name: "update-memory" });
+      await writeFile(
+        genres,
+        `---\nname: genres\ndescription: Genres\n---\n\n${body}\n`,
+      );
+    };
+    const submitForReview = async () => {
+      const before = received.length;
+      const result = tool("submit_artifact_draft")({ summary: "Genres" });
+      await vi.waitFor(() =>
+        expect(
+          received
+            .slice(before)
+            .some((event) => event.type === "agent.artifact_review_requested"),
+        ).toBe(true),
+      );
+      const requested = received
+        .slice(before)
+        .find((event) => event.type === "agent.artifact_review_requested");
+      if (requested?.type !== "agent.artifact_review_requested") {
+        throw new Error("missing review");
+      }
+      return { result, request: requested.request };
+    };
+    const decide = (
+      request: { requestId: string; revision: number },
+      decision: "approve" | "request_changes" | "discard",
+      feedback?: string,
+    ) =>
+      service.resolveManagedAgentArtifactReview("writer", {
+        requestId: request.requestId,
+        revision: request.revision,
+        decision,
+        ...(feedback === undefined ? {} : { feedback }),
+      });
+
+    await draftGenres("House.");
+    const first = await submitForReview();
+    await decide(first.request, "request_changes", "Be specific");
+    await expect(first.result).resolves.toContain(
+      "requested changes: Be specific",
+    );
+    await writeFile(
+      genres,
+      "---\nname: genres\ndescription: Genres\n---\n\nDeep house.\n",
+    );
+    const revised = await submitForReview();
+    expect(revised.request.files[0]?.after).toContain("Deep house.");
+    await decide(revised.request, "discard");
+    await expect(revised.result).resolves.toContain("Nothing was saved");
+    await vi.waitFor(() => expect(stat(genres)).rejects.toThrow());
+
+    await draftGenres("Techno.");
+    const failing = await submitForReview();
+    await expect(decide(failing.request, "approve")).resolves.toMatchObject({
+      outcome: "publish_failed",
+    });
+    await expect(failing.result).resolves.toContain(
+      "Publishing failed and nothing was saved: disk full",
+    );
+    await vi.waitFor(() => expect(stat(genres)).rejects.toThrow());
+
+    await draftGenres("Ambient.");
+    const abandoned = await submitForReview();
+    await service.stop();
+    await expect(abandoned.result).resolves.toContain(
+      "The review was cancelled",
+    );
+    expect(
+      received.flatMap((event) =>
+        event.type === "agent.artifact_review_completed" ? [event.outcome] : [],
+      ),
+    ).toEqual([
+      "changes_requested",
+      "discarded",
+      "publish_failed",
+      "cancelled",
+    ]);
+  });
+
+  it("offers SDK file tools only when artifact authoring is configured", async () => {
+    let config: SessionConfig | undefined;
+    const service = new CopilotAgentService(
+      baseOptions({
+        clientFactory: () => ({
+          createSession: vi.fn(async (next: SessionConfig) => {
+            config = next;
+            return createFakeSession("plain-session");
+          }),
+          resumeSession: vi.fn(async () => {
+            throw new Error("resume not expected");
+          }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    await service.start();
+    await service.createManagedAgent(configuration("plain"));
+    for (const name of ["view", "create", "edit", "glob", "grep"]) {
+      expect(config?.availableTools).not.toContain(`builtin:${name}`);
+    }
+    await expect(
+      config!.onPermissionRequest!(
+        {
+          kind: "write",
+          toolCallId: "w",
+          intention: "Create",
+          fileName: "/tmp/anything.md",
+          diff: "",
+        } as never,
+        { sessionId: "plain-session" },
+      ),
+    ).resolves.not.toMatchObject({ kind: "approve-once" });
     await service.stop();
   });
 
@@ -5663,6 +6132,52 @@ it.each([
     }
   },
 );
+
+it("lets sandboxed bash write to the session's artifact workspace", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ableton-agent-sandbox-"));
+  const workspaceDirectory = join(root, "workspaces");
+  let config: SessionConfig | undefined;
+  const service = new CopilotAgentService(
+    baseOptions({
+      largeOutputDirectory: join(root, "copilot", "tool-output"),
+      artifactWorkspaceDirectory: workspaceDirectory,
+      artifactAuthoring: {
+        loadContext: async () => ({ memory: [], skillScopes: [], skills: [] }),
+        publish: async () => ({ published: [] }),
+      },
+      clientFactory: () => ({
+        createSession: vi.fn(async (next: SessionConfig) => {
+          config = next;
+          return createFakeSession("sandboxed-authoring");
+        }),
+        resumeSession: vi.fn(async () => {
+          throw new Error("resume not expected");
+        }),
+        getSandboxHostSupport: vi.fn(async () => ({ supported: true })),
+        stop: vi.fn(async () => undefined),
+      }),
+    }),
+  );
+  try {
+    await service.start();
+    await service.createManagedAgent(
+      configuration("writer", { resolvedTools: ["bash"], skills: [] }),
+    );
+    const workspaceRoot = ArtifactWorkspace.forSession(
+      workspaceDirectory,
+      "production-writer",
+    ).root;
+    expect(
+      config?.sandboxConfig?.userPolicy?.filesystem?.readwritePaths,
+    ).toEqual([workspaceRoot]);
+    expect(config?.customAgents?.[0]?.prompt ?? "").toContain(
+      "The sandboxed bash tool can also write there.",
+    );
+  } finally {
+    await service.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 it("blocks plan-mode mutations until interactive approval", async () => {
   const turn = deferred<void>();

@@ -112,6 +112,8 @@ import {
   type DesktopAgentModel,
   type DesktopCopilotAuthStatus,
   type DesktopAgentMode,
+  type DesktopAgentArtifactReviewResolution,
+  type DesktopAgentArtifactReviewResult,
   type DesktopPlanArtifactSnapshot,
   type DesktopPreferences,
   type DesktopLiveSetSnapshot,
@@ -1727,6 +1729,24 @@ export class HeadlessDesktopService implements DesktopService {
       await this.setActiveAgentMode(instanceId, "interactive");
     }
     return resolved;
+  }
+
+  public async resolveActiveAgentArtifactReview(
+    instanceId: string,
+    request: DesktopAgentArtifactReviewResolution,
+  ): Promise<DesktopAgentArtifactReviewResult> {
+    this.#captureActiveAgentTarget(instanceId);
+    const result = await this.#application.resolveManagedAgentArtifactReview(
+      instanceId,
+      request,
+    );
+    return {
+      outcome: result.outcome,
+      ...(result.published === undefined
+        ? {}
+        : { published: result.published.map((entry) => ({ ...entry })) }),
+      ...(result.error === undefined ? {} : { error: result.error }),
+    };
   }
 
   public readActiveAgentPlan(

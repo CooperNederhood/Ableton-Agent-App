@@ -39,6 +39,9 @@ const reservedProfileNames = new Set(["development", "automation"]);
 
 export type ArtifactKind = "agent" | "skill";
 export type ArtifactScope = "system" | "profile" | "project" | "session";
+/** Memory adds a Live Set level that skills and agents do not have. */
+export type MemoryScope =
+  "system" | "profile" | "project" | "live-set" | "session";
 
 export interface LiveAgentStorageLayout {
   readonly version: typeof LIVE_AGENT_STORAGE_VERSION;
@@ -48,6 +51,7 @@ export interface LiveAgentStorageLayout {
   readonly systemDirectory: string;
   readonly systemAgentsDirectory: string;
   readonly systemSkillsDirectory: string;
+  readonly systemMemoryDirectory: string;
   readonly profile: string;
   readonly profileRoot: string;
   readonly profileAgentsDirectory: string;
@@ -67,6 +71,8 @@ export interface LiveAgentStorageLayout {
   readonly legacySignalIngressSecretPath: string;
   readonly copilotDirectory: string;
   readonly copilotToolOutputDirectory: string;
+  /** Transient per-session staging copies of memory and skills for SDK file tools. */
+  readonly copilotArtifactWorkspaceDirectory: string;
   readonly observabilityDirectory: string;
   readonly eventJournalPath: string;
   readonly logsDirectory: string;
@@ -175,6 +181,17 @@ export interface ArtifactScopePaths {
   readonly stateDirectory: string;
   readonly agentTombstonesPath: string;
   readonly skillTombstonesPath: string;
+}
+
+/** Creates the private agent, skill, and state folders of one scope. */
+export async function ensureArtifactScopeDirectories(
+  paths: ArtifactScopePaths,
+): Promise<void> {
+  await Promise.all([
+    mkdir(paths.agentsDirectory, { recursive: true, mode: 0o700 }),
+    mkdir(paths.skillsDirectory, { recursive: true, mode: 0o700 }),
+    mkdir(paths.stateDirectory, { recursive: true, mode: 0o700 }),
+  ]);
 }
 
 function productionSessionDirectoryName(productionSessionId: string): string {
@@ -391,6 +408,7 @@ export function resolveLiveAgentStorage(
     systemDirectory,
     systemAgentsDirectory: join(systemDirectory, "agents"),
     systemSkillsDirectory: join(systemDirectory, "skills"),
+    systemMemoryDirectory: join(systemDirectory, "memory"),
     profile,
     profileRoot,
     profileAgentsDirectory: join(profileRoot, "agents"),
@@ -431,6 +449,11 @@ export function resolveLiveAgentStorage(
     ),
     copilotDirectory: join(profileRoot, "copilot"),
     copilotToolOutputDirectory: join(profileRoot, "copilot", "tool-output"),
+    copilotArtifactWorkspaceDirectory: join(
+      profileRoot,
+      "copilot",
+      "artifact-workspaces",
+    ),
     observabilityDirectory: join(profileRoot, "observability"),
     eventJournalPath: join(
       profileRoot,
@@ -565,6 +588,35 @@ export function resolveArtifactScopePaths(
   };
 }
 
+/**
+ * Resolves the `memory/` folder for one scope. Project scope needs a verified
+ * Live Project; Live Set and Session scopes need the session's ownership.
+ */
+export function resolveMemoryScopeDirectory(
+  layout: LiveAgentStorageLayout,
+  scope: MemoryScope,
+  ownership?: SessionStorageOwnershipContext | ProjectStorageOwnershipContext,
+): string {
+  if (scope === "system") return layout.systemMemoryDirectory;
+  if (scope === "profile") return layout.memoryDirectory;
+  if (scope === "project") {
+    if (ownership?.liveProjectId === undefined) {
+      throw new Error("Project memory requires a verified Live Project");
+    }
+    return resolveProjectStorage(layout, ownership.liveProjectId)
+      .memoryDirectory;
+  }
+  if (ownership === undefined || !("sessionId" in ownership)) {
+    throw new Error(
+      `Session ownership context is required for ${scope} memory`,
+    );
+  }
+  const session = resolveNestedSessionStorage(layout, ownership);
+  return scope === "live-set"
+    ? session.liveSet.memoryDirectory
+    : session.memoryDirectory;
+}
+
 function assertWithin(root: string, path: string): void {
   const child = relative(root, path);
   if (child === "" || (!child.startsWith("..") && !isAbsolute(child))) return;
@@ -592,6 +644,7 @@ export async function ensureLiveAgentStorage(
     layout.systemDirectory,
     layout.systemAgentsDirectory,
     layout.systemSkillsDirectory,
+    layout.systemMemoryDirectory,
     join(layout.root, "profiles"),
     layout.profileRoot,
     layout.profileAgentsDirectory,

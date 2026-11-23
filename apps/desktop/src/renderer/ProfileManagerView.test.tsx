@@ -276,6 +276,30 @@ describe("ProfileManagerView", () => {
     expect(container.textContent).toContain("compose");
   });
 
+  it("counts what applies now per scope and opens the filtered tab", async () => {
+    window.desktop = api();
+    const onOpenLibrary = vi.fn();
+    await act(async () => {
+      root.render(
+        <ProfileManagerView
+          activeSessionId="session-1"
+          onOpenLibrary={onOpenLibrary}
+        />,
+      );
+    });
+
+    const cell = (label: string): HTMLButtonElement | null =>
+      container.querySelector<HTMLButtonElement>(
+        `button[aria-label="${label}"]`,
+      );
+    expect(cell("Show 2 System agents")).not.toBeNull();
+    expect(cell("Show 1 Profile skills")).not.toBeNull();
+    expect(cell("Show 1 Session agents")).not.toBeNull();
+
+    await act(async () => cell("Show 1 Profile skills")?.click());
+    expect(onOpenLibrary).toHaveBeenCalledWith("skill", "profile");
+  });
+
   it("shows an active in-memory session before it is persisted", async () => {
     window.desktop = api({
       get: vi.fn().mockResolvedValue(
@@ -461,6 +485,47 @@ describe("ProfileManagerView", () => {
     );
 
     expect(create).toHaveBeenCalledWith("ambient-two", revision);
+  });
+
+  it("groups memory topics under their scope and cannot disable them", async () => {
+    const base = snapshot();
+    window.desktop = api({
+      get: vi.fn().mockResolvedValue(
+        snapshot({
+          artifacts: [
+            ...base.artifacts,
+            {
+              kind: "memory",
+              name: "taste",
+              description: "Likes warm pads",
+              scope: "profile",
+              profile: "default",
+              origin: "profile",
+              state: "local",
+              sourceFile: "taste.md",
+              fingerprint: "d".repeat(64),
+              overriddenOrigins: [],
+              diagnostics: [],
+            },
+          ],
+        }),
+      ),
+    });
+    await act(async () => {
+      root.render(<ProfileManagerView />);
+    });
+
+    expect(
+      container.querySelector('[aria-label="1 memory topics"]'),
+    ).not.toBeNull();
+    const taste = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="taste, Local"]',
+    )!;
+    await act(async () => rightClick(taste));
+    const disable = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Disable",
+    );
+    expect(disable?.disabled).toBe(true);
   });
 
   it("uses Copy and scope Paste with explicit conflict resolution", async () => {

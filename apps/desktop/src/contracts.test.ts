@@ -886,6 +886,24 @@ describe("desktop IPC contracts", () => {
       approved: true,
       selectedAction: "interactive",
     });
+    expect(
+      ipcSchemas["agents:resolve-artifact-review"].request.parse({
+        instanceId: "00000000-0000-4000-8000-000000000001",
+        requestId: "review-1",
+        revision: 2,
+        decision: "approve",
+        targets: [{ fileId: "memory:mixing@session", scope: "profile" }],
+      }),
+    ).toMatchObject({ decision: "approve", revision: 2 });
+    expect(() =>
+      ipcSchemas["agents:resolve-artifact-review"].request.parse({
+        instanceId: "00000000-0000-4000-8000-000000000001",
+        requestId: "review-1",
+        revision: 1,
+        decision: "approve",
+        targets: [{ fileId: "memory:mixing@session", scope: "workspace" }],
+      }),
+    ).toThrow();
     expect(() =>
       ipcSchemas["agents:invoke-skill"].request.parse({
         instanceId: "00000000-0000-4000-8000-000000000001",

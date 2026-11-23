@@ -29,6 +29,7 @@ import {
   resolveNestedSessionStorage,
   resolveLiveAgentStorage,
   resolveLiveHostAutomationStorage,
+  resolveMemoryScopeDirectory,
   selectProfile,
   writeArtifactTombstones,
   writeLiveProjectsRegistry,
@@ -269,6 +270,16 @@ describe("live agent storage", () => {
     expect(production.profileSkillsDirectory).toBe(
       join(home, ".live-agent", "profiles", "default", "skills"),
     );
+    expect(production.copilotArtifactWorkspaceDirectory).toBe(
+      join(
+        home,
+        ".live-agent",
+        "profiles",
+        "default",
+        "copilot",
+        "artifact-workspaces",
+      ),
+    );
     expect(production.copilotToolOutputDirectory).toBe(
       join(
         home,
@@ -431,6 +442,42 @@ describe("live agent storage", () => {
     expect((await stat(layout.profileSkillsDirectory)).mode & 0o777).toBe(
       0o700,
     );
+    expect((await stat(layout.systemMemoryDirectory)).mode & 0o777).toBe(0o700);
+  });
+
+  it("resolves one memory folder per scope and fails closed without ownership", async () => {
+    const home = await temporaryRoot();
+    const layout = resolveLiveAgentStorage({ homeDirectory: home });
+    const ownership = {
+      liveProjectId: "project:456",
+      liveSetId: "set:789",
+      sessionId: "session:123",
+    };
+    const nested = resolveNestedSessionStorage(layout, ownership);
+    expect(resolveMemoryScopeDirectory(layout, "system")).toBe(
+      join(home, ".live-agent", "system", "memory"),
+    );
+    expect(resolveMemoryScopeDirectory(layout, "profile")).toBe(
+      layout.memoryDirectory,
+    );
+    expect(resolveMemoryScopeDirectory(layout, "project", ownership)).toBe(
+      resolveProjectStorage(layout, "project:456").memoryDirectory,
+    );
+    expect(resolveMemoryScopeDirectory(layout, "live-set", ownership)).toBe(
+      nested.liveSet.memoryDirectory,
+    );
+    expect(resolveMemoryScopeDirectory(layout, "session", ownership)).toBe(
+      nested.memoryDirectory,
+    );
+    expect(() => resolveMemoryScopeDirectory(layout, "session")).toThrow(
+      /ownership context is required/u,
+    );
+    expect(() =>
+      resolveMemoryScopeDirectory(layout, "project", {
+        liveSetId: "set:789",
+        sessionId: "session:123",
+      }),
+    ).toThrow(/verified Live Project/u);
   });
 
   it("refuses an old version before creating v2 directories", async () => {

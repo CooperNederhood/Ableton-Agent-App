@@ -44,8 +44,12 @@ const credentialFieldNames = new Set([
   "xapikey",
 ]);
 
+const authorizationHeaderPattern =
+  /\b((?:proxy-)?authorization[ \t]*:[ \t]*(?:Bearer|Basic))[ \t]+(?:"[^"\r\n]+"|'[^'\r\n]+'|[a-z0-9._~+/=-]+)/giu;
+// Outside a header, only capitalized schemes count, and an ordinary word after
+// them ("Basic Drum Rack", "Basic drum") is music text, not a credential.
 const authorizationPattern =
-  /\b(Bearer|Basic)[ \t]+(?:"[^"\r\n]+"|'[^'\r\n]+'|[a-z0-9._~+/=-]+)/giu;
+  /\b(Bearer|Basic)[ \t]+(?!(?:[A-Z][a-z]+|[a-z]{1,7})(?![A-Za-z0-9._~+/=-]))(?:"[^"\r\n]+"|'[^'\r\n]+'|[A-Za-z0-9._~+/=-]+)/gu;
 const digestAuthorizationPattern =
   /\b(Digest)[ \t]+(?=[a-z][\w-]*[ \t]*=)[^\r\n]+/giu;
 const credentialAssignmentPattern =
@@ -237,6 +241,7 @@ function redactSensitiveText(value: string): string {
   let redacted = redactCredentialAssignments(
     value
       .replace(privateKeyPattern, REDACTED_VALUE)
+      .replace(authorizationHeaderPattern, "$1 [REDACTED]")
       .replace(authorizationPattern, "$1 [REDACTED]")
       .replace(digestAuthorizationPattern, "$1 [REDACTED]")
       .replace(urlUserInfoPattern, `$1${REDACTED_VALUE}@`),

@@ -5,7 +5,9 @@ import { join } from "node:path";
 
 import type { AbletonService } from "@ableton-agent/ableton-contracts";
 import {
+  formatMemorySystemSection,
   formatSkillInvocation,
+  parseArtifactScopeToken,
   parseSkillInvocation,
   readSkillDocument,
   resolveToolPatterns,
@@ -162,6 +164,20 @@ import {
   sanitizePersistedText,
   sanitizeTelemetryAttributes,
 } from "@ableton-agent/observability";
+import {
+  ArtifactDraft,
+  authoringKindForSkill,
+  createSubmitArtifactDraftTool,
+  SUBMIT_ARTIFACT_DRAFT_TOOL_NAME,
+  type ArtifactAuthoringContext,
+  type ArtifactAuthoringPort,
+  type ArtifactPublicationResult,
+} from "./artifact-authoring.js";
+import {
+  ArtifactWorkspace,
+  evaluateArtifactWorkspacePermission,
+  type ArtifactWorkspaceAccess,
+} from "./artifact-workspace.js";
 import type {
   AppEvent,
   AgentContextUsage,
@@ -172,6 +188,10 @@ import type {
   AgentElicitationResolution,
   AgentElicitationValue,
   AgentPlanExitAction,
+  AgentArtifactReviewDecision,
+  AgentArtifactReviewOutcome,
+  AgentArtifactReviewRequest,
+  AgentArtifactReviewTarget,
   ConnectionStatus,
   EventPublisher,
   LifecycleState,
@@ -459,6 +479,11 @@ export interface AgentService
       feedback?: string;
     },
   ): Promise<boolean>;
+  /** Resolves a pending memory or skill draft review for one managed instance. */
+  resolveManagedAgentArtifactReview?(
+    instanceId: string,
+    request: ArtifactReviewResolution,
+  ): Promise<ArtifactReviewResolutionResult>;
   readManagedAgentPlan?(instanceId: string): Promise<PlanArtifactSnapshot>;
   writeManagedAgentPlan?(
     instanceId: string,
@@ -661,6 +686,7 @@ function validateElicitationContent(
 }
 
 export type { AbletonService } from "@ableton-agent/ableton-contracts";
+export * from "./artifact-authoring.js";
 export * from "./listening-coordinator.js";
 export {
   readConnectedListenerBinding,
@@ -910,6 +936,8 @@ export interface CopilotAgentServiceOptions {
   baseDirectory?: string;
   runtimeEnvironment?: Record<string, string | undefined>;
   largeOutputDirectory?: string;
+  /** Parent of per-session memory and skills workspaces for SDK file tools. */
+  artifactWorkspaceDirectory?: string;
   resolvePlanArtifactPaths?: PlanArtifactPathResolver;
   model?: string;
   reasoningEffort?: AgentReasoningEffort;
@@ -921,6 +949,8 @@ export interface CopilotAgentServiceOptions {
     productionSessionId: string,
     skillName: string,
   ) => Promise<AgentSkillDescriptor | undefined>;
+  /** Host storage for reviewed memory and skill drafts. */
+  artifactAuthoring?: ArtifactAuthoringPort;
   /**
    * Non-blocking ingress for exact, application-level runtime records. The
    * receiver owns buffering and persistence; agent execution never awaits it.
@@ -1029,6 +1059,20 @@ export const APPROVED_BUILTIN_TOOL_NAMES = [
   ...BuiltInTools.Isolated.filter((name) => name !== SKILL_TOOL_NAME),
   BASH_TOOL_NAME,
 ] as const;
+/** SDK file tools, confined to the memory and skills workspace when enabled. */
+export const ARTIFACT_FILE_TOOL_NAMES = [
+  "view",
+  "create",
+  "edit",
+  "glob",
+  "grep",
+] as const;
+const ARTIFACT_FILE_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "create",
+  "edit",
+]);
+/** How long submit waits for parallel file edits before giving up. */
+const ARTIFACT_FILE_WRITE_SETTLE_MS = 30_000;
 export const APPLICATION_TOOL_NAMES = [
   SKILL_TOOL_NAME,
   READ_PLAN_TOOL_NAME,
@@ -1045,12 +1089,20 @@ const TASK_TOOL_NAME = "task";
 const SUBAGENT_GUIDANCE =
   "You are running as a delegated sub-agent of the main Ableton agent. You cannot ask the user questions. Your final message is returned to the main agent as the task result, so make it a complete, self-contained report of what you observed and changed.";
 
-function shellSandboxConfig(deniedPaths: readonly string[]): SandboxConfig {
+function shellSandboxConfig(
+  deniedPaths: readonly string[],
+  readwritePaths: readonly string[],
+): SandboxConfig {
   return {
     enabled: true,
     allowBypass: false,
     userPolicy: {
-      filesystem: { deniedPaths: [...deniedPaths] },
+      filesystem: {
+        deniedPaths: [...deniedPaths],
+        ...(readwritePaths.length === 0
+          ? {}
+          : { readwritePaths: [...readwritePaths] }),
+      },
       network: { allowOutbound: false, allowLocalNetwork: false },
       seatbelt: { keychainAccess: false },
     },
@@ -1060,6 +1112,7 @@ function shellSandboxConfig(deniedPaths: readonly string[]): SandboxConfig {
 function toolGuidance(
   toolNames: readonly string[],
   shellSandboxed: boolean,
+  artifactWorkspaceRoot?: string,
 ): string {
   const historyGuidance = toolNames.includes("set_sql_search")
     ? "\n\nFor questions about prior Live Sets, saves, devices, clips, or agent trajectories, use set_sql_search against the local read-only Set History views. Treat it as historical evidence and inspect the current Live Set before acting."
@@ -1068,11 +1121,15 @@ function toolGuidance(
     ? ""
     : shellSandboxed
       ? "\n\nThe bash tool runs inside an OS sandbox with no network access; it can write only inside its current working directory, which is a private scratch directory. Use it freely as a scratchpad for computation, for example python3 or node to generate or transform note data, or to inspect large-output spill files with grep, head, tail, wc, or jq. Bash cannot reach Ableton Live: make every Live change through the Ableton tools. Do not request sandbox bypass or permissive mode."
-      : "\n\nThe bash tool is restricted to bounded, read-only inspection of Copilot large-output spill files. Use grep, bounded head/tail, wc, or jq against the exact spill path returned by a tool. Do not attempt writes, network access, arbitrary filesystem reads, or command execution outside that purpose.";
+      : `\n\nThe bash tool is restricted to bounded, read-only inspection of Copilot large-output spill files${artifactWorkspaceRoot === undefined ? "" : " and the memory and skills workspace"}. Use grep, bounded head/tail, wc, or jq against the exact spill path returned by a tool. Do not attempt writes, network access, arbitrary filesystem reads, or command execution outside that purpose.`;
+  const fileGuidance =
+    artifactWorkspaceRoot === undefined
+      ? ""
+      : `\n\nThe view, glob, grep, create, and edit tools only reach the memory and skills workspace at ${artifactWorkspaceRoot} (and Copilot spill files for reading). It holds copies of this session's memory topics and skills. Edits are allowed only while the update-memory or learn-skill skill has a draft open, and are saved only after the user approves the review.${shellSandboxed ? " The sandboxed bash tool can also write there." : ""}`;
   const listeningGuidance = toolNames.includes("ableton_listening")
     ? `\n\n${LISTENING_AGENT_GUIDANCE}`
     : "";
-  return `${historyGuidance}${shellGuidance}${listeningGuidance}`;
+  return `${historyGuidance}${shellGuidance}${fileGuidance}${listeningGuidance}`;
 }
 
 function isVerifiedOperationResult(result: unknown): boolean {
@@ -1197,7 +1254,32 @@ export class AgentTurnTimeoutError extends Error {
   }
 }
 
-type HumanGateReason = "elicitation" | "plan_approval" | "tool_approval";
+type HumanGateReason =
+  "artifact_review" | "elicitation" | "plan_approval" | "tool_approval";
+
+export interface ArtifactReviewResolution {
+  readonly requestId: string;
+  readonly revision: number;
+  readonly decision: AgentArtifactReviewDecision;
+  readonly feedback?: string;
+  readonly targets?: readonly AgentArtifactReviewTarget[];
+}
+
+export interface ArtifactReviewResolutionResult {
+  readonly outcome: AgentArtifactReviewOutcome;
+  readonly published?: ArtifactPublicationResult["published"];
+  readonly error?: string;
+}
+
+interface PendingArtifactReview {
+  readonly sessionId: string;
+  readonly startedAt: number;
+  readonly draft: ArtifactDraft;
+  readonly review: AgentArtifactReviewRequest;
+  resolve: (
+    result: ArtifactReviewResolutionResult & { feedback?: string },
+  ) => void;
+}
 
 interface TurnTimeoutPause {
   readonly token: symbol;
@@ -1508,6 +1590,15 @@ interface ManagedSessionState {
       resolve: (result: ElicitationResult) => void;
     }
   >;
+  /** Open memory or skill draft; lives for one turn. */
+  artifactDraft: ArtifactDraft | undefined;
+  /** Folder of memory and skill copies the SDK file tools work on. */
+  artifactWorkspace: ArtifactWorkspace | undefined;
+  /** Serializes workspace seeding so a refresh never overwrites a draft. */
+  artifactWorkspaceQueue: Promise<void>;
+  /** SDK create/edit calls still running, by tool call id; submit waits for them. */
+  readonly artifactFileWrites: Map<string, () => void>;
+  readonly artifactReviewRequests: Map<string, PendingArtifactReview>;
 }
 
 function dedupeStrings(values: readonly string[]): string[] {
@@ -1524,17 +1615,28 @@ function bareToolNames(toolNames: readonly string[]): string[] {
 
 function enabledSkillDescriptors(
   configuration: AgentSessionConfiguration,
+  includeAuthoringSkills: boolean,
 ): AgentSkillDescriptor[] {
   const availableByName = new Map(
     (configuration.availableSkills ?? []).map((skill) => [skill.name, skill]),
   );
-  return configuration.skills.map((name) => {
+  const enabled = configuration.skills.map((name) => {
     const skill = availableByName.get(name);
     if (skill === undefined) {
       throw new Error(`Configured skill '${name}' is unavailable`);
     }
     return skill;
   });
+  if (!includeAuthoringSkills) return enabled;
+  const names = new Set(configuration.skills);
+  return [
+    ...enabled,
+    ...(configuration.availableSkills ?? []).filter(
+      (skill) =>
+        !names.has(skill.name) &&
+        authoringKindForSkill(skill.name) !== undefined,
+    ),
+  ];
 }
 
 function yamlString(value: string): string {
@@ -1571,7 +1673,7 @@ function formatDirectSkillPrompt(
 ): string {
   return [
     `${directSkillHistoryPrefix}${skillName} ${Buffer.from(request, "utf8").toString("base64url")} -->`,
-    `The user explicitly invoked the '${skillName}' skill for this turn.`,
+    `The user explicitly invoked the '${skillName}' skill for this turn. Its instructions are included below, so do not call the skill tool for it.`,
     "",
     `<skill_body name="${skillName}">`,
     body,
@@ -1633,6 +1735,10 @@ function liveEventTypedState(
 }
 
 const approvedBuiltinToolNames = new Set(APPROVED_BUILTIN_TOOL_NAMES);
+const builtinToolNames = new Set<string>([
+  ...APPROVED_BUILTIN_TOOL_NAMES,
+  ...ARTIFACT_FILE_TOOL_NAMES,
+]);
 
 function qualifyAvailableTools(toolNames: readonly string[]): string[] {
   const tools = new ToolSet();
@@ -1640,7 +1746,7 @@ function qualifyAvailableTools(toolNames: readonly string[]): string[] {
     ...bareToolNames(toolNames),
     ...CORE_AGENT_TOOL_NAMES,
   ])) {
-    if (approvedBuiltinToolNames.has(toolName)) tools.addBuiltIn(toolName);
+    if (builtinToolNames.has(toolName)) tools.addBuiltIn(toolName);
     else tools.addCustom(toolName);
   }
   return tools.toArray();
@@ -1928,6 +2034,7 @@ export class CopilotAgentService implements AgentService {
   readonly #lifecycleTails = new Map<string, Promise<void>>();
   readonly #planArtifacts: FilePlanArtifactStore;
   readonly #largeOutputDirectory: string;
+  readonly #artifactWorkspaceDirectory: string;
   readonly #shellSandboxDeniedPaths: readonly string[];
   #shellSandboxSupported: Promise<boolean> | undefined;
 
@@ -1944,6 +2051,9 @@ export class CopilotAgentService implements AgentService {
     const storage = resolveLiveAgentStorage({ homeDirectory: homedir() });
     this.#largeOutputDirectory =
       options.largeOutputDirectory ?? storage.copilotToolOutputDirectory;
+    this.#artifactWorkspaceDirectory =
+      options.artifactWorkspaceDirectory ??
+      storage.copilotArtifactWorkspaceDirectory;
     this.#shellSandboxDeniedPaths = [
       storage.credentialsDirectory,
       storage.observabilityDirectory,
@@ -3061,6 +3171,11 @@ export class CopilotAgentService implements AgentService {
       listeningApprovals: new Map(),
       permissionRejections: new Map(),
       directPlanRequests: new Map(),
+      artifactDraft: undefined,
+      artifactWorkspace: undefined,
+      artifactWorkspaceQueue: Promise.resolve(),
+      artifactFileWrites: new Map(),
+      artifactReviewRequests: new Map(),
       elicitationRequests: new Map(),
     };
   }
@@ -3370,7 +3485,10 @@ export class CopilotAgentService implements AgentService {
     skillName: string,
     requireEnabled: boolean,
   ): Promise<string> {
-    if (requireEnabled && !state.configuration.skills.includes(skillName)) {
+    if (
+      requireEnabled &&
+      !this.#enabledSkills(state).some((skill) => skill.name === skillName)
+    ) {
       throw new Error(
         `Skill '${skillName}' is not enabled for managed agent '${state.configuration.instanceId}'.`,
       );
@@ -3428,19 +3546,431 @@ export class CopilotAgentService implements AgentService {
       );
     }
     const skillName = skillNameSchema.parse(invocation.skillName);
+    const authoring =
+      this.options.artifactAuthoring === undefined
+        ? undefined
+        : authoringKindForSkill(skillName);
+    const parsed =
+      authoring === undefined
+        ? { request: invocation.request }
+        : parseArtifactScopeToken(invocation.request);
     const body = await this.#readSkillBody(state, skillName, false);
-    return formatDirectSkillPrompt(skillName, body, invocation.request);
+    const draftNote =
+      authoring === undefined
+        ? undefined
+        : await this.#openArtifactDraft(state, skillName, parsed.scope);
+    return formatDirectSkillPrompt(
+      skillName,
+      draftNote === undefined ? body : `${body}\n\n${draftNote}`,
+      parsed.request,
+    );
+  }
+
+  #enabledSkills(state: ManagedSessionState): AgentSkillDescriptor[] {
+    return enabledSkillDescriptors(
+      state.configuration,
+      this.options.artifactAuthoring !== undefined,
+    );
+  }
+
+  async #openArtifactDraft(
+    state: ManagedSessionState,
+    skillName: string,
+    scope: ArtifactDraft["requestedScope"],
+  ): Promise<string> {
+    const kind = authoringKindForSkill(skillName)!;
+    const port = this.options.artifactAuthoring!;
+    const workspace = this.#artifactWorkspace(state);
+    const existing = state.artifactDraft;
+    if (existing !== undefined) {
+      if (existing.kind === kind && scope === undefined) {
+        return existing.describe(workspace.root);
+      }
+      if (
+        state.artifactReviewRequests.size > 0 ||
+        (await this.#artifactWorkspaceHasChanges(workspace))
+      ) {
+        throw new Error(
+          `A ${existing.kind} draft is already open; submit or discard it before starting another.`,
+        );
+      }
+      this.#closeArtifactDraft(state, "replaced");
+    }
+    const startedAt = Date.now();
+    this.#recordRuntime(state, "agent.artifact_draft.queued", {
+      kind,
+      skillName,
+      requestedScope: scope,
+    });
+    this.#recordRuntime(state, "agent.artifact_draft.started", {
+      kind,
+      skillName,
+    });
+    try {
+      const context = await port.loadContext(
+        state.configuration.productionSessionId,
+      );
+      const draft = new ArtifactDraft(kind, skillName, context, scope);
+      const files = await this.#seedArtifactWorkspace(state, context, true);
+      state.artifactDraft = draft;
+      this.#recordRuntime(state, "agent.artifact_draft.completed", {
+        draftId: draft.id,
+        kind,
+        targetScope: kind === "skill" ? draft.skillScope : scope,
+        workspaceFiles: files,
+        unavailableScopes: (kind === "memory"
+          ? context.memory
+          : context.skillScopes
+        )
+          .filter(({ available }) => !available)
+          .map(({ scope: unavailable }) => unavailable),
+        durationMs: Date.now() - startedAt,
+      });
+      return draft.describe(workspace.root);
+    } catch (error) {
+      this.#recordRuntime(state, "agent.artifact_draft.failed", {
+        kind,
+        skillName,
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
+
+  #closeArtifactDraft(state: ManagedSessionState, reason: string): void {
+    const draft = state.artifactDraft;
+    if (draft === undefined) return;
+    state.artifactDraft = undefined;
+    // Unpublished edits must not linger as if they were saved memory.
+    if (reason !== "published") {
+      void this.#seedArtifactWorkspace(state, draft.context, false).catch(
+        () => undefined,
+      );
+    }
+    if (reason === "published" || reason === "discarded") return;
+    this.#recordRuntime(state, "agent.artifact_draft.cancelled", {
+      draftId: draft.id,
+      kind: draft.kind,
+      reason,
+      changes: draft.changeCount,
+      durationMs: Date.now() - draft.openedAt,
+    });
+  }
+
+  #artifactWorkspace(state: ManagedSessionState): ArtifactWorkspace {
+    state.artifactWorkspace ??= ArtifactWorkspace.forSession(
+      this.#artifactWorkspaceDirectory,
+      state.configuration.productionSessionId,
+    );
+    return state.artifactWorkspace;
+  }
+
+  async #artifactWorkspaceHasChanges(
+    workspace: ArtifactWorkspace,
+  ): Promise<boolean> {
+    try {
+      return (await workspace.changes()).size > 0;
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * Replaces the workspace with `context`. Read-only refreshes are skipped
+   * while a draft is open so they never overwrite the agent's edits.
+   */
+  async #seedArtifactWorkspace(
+    state: ManagedSessionState,
+    context: ArtifactAuthoringContext,
+    forDraft: boolean,
+  ): Promise<number | undefined> {
+    const workspace = this.#artifactWorkspace(state);
+    const run = state.artifactWorkspaceQueue.then(async () => {
+      if (!forDraft && state.artifactDraft !== undefined) return undefined;
+      const startedAt = Date.now();
+      this.#recordRuntime(state, "agent.artifact_workspace.started", {
+        purpose: forDraft ? "draft" : "refresh",
+      });
+      try {
+        const files = await workspace.seed(context);
+        this.#recordRuntime(state, "agent.artifact_workspace.completed", {
+          purpose: forDraft ? "draft" : "refresh",
+          files,
+          durationMs: Date.now() - startedAt,
+        });
+        return files;
+      } catch (error) {
+        this.#recordRuntime(state, "agent.artifact_workspace.failed", {
+          purpose: forDraft ? "draft" : "refresh",
+          durationMs: Date.now() - startedAt,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    });
+    state.artifactWorkspaceQueue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  #removeArtifactWorkspace(state: ManagedSessionState): void {
+    const workspace = state.artifactWorkspace;
+    if (workspace === undefined) return;
+    state.artifactWorkspace = undefined;
+    // A replacement state for the same production session reuses the folder.
+    const productionSessionId = state.configuration.productionSessionId;
+    for (const other of this.#states.values()) {
+      if (
+        other !== state &&
+        other.configuration.productionSessionId === productionSessionId
+      ) {
+        return;
+      }
+    }
+    state.artifactWorkspaceQueue = state.artifactWorkspaceQueue.then(() =>
+      workspace.remove().catch((error: unknown) => {
+        this.#recordRuntime(state, "agent.artifact_workspace.failed", {
+          purpose: "remove",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }),
+    );
+  }
+
+  #artifactWorkspaceAccess(
+    state: ManagedSessionState,
+  ): ArtifactWorkspaceAccess | undefined {
+    if (this.options.artifactAuthoring === undefined) return undefined;
+    const draft = state.artifactDraft;
+    return {
+      root: this.#artifactWorkspace(state).root,
+      extraReadRoots: [this.#largeOutputDirectory],
+      ...(draft === undefined
+        ? {}
+        : {
+            draft: {
+              kind: draft.kind,
+              reviewPending: state.artifactReviewRequests.size > 0,
+              writableScopes: draft.writableMemoryScopes,
+            },
+          }),
+    };
+  }
+
+  #requireArtifactDraft(state: ManagedSessionState): ArtifactDraft {
+    const draft = state.artifactDraft;
+    if (draft === undefined) {
+      throw new Error(
+        "No draft is open. Load the update-memory or learn-skill skill first.",
+      );
+    }
+    if (state.artifactReviewRequests.size > 0) {
+      throw new Error("The draft is waiting for the user's review.");
+    }
+    return draft;
+  }
+
+  #artifactTools(state: ManagedSessionState): Tool[] {
+    if (this.options.artifactAuthoring === undefined) return [];
+    return [
+      createSubmitArtifactDraftTool(async (summary) =>
+        this.#submitArtifactDraft(state, summary),
+      ),
+    ];
+  }
+
+  /**
+   * Waits for file edits the model issued alongside submit, so a parallel
+   * `create` is collected rather than racing the review.
+   */
+  async #settleArtifactFileWrites(state: ManagedSessionState): Promise<void> {
+    if (state.artifactFileWrites.size === 0) return;
+    const pending = [...state.artifactFileWrites.keys()];
+    const startedAt = Date.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const settled = await Promise.race([
+      Promise.all(
+        pending.map(
+          (toolCallId) =>
+            new Promise<void>((resolve) => {
+              const previous = state.artifactFileWrites.get(toolCallId);
+              if (previous === undefined) return resolve();
+              state.artifactFileWrites.set(toolCallId, () => {
+                previous();
+                resolve();
+              });
+            }),
+        ),
+      ).then(() => true),
+      new Promise<false>((resolve) => {
+        timer = setTimeout(() => resolve(false), ARTIFACT_FILE_WRITE_SETTLE_MS);
+      }),
+    ]);
+    clearTimeout(timer);
+    this.#recordRuntime(state, "agent.artifact_draft.progress", {
+      action: "await_file_writes",
+      pending: pending.length,
+      settled,
+      durationMs: Date.now() - startedAt,
+    });
+    if (!settled) {
+      throw new Error(
+        "A file edit is still running. Wait for it to finish, then submit again.",
+      );
+    }
+  }
+
+  async #submitArtifactDraft(
+    state: ManagedSessionState,
+    summary: string,
+  ): Promise<string> {
+    this.#requireArtifactDraft(state);
+    await this.#settleArtifactFileWrites(state);
+    const draft = this.#requireArtifactDraft(state);
+    const changes = await this.#artifactWorkspace(state).changes();
+    draft.applyWorkspaceChanges(changes);
+    this.#recordRuntime(state, "agent.artifact_draft.progress", {
+      draftId: draft.id,
+      action: "collect",
+      changes: [...changes].map(([path, content]) => ({
+        path,
+        change: content === null ? "deleted" : "written",
+        characters: content?.length ?? 0,
+      })),
+    });
+    const requestId = randomUUID();
+    const review = draft.review(requestId, summary);
+    const sessionId = state.session?.sessionId ?? "";
+    this.#recordRuntime(
+      state,
+      "agent.artifact_review.requested",
+      {
+        requestId,
+        draftId: draft.id,
+        kind: draft.kind,
+        revision: review.revision,
+        files: review.files.map(({ id, change, scope }) => ({
+          id,
+          change,
+          scope,
+        })),
+      },
+      { sessionId },
+    );
+    this.options.events.publish({
+      type: "agent.artifact_review_requested",
+      request: review,
+      ...this.#eventAttribution(state),
+    });
+    const resumeTimeout = this.#pauseActiveTurnTimeout(
+      state,
+      "artifact_review",
+      requestId,
+    );
+    const result = await new Promise<
+      ArtifactReviewResolutionResult & { feedback?: string }
+    >((resolve) => {
+      state.artifactReviewRequests.set(requestId, {
+        sessionId,
+        startedAt: Date.now(),
+        draft,
+        review,
+        resolve: (value) => {
+          resumeTimeout();
+          resolve(value);
+        },
+      });
+    });
+    switch (result.outcome) {
+      case "published":
+        return `Published: ${(result.published ?? [])
+          .map(({ scope, path, change }) => `${change} ${path} (${scope})`)
+          .join("; ")}. The draft is closed.`;
+      case "changes_requested":
+        return `The user requested changes${
+          result.feedback === undefined ? "." : `: ${result.feedback}`
+        } Revise the files in the workspace, then call ${SUBMIT_ARTIFACT_DRAFT_TOOL_NAME} again.`;
+      case "discarded":
+        return `The user discarded the draft${
+          result.feedback === undefined ? "." : `: ${result.feedback}`
+        } Nothing was saved. Do not resubmit unless asked.`;
+      case "publish_failed":
+        return `Publishing failed and nothing was saved: ${result.error ?? "unknown error"}. Load the skill again, re-read the current files, and resubmit if the change is still wanted.`;
+      case "cancelled":
+        return "The review was cancelled. Nothing was saved.";
+    }
+  }
+
+  #cancelPendingArtifactReviews(
+    state: ManagedSessionState,
+    reason: string,
+  ): void {
+    for (const [requestId, pending] of state.artifactReviewRequests) {
+      pending.resolve({ outcome: "cancelled" });
+      this.#recordRuntime(
+        state,
+        "agent.artifact_review.cancelled",
+        {
+          requestId,
+          draftId: pending.draft.id,
+          reason,
+          durationMs: Date.now() - pending.startedAt,
+        },
+        { sessionId: pending.sessionId },
+      );
+      this.options.events.publish({
+        type: "agent.artifact_review_completed",
+        requestId,
+        draftId: pending.draft.id,
+        kind: pending.draft.kind,
+        outcome: "cancelled",
+        ...this.#eventAttribution(state),
+      });
+    }
+    state.artifactReviewRequests.clear();
+    for (const settle of state.artifactFileWrites.values()) settle();
+    state.artifactFileWrites.clear();
+    this.#closeArtifactDraft(state, reason);
+  }
+
+  async #memoryIndexText(
+    state: ManagedSessionState,
+  ): Promise<string | undefined> {
+    const port = this.options.artifactAuthoring;
+    if (port === undefined) return undefined;
+    let context: ArtifactAuthoringContext;
+    try {
+      context = await port.loadContext(state.configuration.productionSessionId);
+    } catch (error) {
+      this.#recordRuntime(state, "agent.memory_index.failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    }
+    await this.#seedArtifactWorkspace(state, context, false).catch(
+      () => undefined,
+    );
+    const section = formatMemorySystemSection(
+      context.memory.filter(({ available }) => available),
+    );
+    return section === undefined
+      ? undefined
+      : `${section}\nRead topics with view at ${this.#artifactWorkspace(state).root}/memory/{scope}/{topic}.md.`;
   }
 
   #skillTool(state: ManagedSessionState): Tool | undefined {
     if (
-      state.configuration.skills.length === 0 &&
+      this.#enabledSkills(state).length === 0 &&
       !(state.configuration.delegates ?? []).some(
         (delegate) => delegate.skills.length > 0,
       )
     )
       return undefined;
     return defineTool(SKILL_TOOL_NAME, {
+      overridesBuiltInTool: true,
       description:
         "Loads the instructions for one skill enabled for the active agent. Call this when an enabled skill description is relevant to the current work.",
       parameters: z
@@ -3451,15 +3981,27 @@ export class CopilotAgentService implements AgentService {
         })
         .strict(),
       handler: async ({ skill_name }, invocation) => {
-        if (invocation.agentId === undefined)
-          return this.#readSkillBody(state, skill_name, true);
-        const delegate = this.#invokingDelegate(state, invocation.agentId);
-        if (delegate === undefined || !delegate.skills.includes(skill_name)) {
-          throw new Error(
-            `Skill '${skill_name}' is not enabled for sub-agent '${delegate?.definitionName ?? invocation.agentId}'.`,
-          );
+        if (invocation.agentId !== undefined) {
+          const delegate = this.#invokingDelegate(state, invocation.agentId);
+          if (delegate === undefined || !delegate.skills.includes(skill_name)) {
+            throw new Error(
+              `Skill '${skill_name}' is not enabled for sub-agent '${delegate?.definitionName ?? invocation.agentId}'.`,
+            );
+          }
+          return this.#readSkillBody(state, skill_name, false);
         }
-        return this.#readSkillBody(state, skill_name, false);
+        const body = await this.#readSkillBody(state, skill_name, true);
+        if (
+          this.options.artifactAuthoring === undefined ||
+          authoringKindForSkill(skill_name) === undefined
+        ) {
+          return body;
+        }
+        return `${body}\n\n${await this.#openArtifactDraft(
+          state,
+          skill_name,
+          undefined,
+        )}`;
       },
     }) as Tool;
   }
@@ -3894,6 +4436,7 @@ export class CopilotAgentService implements AgentService {
     const tools = [
       ...(await this.#scopedAbletonTools(state)),
       ...this.#planTools(state),
+      ...this.#artifactTools(state),
       ...(skillTool === undefined ? [] : [skillTool]),
     ];
     const configuredToolNames = dedupeStrings([
@@ -3901,9 +4444,12 @@ export class CopilotAgentService implements AgentService {
       ...bareToolNames(state.configuration.resolvedTools).filter((name) =>
         approvedBuiltinToolNames.has(name),
       ),
+      ...(this.options.artifactAuthoring === undefined
+        ? []
+        : ARTIFACT_FILE_TOOL_NAMES),
     ]);
     const skillInstructions = formatSkillSystemInstructions(
-      enabledSkillDescriptors(state.configuration),
+      this.#enabledSkills(state),
     );
     const shellSandboxed =
       configuredToolNames.includes(BASH_TOOL_NAME) &&
@@ -3911,6 +4457,7 @@ export class CopilotAgentService implements AgentService {
     state.shellSandboxed = shellSandboxed;
     const scopedSignalContext = this.#scopedSignalContext(state);
     const scopedLiveEventContext = this.#scopedLiveEventContext(state);
+    const initialMemoryIndex = await this.#memoryIndexText(state);
     const currentIdentityContext = (): AgentIdentityContext | undefined => {
       const identity = this.options.currentIdentityContext?.();
       return identity === undefined
@@ -3928,6 +4475,18 @@ export class CopilotAgentService implements AgentService {
       });
     }
     const agentPolicy = createAgentPolicy({
+      ...(this.options.artifactAuthoring === undefined
+        ? {}
+        : {
+            memoryContext: {
+              initial: initialMemoryIndex,
+              current: () => this.#memoryIndexText(state),
+              delivered: (context) =>
+                this.#recordRuntime(state, "agent.memory_index.delivered", {
+                  characters: context?.length ?? 0,
+                }),
+            },
+          }),
       getAbletonStatus: this.options.getAbletonStatus,
       inspectSession: this.options.inspectSession,
       ...(this.options.getSessionContextInventory === undefined
@@ -4046,6 +4605,10 @@ export class CopilotAgentService implements AgentService {
       typeof configuredReasoningSummary === "function"
         ? configuredReasoningSummary()
         : (configuredReasoningSummary ?? "concise");
+    const artifactWorkspaceRoot =
+      this.options.artifactAuthoring === undefined
+        ? undefined
+        : this.#artifactWorkspace(state).root;
     const subagents = this.#subagentCustomAgents(
       state,
       configuredToolNames,
@@ -4065,7 +4628,14 @@ export class CopilotAgentService implements AgentService {
       },
       workingDirectory: this.#largeOutputDirectory,
       ...(shellSandboxed
-        ? { sandboxConfig: shellSandboxConfig(this.#shellSandboxDeniedPaths) }
+        ? {
+            sandboxConfig: shellSandboxConfig(
+              this.#shellSandboxDeniedPaths,
+              artifactWorkspaceRoot === undefined
+                ? []
+                : [artifactWorkspaceRoot],
+            ),
+          }
         : {}),
       tools,
       availableTools: qualifyAvailableTools(configuredToolNames),
@@ -4075,7 +4645,7 @@ export class CopilotAgentService implements AgentService {
           name: state.configuration.definitionName,
           displayName: state.configuration.label,
           description: state.configuration.description,
-          prompt: `${state.configuration.systemPrompt}${toolGuidance(configuredToolNames, shellSandboxed)}`,
+          prompt: `${state.configuration.systemPrompt}${toolGuidance(configuredToolNames, shellSandboxed, artifactWorkspaceRoot)}`,
           infer: false,
         },
         ...subagents,
@@ -4267,11 +4837,21 @@ export class CopilotAgentService implements AgentService {
                 }
               })()
             : undefined;
+        const workspaceAccess = this.#artifactWorkspaceAccess(state);
         const shellEvaluation = evaluateSpillFileShellPolicy(
           request,
           this.#largeOutputDirectory,
-          { sandboxed: state.shellSandboxed },
+          {
+            sandboxed: state.shellSandboxed,
+            ...(workspaceAccess === undefined
+              ? {}
+              : { workspace: workspaceAccess }),
+          },
         );
+        const fileEvaluation =
+          workspaceAccess === undefined
+            ? { result: undefined }
+            : evaluateArtifactWorkspacePermission(request, workspaceAccess);
         this.#recordRuntime(state, "agent.permission.requested", {
           permissionId,
           request,
@@ -4282,6 +4862,9 @@ export class CopilotAgentService implements AgentService {
           ...(shellEvaluation.diagnostics === undefined
             ? {}
             : { shellPolicy: shellEvaluation.diagnostics }),
+          ...(fileEvaluation.diagnostics === undefined
+            ? {}
+            : { artifactWorkspacePolicy: fileEvaluation.diagnostics }),
           ...(resolvedMetadata === undefined
             ? {}
             : { operationMetadata: resolvedMetadata }),
@@ -4289,11 +4872,16 @@ export class CopilotAgentService implements AgentService {
         let result;
         if (shellEvaluation.result !== undefined) {
           result = shellEvaluation.result;
+        } else if (fileEvaluation.result !== undefined) {
+          result = fileEvaluation.result;
         } else if (
           request.kind === "custom-tool" &&
-          [SKILL_TOOL_NAME, READ_PLAN_TOOL_NAME, WRITE_PLAN_TOOL_NAME].includes(
-            request.toolName,
-          )
+          [
+            SKILL_TOOL_NAME,
+            READ_PLAN_TOOL_NAME,
+            WRITE_PLAN_TOOL_NAME,
+            SUBMIT_ARTIFACT_DRAFT_TOOL_NAME,
+          ].includes(request.toolName)
         ) {
           result = { kind: "approve-once" } as const;
         } else {
@@ -4333,22 +4921,29 @@ export class CopilotAgentService implements AgentService {
           if (result.kind === "reject") {
             const shellPolicyBlocked =
               shellEvaluation.result?.kind === "reject";
+            const workspaceBlocked =
+              !shellPolicyBlocked && fileEvaluation.result?.kind === "reject";
             const userDenied =
               !shellPolicyBlocked &&
+              !workspaceBlocked &&
               result.feedback === "User denied the Ableton mutation";
             state.permissionRejections.set(
               request.toolCallId,
               listeningPreflightRejection ?? {
                 code: shellPolicyBlocked
                   ? "shell_policy_blocked"
-                  : userDenied
-                    ? "user_denied"
-                    : "permission_denied",
+                  : workspaceBlocked
+                    ? "artifact_workspace_blocked"
+                    : userDenied
+                      ? "user_denied"
+                      : "permission_denied",
                 message: shellPolicyBlocked
                   ? "Blocked by shell safety policy"
-                  : userDenied
-                    ? "User denied the tool call"
-                    : "Tool call blocked by application policy",
+                  : workspaceBlocked
+                    ? "Blocked by memory and skills workspace policy"
+                    : userDenied
+                      ? "User denied the tool call"
+                      : "Tool call blocked by application policy",
                 source: userDenied ? "user" : "application_policy",
                 ...(result.feedback === undefined
                   ? {}
@@ -4467,6 +5062,7 @@ export class CopilotAgentService implements AgentService {
             ? undefined
             : formatAgentIdentityContext(initialIdentityContext, "initial"),
           skillInstructions,
+          initialMemoryIndex,
         ]
           .filter((value): value is string => value !== undefined)
           .join("\n\n"),
@@ -4493,7 +5089,7 @@ export class CopilotAgentService implements AgentService {
         sdkSystemMessage: config.systemMessage,
         customAgentPrompt: state.configuration.systemPrompt,
         customAgent: config.customAgents?.[0],
-        skills: enabledSkillDescriptors(state.configuration).map((skill) => ({
+        skills: this.#enabledSkills(state).map((skill) => ({
           name: skill.name,
           description: skill.description,
           sourcePath: skill.sourcePath,
@@ -4661,6 +5257,9 @@ export class CopilotAgentService implements AgentService {
         });
       } else if (event.type === "tool.execution_start") {
         if (state.activeTurn !== undefined) state.activeTurn.toolStarted = true;
+        if (ARTIFACT_FILE_WRITE_TOOL_NAMES.has(event.data.toolName)) {
+          state.artifactFileWrites.set(event.data.toolCallId, () => undefined);
+        }
         this.#recordRuntime(
           state,
           "agent.tool.started",
@@ -4712,6 +5311,11 @@ export class CopilotAgentService implements AgentService {
         );
       } else if (event.type === "tool.execution_complete") {
         const operation = state.operations.get(event.data.toolCallId);
+        const settleWrite = state.artifactFileWrites.get(event.data.toolCallId);
+        if (settleWrite !== undefined) {
+          state.artifactFileWrites.delete(event.data.toolCallId);
+          settleWrite();
+        }
         this.#recordRuntime(
           state,
           event.data.success ? "agent.tool.completed" : "agent.tool.failed",
@@ -5453,6 +6057,7 @@ export class CopilotAgentService implements AgentService {
     state.listeningApprovals.clear();
     this.#cancelPendingPlans(state, "session_disconnected");
     this.#cancelPendingElicitations(state, "session_disconnected");
+    this.#cancelPendingArtifactReviews(state, "session_disconnected");
     this.#rejectPendingAutomatic(
       state,
       options.reason ?? new Error("Copilot session disconnected"),
@@ -5465,6 +6070,7 @@ export class CopilotAgentService implements AgentService {
     ) {
       this.#states.delete(state.key);
     }
+    this.#removeArtifactWorkspace(state);
     if (session !== undefined) {
       await session.disconnect();
     }
@@ -5787,6 +6393,7 @@ export class CopilotAgentService implements AgentService {
     try {
       this.#cancelPendingPlans(state, "turn_timed_out");
       this.#cancelPendingElicitations(state, "turn_timed_out");
+      this.#cancelPendingArtifactReviews(state, "turn_timed_out");
       await Promise.all([
         session.abort(),
         this.#cancelListeningWork(state, "turn_timed_out"),
@@ -5819,6 +6426,7 @@ export class CopilotAgentService implements AgentService {
       state.session = undefined;
       if (this.#states.get(state.key) === state) {
         this.#states.delete(state.key);
+        this.#removeArtifactWorkspace(state);
       }
       try {
         await session.disconnect();
@@ -6156,6 +6764,7 @@ export class CopilotAgentService implements AgentService {
       this.#cancelActiveTurnTimeout(state, "user_cancelled");
       this.#cancelPendingPlans(state, "user_cancelled");
       this.#cancelPendingElicitations(state, "user_cancelled");
+      this.#cancelPendingArtifactReviews(state, "user_cancelled");
       await Promise.all([
         state.inFlightTurns === 0 ? Promise.resolve() : session.abort(),
         this.#cancelListeningWork(state, "user_cancelled"),
@@ -6210,6 +6819,7 @@ export class CopilotAgentService implements AgentService {
       this.#cancelActiveTurnTimeout(state, "user_cancelled");
       this.#cancelPendingPlans(state, "user_cancelled");
       this.#cancelPendingElicitations(state, "user_cancelled");
+      this.#cancelPendingArtifactReviews(state, "user_cancelled");
       await Promise.all([
         state.inFlightTurns === 0 ? Promise.resolve() : session.abort(),
         this.#cancelListeningWork(state, "user_cancelled"),
@@ -6447,6 +7057,7 @@ export class CopilotAgentService implements AgentService {
       state.turnKind = undefined;
       state.activeAgentMode = undefined;
       state.activeTurn = undefined;
+      this.#cancelPendingArtifactReviews(state, "turn_ended");
     }
     if (!response) {
       this.#recordRuntime(
@@ -6697,6 +7308,135 @@ export class CopilotAgentService implements AgentService {
       },
       turn,
     );
+  }
+
+  public async resolveManagedAgentArtifactReview(
+    instanceId: string,
+    request: ArtifactReviewResolution,
+  ): Promise<ArtifactReviewResolutionResult> {
+    const state = this.#requireManagedState(instanceId);
+    const pending = state.artifactReviewRequests.get(request.requestId);
+    if (pending === undefined) {
+      throw new Error("This review is no longer pending.");
+    }
+    if (pending.review.revision !== request.revision) {
+      throw new Error(
+        "The draft changed while it was being reviewed. Review the latest revision.",
+      );
+    }
+    const { draft, review } = pending;
+    const attributes = {
+      requestId: request.requestId,
+      draftId: draft.id,
+      kind: draft.kind,
+      revision: review.revision,
+    };
+    const trace = { sessionId: pending.sessionId };
+    const feedback =
+      request.feedback === undefined || request.feedback.trim() === ""
+        ? undefined
+        : request.feedback.trim().slice(0, MAX_PLAN_FEEDBACK_LENGTH);
+    const moved = (request.targets ?? []).filter(
+      (target) =>
+        review.files.find(({ id }) => id === target.fileId)?.scope !==
+        target.scope,
+    );
+    if (moved.length > 0) {
+      this.#recordRuntime(
+        state,
+        "agent.artifact_review.scope_changed",
+        { ...attributes, targets: moved },
+        trace,
+      );
+    }
+    const finish = (
+      result: ArtifactReviewResolutionResult,
+    ): ArtifactReviewResolutionResult => {
+      state.artifactReviewRequests.delete(request.requestId);
+      if (result.outcome !== "changes_requested") {
+        this.#closeArtifactDraft(
+          state,
+          result.outcome === "published" ? "published" : "discarded",
+        );
+      }
+      this.options.events.publish({
+        type: "agent.artifact_review_completed",
+        requestId: request.requestId,
+        draftId: draft.id,
+        kind: draft.kind,
+        outcome: result.outcome,
+        ...(feedback === undefined ? {} : { feedback }),
+        ...(result.error === undefined ? {} : { error: result.error }),
+        ...(result.published === undefined
+          ? {}
+          : { published: result.published }),
+        ...this.#eventAttribution(state),
+      });
+      pending.resolve({
+        ...result,
+        ...(feedback === undefined ? {} : { feedback }),
+      });
+      return result;
+    };
+    if (request.decision === "request_changes") {
+      this.#recordRuntime(
+        state,
+        "agent.artifact_review.changes_requested",
+        { ...attributes, feedbackCharacters: feedback?.length ?? 0 },
+        trace,
+      );
+      return finish({ outcome: "changes_requested" });
+    }
+    if (request.decision === "discard") {
+      this.#recordRuntime(
+        state,
+        "agent.artifact_review.discarded",
+        { ...attributes, durationMs: Date.now() - pending.startedAt },
+        trace,
+      );
+      return finish({ outcome: "discarded" });
+    }
+    // Invalid scope choices go back to the reviewer; the draft stays pending.
+    const publication = draft.publication(review, request.targets);
+    this.#recordRuntime(
+      state,
+      "agent.artifact_review.approved",
+      { ...attributes, durationMs: Date.now() - pending.startedAt },
+      trace,
+    );
+    const startedAt = Date.now();
+    this.#recordRuntime(
+      state,
+      "agent.artifact_publish.started",
+      attributes,
+      trace,
+    );
+    try {
+      const result = await this.options.artifactAuthoring!.publish(
+        state.configuration.productionSessionId,
+        publication,
+      );
+      this.#recordRuntime(
+        state,
+        "agent.artifact_publish.completed",
+        {
+          ...attributes,
+          published: result.published,
+          durationMs: Date.now() - startedAt,
+        },
+        trace,
+      );
+      return finish({ outcome: "published", published: result.published });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.#recordRuntime(
+        state,
+        "agent.artifact_publish.failed",
+        { ...attributes, error: message, durationMs: Date.now() - startedAt },
+        trace,
+      );
+      return finish({ outcome: "publish_failed", error: message });
+    }
   }
 
   public async resolveManagedAgentPlan(
@@ -7095,6 +7835,7 @@ export class HeadlessApplication {
       | "getManagedAgentSessionId"
       | "getManagedAgentHistory"
       | "resolveManagedAgentPlan"
+      | "resolveManagedAgentArtifactReview"
       | "readManagedAgentPlan"
       | "writeManagedAgentPlan"
       | "resolveManagedAgentElicitation"
@@ -7298,6 +8039,21 @@ export class HeadlessApplication {
       );
     }
     return this.#requireManagedAgentMethod("resolveManagedAgentPlan")(
+      instanceId,
+      request,
+    );
+  }
+
+  public resolveManagedAgentArtifactReview(
+    instanceId: string,
+    request: ArtifactReviewResolution,
+  ): Promise<ArtifactReviewResolutionResult> {
+    if (this.#state !== "ready" && this.#state !== "degraded") {
+      return Promise.reject(
+        new Error(`Application is not running (${this.#state})`),
+      );
+    }
+    return this.#requireManagedAgentMethod("resolveManagedAgentArtifactReview")(
       instanceId,
       request,
     );

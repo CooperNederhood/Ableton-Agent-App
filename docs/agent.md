@@ -47,7 +47,9 @@ When the user activates an agent, `CopilotAgentService` builds a
   entries the active agent can start as sub-agents (see
   [Sub-agents](#sub-agents)).
 - **System message**: the base system message, an identity block (the current
-  Live Set ID, Project ID and app-session ID), and the list of enabled skills.
+  Live Set ID, Project ID and app-session ID), the list of enabled skills, and
+  a **Memory** section built from every scope's `memory/INDEX.md` (see
+  [Memory and skill authoring](#memory-and-skill-authoring)).
 - **Hooks and callbacks**: the agent policy hooks, the permission handler,
   elicitation (`ask_user`) and plan-approval handlers.
 - **Large output**: big tool results spill to a file in the profile's storage.
@@ -176,7 +178,10 @@ resets that agent.
 ## Agent Skills
 
 A **skill** is a folder with a `SKILL.md`: YAML front matter (`name`,
-`description`) followed by Markdown instructions. Bundled skills are in
+`description`, and an optional `argument-hint`) followed by Markdown
+instructions. Typing `/` in the composer lists skills, and an
+`argument-hint` is shown there as the usage line (`/{name} {argument-hint}`).
+Bundled skills are in
 `skills/` (for example `midi-composition`, `mix-review`,
 `set-history-sql-search`).
 
@@ -193,6 +198,90 @@ Skills are loaded progressively so they don't bloat every prompt:
 The SDK's own skill tool is deliberately excluded. Skills add knowledge; they
 never grant extra tools or edit rights. Parsing for `/skill` commands is in
 `packages/agent-config/src/skill-invocation.ts`.
+
+## Memory and skill authoring
+
+Memory and skills are plain folders of text files at each scope (System,
+Profile, Project, Live Set and Session; skills skip Live Set). A memory folder
+is a small wiki: one `{topic}.md` per topic, with a `description` in its front
+matter, plus an `INDEX.md` the app generates from those descriptions. Each
+scope holds at most 19 topics of at most 16 KiB.
+
+Every scope's `INDEX.md` goes into the system message, broadest first and
+capped at 12 KiB. Topic bodies are not preloaded; the agent reads them when
+it needs them.
+
+Two bundled skills let the agent write memory and skills:
+
+```text
+/update-memory
+/update-memory remember that I prefer -14 LUFS masters --scope profile
+/learn-skill turn the sidechain setup we just did into a skill --scope project
+```
+
+- With no request, `update-memory` looks back over the session and drafts
+  what seems worth keeping; `learn-skill` turns a repeatable procedure from
+  the session into a skill.
+- `--scope system|profile|project|live-set|session` is optional and can go
+  anywhere in the request. Memory defaults to Session and skills to Profile.
+- The model can also load either skill itself with the `skill` tool.
+
+### The workspace
+
+Loading either skill opens one in-memory **draft**
+(`packages/application/src/artifact-authoring.ts`). The agent edits a
+per-session scratch folder, the **artifact workspace**
+(`artifact-workspace.ts`), with the SDK's own file tools. The folder holds
+copies of `memory/{scope}/…` and `skills/{name}/SKILL.md`. The app reseeds it
+when a draft opens, when a draft closes without publishing, and whenever it
+reloads the memory index for a turn, so unsaved edits never look saved.
+
+Every SDK file call asks the permission handler first, and
+`evaluateArtifactWorkspacePermission` decides:
+
+| Access                          | Allowed when                                                                                                          |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Read (`view`, `glob`, `grep`)   | The path is inside the workspace or the tool-output spill folder.                                                     |
+| Write (`create`, `edit`)        | A draft of the matching kind is open, no review is pending, the path is a valid artifact path (not `INDEX.md`), and the scope is writable. |
+| `bash` `rm`                     | A single, flag-free `rm` of a writable draft memory topic. Emptying a topic file also deletes it.                     |
+| `bash` `mkdir`                  | A single `mkdir [-p]` of a new `skills/{name}` folder during a skill draft; `create` refuses a missing parent folder. |
+
+Everything else, including symbolic links, is refused with a hint the model
+can act on. File tool refusals use the code `artifact_workspace_blocked`;
+`bash` refusals use `shell_policy_blocked`. Skills cannot
+be deleted.
+
+When `bash` runs in the OS sandbox, the two `bash` rows don't apply. The
+sandbox lets bash write to its scratch folder and to this session's artifact
+workspace, and nowhere else. Writes there are still published only through
+review: when a draft is submitted, the app compares the workspace with its
+starting copy.
+
+### Review
+
+The agent calls `submit_artifact_draft` when it is done. It first waits (up to
+30 seconds) for any `create` or `edit` calls still running alongside it, so a
+parallel write is not missed. If submit fails, the agent gets the reason
+as text. The app then collects the
+workspace changes, checks them, and blocks the tool call until the user
+decides in the Inspector (see [Desktop app](desktop-app.md#memory-and-skill-review)):
+
+| Decision          | What the agent gets back                                   |
+| ----------------- | ---------------------------------------------------------- |
+| `approve`         | The published paths, or the publish error.                 |
+| `request_changes` | The user's feedback; the draft stays open for a revision.  |
+| `discard`         | The draft closes; nothing is written.                      |
+
+Publishing writes through the scoped artifact services and is checked against
+a fingerprint taken when the draft was read. If the files changed in the
+meantime, publishing fails and the agent is told to reload the skill. Skill
+publication refreshes the agent catalog. A narrower skill with the same name
+blocks publication, and two files cannot target the same topic in one scope.
+Non-interactive CLI runs reject reviews, just like plan approvals.
+
+Lifecycle events (`agent.artifact_draft.*`, `agent.artifact_review.*`,
+`agent.artifact_publish.*`, `agent.artifact_workspace.*`) carry trace and
+correlation IDs but never file bodies.
 
 ## Hooks
 
@@ -281,6 +370,7 @@ tool list and edit scope.
 | Plan file storage                     | `packages/application/src/plan-artifact.ts`              |
 | Prompts                               | `packages/application/prompts/`                          |
 | Agent/skill schemas, loader, patterns | `packages/agent-config/src/`                             |
+| Memory library, authoring, workspace  | `packages/agent-config/src/memory.ts`, `packages/application/src/artifact-*.ts` |
 | Runtime wiring                        | `packages/runtime/src/composition.ts`                    |
 | Per-turn project context              | `packages/runtime/src/prepared-context.ts`               |
 | Approval policy and UI bridge         | `apps/desktop/src/main/approvals.ts`                     |

@@ -51,6 +51,8 @@ import type {
   DesktopAgentModel,
   DesktopCopilotAuthStatus,
   DesktopAgentMode,
+  DesktopAgentArtifactReviewResolution,
+  DesktopAgentArtifactReviewResult,
   DesktopPlanArtifactSnapshot,
   DesktopAutoApprovalUpdate,
   DesktopConnectionStatus,
@@ -161,6 +163,10 @@ export interface DesktopService {
       feedback?: string;
     },
   ): Promise<boolean>;
+  resolveActiveAgentArtifactReview(
+    instanceId: string,
+    request: DesktopAgentArtifactReviewResolution,
+  ): Promise<DesktopAgentArtifactReviewResult>;
   readActiveAgentPlan(instanceId: string): Promise<DesktopPlanArtifactSnapshot>;
   writeActiveAgentPlan(
     instanceId: string,

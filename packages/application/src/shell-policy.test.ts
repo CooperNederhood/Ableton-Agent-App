@@ -462,3 +462,147 @@ describe("spill file shell permission", () => {
     });
   });
 });
+
+describe("artifact workspace shell permission", () => {
+  async function workspaceFixture() {
+    const { directory } = await fixture();
+    const root = join(directory, "..", "workspace");
+    await mkdir(join(root, "memory/session"), { recursive: true });
+    await mkdir(join(root, "skills/mix"), { recursive: true });
+    const topic = join(root, "memory/session/genres.md");
+    await writeFile(topic, "---\nname: genres\ndescription: G\n---\n\nG.\n");
+    await writeFile(join(root, "memory/session/INDEX.md"), "index");
+    await writeFile(join(root, "skills/mix/SKILL.md"), "skill");
+    return { directory, root, topic };
+  }
+  const draft = {
+    kind: "memory" as const,
+    reviewPending: false,
+    writableScopes: ["session" as const],
+  };
+  const command = (path: string, text: string, identifier: string) =>
+    shellRequest(path, {
+      commands: [{ identifier, readOnly: identifier !== "rm" }],
+      commandSegments: [{ identifier, fullCommandText: text }],
+      fullCommandText: text,
+      possiblePaths: [path],
+      resolvedPaths: { [path]: path },
+    });
+
+  it("allows read-only inspection of workspace files", async () => {
+    const { directory, root, topic } = await workspaceFixture();
+    expect(
+      evaluateSpillFileShellPolicy(
+        command(topic, `grep -n genres '${topic}'`, "grep"),
+        directory,
+        { workspace: { root } },
+      ).result,
+    ).toEqual({ kind: "approve-once" });
+    expect(
+      evaluateSpillFileShellPermission(
+        command(topic, `grep -n genres '${topic}'`, "grep"),
+        directory,
+      ),
+    ).toMatchObject({ kind: "reject" });
+  });
+
+  it("allows rm of a writable memory topic while a draft is open", async () => {
+    const { directory, root, topic } = await workspaceFixture();
+    expect(
+      evaluateSpillFileShellPolicy(
+        command(topic, `rm '${topic}'`, "rm"),
+        directory,
+        { workspace: { root, draft } },
+      ),
+    ).toMatchObject({
+      result: { kind: "approve-once" },
+      diagnostics: { stage: "approved" },
+    });
+  });
+
+  it.each([
+    ["without a draft", undefined, "memory/session/genres.md", "rm"],
+    ["of INDEX.md", draft, "memory/session/INDEX.md", "rm"],
+    ["of a skill", draft, "skills/mix/SKILL.md", "rm"],
+    ["with flags", draft, "memory/session/genres.md", "rm -f"],
+  ])("rejects rm %s", async (_label, open, path, rm) => {
+    const { directory, root } = await workspaceFixture();
+    const file = join(root, path);
+    const evaluation = evaluateSpillFileShellPolicy(
+      command(file, `${rm} '${file}'`, "rm"),
+      directory,
+      { workspace: { root, ...(open === undefined ? {} : { draft: open }) } },
+    );
+    expect(evaluation.result).toMatchObject({ kind: "reject" });
+    expect(evaluation.diagnostics?.stage).not.toBe("approved");
+  });
+
+  it("rejects rm in a pipeline or outside the workspace", async () => {
+    const { directory, root, topic, file } = {
+      ...(await workspaceFixture()),
+      file: join(tmpdir(), "outside.md"),
+    };
+    const piped = `rm '${topic}' | head -n 1`;
+    expect(
+      evaluateSpillFileShellPolicy(
+        shellRequest(topic, {
+          commands: [{ identifier: "rm", readOnly: false }],
+          commandSegments: [
+            { identifier: "rm", fullCommandText: `rm '${topic}'` },
+            { identifier: "head", fullCommandText: "head -n 1" },
+          ],
+          fullCommandText: piped,
+          possiblePaths: [topic],
+        }),
+        directory,
+        { workspace: { root, draft } },
+      ).diagnostics?.stage,
+    ).toBe("unsupported_command");
+    expect(
+      evaluateSpillFileShellPolicy(
+        command(file, `rm '${file}'`, "rm"),
+        directory,
+        { workspace: { root, draft } },
+      ).diagnostics?.stage,
+    ).toBe("invalid_workspace_delete");
+  });
+
+  const skillDraft = { ...draft, kind: "skill" as const };
+
+  it.each(["mkdir", "mkdir -p"])(
+    "allows %s of a new skill folder during a skill draft",
+    async (mkdir) => {
+      const { directory, root } = await workspaceFixture();
+      const folder = join(root, "skills/drum-rack");
+      expect(
+        evaluateSpillFileShellPolicy(
+          command(folder, `${mkdir} '${folder}'`, "mkdir"),
+          directory,
+          { workspace: { root, draft: skillDraft } },
+        ),
+      ).toMatchObject({
+        result: { kind: "approve-once" },
+        diagnostics: { stage: "approved" },
+      });
+    },
+  );
+
+  it.each([
+    ["without a draft", undefined, "skills/drum-rack"],
+    ["during a memory draft", draft, "skills/drum-rack"],
+    ["with an invalid skill name", skillDraft, "skills/Drum Rack"],
+    ["of a nested folder", skillDraft, "skills/drum-rack/refs"],
+    ["of a memory folder", skillDraft, "memory/session/x"],
+    ["outside the workspace", skillDraft, "../outside"],
+  ])("rejects mkdir %s", async (_label, open, path) => {
+    const { directory, root } = await workspaceFixture();
+    const folder = join(root, path);
+    const evaluation = evaluateSpillFileShellPolicy(
+      command(folder, `mkdir -p '${folder}'`, "mkdir"),
+      directory,
+      { workspace: { root, ...(open === undefined ? {} : { draft: open }) } },
+    );
+    expect(evaluation.result).toMatchObject({ kind: "reject" });
+    expect(evaluation.diagnostics?.stage).not.toBe("approved");
+  });
+});

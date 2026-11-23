@@ -143,6 +143,7 @@ function rendererState(active = true): DesktopState {
         {
           version: 2,
           name: "default",
+          color: "#ffa529",
           label: "Default",
           description: "General agent.",
           systemPrompt: "Help.",
@@ -203,7 +204,13 @@ function desktopApi(
       ...skillOverrides,
     },
     profiles: {
-      get: vi.fn().mockResolvedValue({ revision: "a".repeat(64) }),
+      get: vi.fn().mockResolvedValue({
+        revision: "a".repeat(64),
+        activeProfile: "default",
+        selectedProfile: "default",
+        profiles: [],
+        artifacts: [],
+      }),
       status: vi.fn().mockResolvedValue({
         revision: "a".repeat(64),
         activeProfile: "default",
@@ -860,7 +867,7 @@ describe("desktop component interactions", () => {
 
     expect(read).not.toHaveBeenCalled();
     expect(container.textContent).not.toContain("interview-me");
-    expect(container.textContent).toContain("No valid skills found");
+    expect(container.textContent).toContain("No skills yet");
   });
 
   it("publishes new skill metadata and adds the skill to the navigator", async () => {
@@ -1096,6 +1103,7 @@ describe("desktop component interactions", () => {
     state.agentCatalog.definitions.push({
       version: 2,
       name: "compose",
+      color: "#e0e05a",
       label: "Compose",
       description: "Composition agent.",
       systemPrompt: "Compose.",
@@ -1141,9 +1149,9 @@ describe("desktop component interactions", () => {
       ),
     ];
     expect(navigationItems.map((item) => item.textContent)).toEqual([
-      "Defaultdefault",
-      "Default 2default",
-      "ComposeComposition agent.",
+      "Default",
+      "Default 2",
+      "Compose",
     ]);
     expect(
       navigationItems.map((item) =>
@@ -1194,6 +1202,7 @@ describe("desktop component interactions", () => {
     state.agentCatalog.definitions.push({
       version: 2,
       name: "compose",
+      color: "#e0e05a",
       label: "Compose",
       description: "Composition agent.",
       systemPrompt: "Compose.",
@@ -1269,13 +1278,14 @@ describe("desktop component interactions", () => {
       ),
     ].find((input) =>
       input.parentElement?.textContent?.includes(
-        "Automatically approve eligible tool requests",
+        "Ask me before it changes Live",
       ),
     );
     if (automaticApproval === undefined) {
       throw new Error("Automatic approval control not found");
     }
     await act(async () => automaticApproval.click());
+    await clickAria(container, "Use color #d47fd4 for New Compose");
     const connectionsTab = visibleDetail.querySelector<HTMLButtonElement>(
       'button[aria-label="Connections"]',
     );
@@ -1314,6 +1324,7 @@ describe("desktop component interactions", () => {
         model: "model-b",
         reasoningEffort: "xhigh",
         autoApprove: true,
+        color: "#d47fd4",
         eventListeners: [
           expect.objectContaining({
             eventId,
@@ -1747,20 +1758,25 @@ describe("desktop component interactions", () => {
       if (prompt === null) throw new Error("Expected Workspace composer");
       await replaceText(prompt, "Preserve this workspace draft");
 
+      await click(container, "More");
       const navigation = [
         ...container.querySelectorAll("#application-views button"),
       ].map((button) => button.textContent);
       for (const advanced of ["Events", "Browser", "Diagnostics"]) {
         expect(navigation.includes(advanced)).toBe(showAdvancedViews);
       }
-      expect(navigation).toContain("Settings");
+      expect(navigation).toEqual(
+        expect.arrayContaining(["Agents", "Memory", "Outputs", "Settings"]),
+      );
+      await click(container, "More");
 
-      for (const view of [
-        "Agents",
-        "Outputs",
-        ...(showAdvancedViews ? ["Events"] : []),
-        "Settings",
-      ]) {
+      for (const [view, inMoreMenu] of [
+        ["Agents", false],
+        ["Outputs", true],
+        ...(showAdvancedViews ? [["Events", true] as const] : []),
+        ["Settings", true],
+      ] as const) {
+        if (inMoreMenu) await click(container, "More");
         await click(container, view);
         expect(container.querySelector("#prompt")).toBeNull();
       }
@@ -1837,6 +1853,7 @@ describe("desktop component interactions", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+    await click(container, "More");
     await click(container, "Outputs");
     const request = {
       requestId: "plan-routing",
@@ -1855,9 +1872,7 @@ describe("desktop component interactions", () => {
       });
       await Promise.resolve();
     });
-    expect(button(container, "Outputs").classList.contains("selected")).toBe(
-      true,
-    );
+    expect(button(container, "More").classList.contains("selected")).toBe(true);
 
     await act(async () => {
       publish({
@@ -2158,6 +2173,304 @@ describe("desktop component interactions", () => {
       await Promise.resolve();
     });
     expect(container.textContent).not.toContain("Arrangement plan");
+  });
+
+  it("reviews a memory draft in the Inspector, moves its scope, and publishes", async () => {
+    let publish!: (event: DesktopAppEvent) => void;
+    const resolveArtifactReview = vi
+      .fn()
+      .mockResolvedValueOnce({
+        outcome: "publish_failed",
+        error: "Project memory changed since the draft",
+      })
+      .mockResolvedValue({ outcome: "published" });
+    const state = rendererState();
+    const desktop = {
+      lifecycle: { get: vi.fn().mockResolvedValue("ready") },
+      ableton: {
+        getStatus: vi.fn().mockResolvedValue({ state: "disconnected" }),
+      },
+      preferences: {
+        get: vi.fn().mockResolvedValue(initialState.preferences),
+      },
+      agent: { getSessions: vi.fn().mockResolvedValue(state.sessions) },
+      agents: {
+        getCatalog: vi.fn().mockResolvedValue(state.agentCatalog),
+        hydrateHistory: vi.fn().mockResolvedValue([]),
+        resolveArtifactReview,
+        readPlan: vi.fn().mockResolvedValue({
+          exists: false,
+          productionSessionId: sessionId,
+        }),
+      },
+      outputs: {
+        list: vi.fn().mockResolvedValue({
+          ...initialState.outputs,
+          activeSessionId: sessionId,
+        }),
+      },
+      events: {
+        list: vi.fn().mockResolvedValue(initialState.events),
+        subscribe: vi.fn((listener: (event: DesktopAppEvent) => void) => {
+          publish = listener;
+          return vi.fn();
+        }),
+      },
+    } as unknown as DesktopApi;
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: desktop,
+    });
+    await act(async () => {
+      root.render(<App />);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      publish({
+        type: "agent.artifact_review_requested",
+        agentInstanceId: agentId,
+        sdkSessionId: "sdk-1",
+        request: {
+          requestId: "review-1",
+          draftId: "draft-1",
+          kind: "memory",
+          summary: "Remember the mix bus chain",
+          revision: 1,
+          maxTopicsPerScope: 19,
+          scopes: [
+            {
+              scope: "system",
+              label: "System",
+              meaning: "Every profile",
+              available: false,
+              unavailableReason: "System memory is read-only",
+            },
+            {
+              scope: "project",
+              label: "Project",
+              meaning: "This project",
+              available: true,
+              topicCount: 2,
+            },
+            {
+              scope: "session",
+              label: "Session",
+              meaning: "This session",
+              available: true,
+              topicCount: 0,
+            },
+          ],
+          files: [
+            {
+              id: "memory:mix-bus@session",
+              kind: "memory_topic",
+              name: "mix-bus",
+              change: "added",
+              scope: "session",
+              movable: true,
+              after: "# Mix bus\n\nGlue compressor first.\n",
+              currentByScope: {
+                project: "# Mix bus\n\nSaturator first.\n",
+              },
+            },
+          ],
+        },
+      });
+      await Promise.resolve();
+    });
+    await click(container, "Workspace");
+    expect(container.textContent).toContain("Remember the mix bus chain");
+    expect(container.textContent).toContain("Review 1 memory change");
+    expect(container.textContent).toContain("mix-bus.md");
+    expect(container.textContent).toContain("+3 −0");
+
+    const rungs = [
+      ...container.querySelectorAll<HTMLButtonElement>(
+        '[aria-label="Publish to"] [role="radio"]',
+      ),
+    ];
+    const rung = (label: string): HTMLButtonElement => {
+      const match = rungs.find((candidate) =>
+        candidate.textContent?.includes(label),
+      );
+      if (match === undefined) throw new Error(`Scope '${label}' not found`);
+      return match;
+    };
+    expect(rung("System").disabled).toBe(true);
+    expect(rung("System").title).toContain("System memory is read-only");
+    expect(rung("Session").getAttribute("aria-checked")).toBe("true");
+
+    await act(async () => {
+      rung("Project").click();
+      await Promise.resolve();
+    });
+    expect(rung("Project").getAttribute("aria-checked")).toBe("true");
+    expect(container.textContent).toContain("modified");
+    expect(container.textContent).toContain("+1 −1");
+    expect(
+      container.querySelector(".artifact-diff-line.del code")?.textContent,
+    ).toBe("Saturator first.");
+
+    await click(container, "Approve & publish");
+    expect(resolveArtifactReview).toHaveBeenCalledWith(agentId, {
+      requestId: "review-1",
+      revision: 1,
+      decision: "approve",
+      targets: [{ fileId: "memory:mix-bus@session", scope: "project" }],
+    });
+    expect(container.textContent).toContain(
+      "Project memory changed since the draft",
+    );
+
+    await act(async () => {
+      publish({
+        type: "agent.artifact_review_completed",
+        agentInstanceId: agentId,
+        sdkSessionId: "sdk-1",
+        requestId: "review-1",
+        draftId: "draft-1",
+        kind: "memory",
+        outcome: "published",
+      });
+      await Promise.resolve();
+    });
+    expect(container.textContent).not.toContain("Remember the mix bus chain");
+    expect(container.querySelector("#prompt")).not.toBeNull();
+  });
+
+  it("blocks publishing a shadowed skill and sends change requests", async () => {
+    let publish!: (event: DesktopAppEvent) => void;
+    const resolveArtifactReview = vi
+      .fn()
+      .mockResolvedValue({ outcome: "changes_requested" });
+    const state = rendererState();
+    const desktop = {
+      lifecycle: { get: vi.fn().mockResolvedValue("ready") },
+      ableton: {
+        getStatus: vi.fn().mockResolvedValue({ state: "disconnected" }),
+      },
+      preferences: {
+        get: vi.fn().mockResolvedValue(initialState.preferences),
+      },
+      agent: { getSessions: vi.fn().mockResolvedValue(state.sessions) },
+      agents: {
+        getCatalog: vi.fn().mockResolvedValue(state.agentCatalog),
+        hydrateHistory: vi.fn().mockResolvedValue([]),
+        resolveArtifactReview,
+        readPlan: vi.fn().mockResolvedValue({
+          exists: false,
+          productionSessionId: sessionId,
+        }),
+      },
+      outputs: {
+        list: vi.fn().mockResolvedValue({
+          ...initialState.outputs,
+          activeSessionId: sessionId,
+        }),
+      },
+      events: {
+        list: vi.fn().mockResolvedValue(initialState.events),
+        subscribe: vi.fn((listener: (event: DesktopAppEvent) => void) => {
+          publish = listener;
+          return vi.fn();
+        }),
+      },
+    } as unknown as DesktopApi;
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: desktop,
+    });
+    await act(async () => {
+      root.render(<App />);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      publish({
+        type: "agent.artifact_review_requested",
+        agentInstanceId: agentId,
+        sdkSessionId: "sdk-1",
+        request: {
+          requestId: "review-2",
+          draftId: "draft-2",
+          kind: "skill",
+          summary: "Teach sidechain setup",
+          revision: 2,
+          maxTopicsPerScope: 19,
+          scopes: [
+            {
+              scope: "profile",
+              label: "Profile",
+              meaning: "Every project",
+              available: true,
+            },
+            {
+              scope: "session",
+              label: "Session",
+              meaning: "This session",
+              available: true,
+            },
+          ],
+          files: [
+            {
+              id: "skill:sidechain",
+              kind: "skill",
+              name: "sidechain",
+              change: "modified",
+              scope: "profile",
+              movable: true,
+              after:
+                "---\nname: sidechain\ndescription: Duck pads\n---\n\nUse a compressor.\n",
+              currentByScope: {},
+              existingOrigin: "session",
+            },
+          ],
+        },
+      });
+      await Promise.resolve();
+    });
+    await click(container, "Workspace");
+    expect(container.textContent).toContain("Review skill 'sidechain'");
+    expect(container.textContent).toContain("Revision 2");
+    expect(container.textContent).toContain("would still win over this one");
+    expect(button(container, "Approve & publish").disabled).toBe(true);
+
+    const select = container.querySelector<HTMLSelectElement>(
+      'select[aria-label="Scope for sidechain"]',
+    );
+    if (select === null) throw new Error("Scope select not found");
+    await act(async () => {
+      select.value = "session";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(button(container, "Approve & publish").disabled).toBe(false);
+
+    await click(container, "Source");
+    expect(container.querySelector(".artifact-source")?.textContent).toContain(
+      "Use a compressor.",
+    );
+
+    const feedback = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder^="Describe what the agent should change"]',
+    );
+    if (feedback === null) throw new Error("Draft feedback field not found");
+    await act(async () => {
+      feedback.setRangeText("Mention the threshold", 0, 0, "end");
+      feedback.dispatchEvent(new Event("input", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await click(container, "Request changes");
+    expect(resolveArtifactReview).toHaveBeenCalledWith(agentId, {
+      requestId: "review-2",
+      revision: 2,
+      decision: "request_changes",
+      feedback: "Mention the threshold",
+    });
   });
 
   it("keeps a stale plan visible after resolution failure and prevents double submission", async () => {
@@ -2783,7 +3096,7 @@ describe("desktop component interactions", () => {
     expect(container.textContent).toContain("Create two arrangement clips.");
 
     const closeApproval = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Close Approval"]',
+      'button[aria-label="Close Approval tab"]',
     );
     if (closeApproval === null) throw new Error("Approval close not found");
     await act(async () => closeApproval.click());

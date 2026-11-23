@@ -139,6 +139,8 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
             ...request,
           })
         ).resolved,
+      resolveArtifactReview: (instanceId, request) =>
+        invoke("agents:resolve-artifact-review", { instanceId, ...request }),
       readPlan: (instanceId) => invoke("agents:read-plan", { instanceId }),
       writePlan: (instanceId, input) =>
         invoke("agents:write-plan", { instanceId, ...input }),
@@ -223,6 +225,8 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
       deleteArtifact: (request) => invoke("profiles:delete-artifact", request),
       setArtifactDisabled: (request) =>
         invoke("profiles:set-artifact-disabled", request),
+      readMemory: (request) => invoke("profiles:read-memory", request),
+      saveMemory: (request) => invoke("profiles:save-memory", request),
     },
     ableton: {
       connect: () => invoke("ableton:connect", {}),

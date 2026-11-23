@@ -1960,6 +1960,7 @@ function normalizeSessionConfiguration(
             systemPrompt: delegate.systemPrompt,
             resolvedTools: bareToolNames(delegate.resolvedTools),
             skills: dedupeStrings(delegate.skills),
+            hideResultFromParent: delegate.hideResultFromParent === true,
             ...(delegate.model === undefined ? {} : { model: delegate.model }),
             ...(delegate.reasoningEffort === undefined
               ? {}

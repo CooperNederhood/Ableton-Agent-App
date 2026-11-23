@@ -186,9 +186,12 @@ class _Pass(object):
         if self.identity_builder(song)["liveSetId"] != self.params["expectedLiveSetId"]:
             _fail("Session pass Live Set identity changed")
         self.listener()
-        for field in ("record_mode", "session_record", "session_automation_record"):
+        for field in ("record_mode", "session_record"):
             if _safe_lom_getattr(song, field) is not False:
                 _fail("Session pass requires known recording-off: " + field)
+        # Automation Arm alone writes nothing during playback; only unknown blocks.
+        if not isinstance(_safe_lom_getattr(song, "session_automation_record"), bool):
+            _fail("Session pass requires known Automation Arm state")
         if _overdub_state(song) is not False:
             _fail("Session pass requires known overdub-off")
         return self.snapshot()

@@ -21,6 +21,7 @@ import {
   type SessionListeningLaunchDetail,
   type ListeningFailureEvidence,
   readListeningFailureEvidence,
+  listeningRecordingBlockers,
   sessionMusicalAlignment,
 } from "@ableton-agent/protocol";
 import {
@@ -442,9 +443,8 @@ export function createSessionListeningServices(
         !registration.nativeStatus.supportedModes.includes("session") ||
         binding.inspection.transport.playing !== false ||
         !binding.inspection.transport.safeToStart ||
-        Object.values(binding.inspection.transport.recording).some(
-          (value) => value !== false,
-        ) ||
+        listeningRecordingBlockers(binding.inspection.transport.recording)
+          .length > 0 ||
         binding.inspection.transport.tempo !== expected.source.settings.tempoBpm
       )
         deny("session_transport_or_recording_unsafe", undefined, [
@@ -470,7 +470,11 @@ export function createSessionListeningServices(
           ),
           ...Object.entries(binding.inspection.transport.recording).map(
             ([key, value]) =>
-              failureFact(`transport.recording.${key}`, value, false),
+              failureFact(
+                `transport.recording.${key}`,
+                value,
+                key === "sessionAutomationRecord" ? "true|false" : false,
+              ),
           ),
           failureFact(
             "transport.tempo",

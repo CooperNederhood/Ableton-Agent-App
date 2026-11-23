@@ -362,7 +362,7 @@ class SessionListeningPassTest(unittest.TestCase):
         for obj, field, value in (
             ("song", "is_playing", True), ("song", "record_mode", True),
             ("song", "overdub", None), ("song", "session_record", None),
-            ("song", "session_automation_record", True),
+            ("song", "session_automation_record", None),
             ("song", "tempo", None), ("song", "tempo", 0.1),
             ("song", "current_song_time", None), ("song", "signature_denominator", None),
             ("song", "signature_numerator", 3), ("song", "clip_trigger_quantization", 5),

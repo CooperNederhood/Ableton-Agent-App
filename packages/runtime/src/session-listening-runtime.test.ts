@@ -381,6 +381,7 @@ async function fixture(
     sessionListeningPass,
     inspectSessionListeningSource,
     inspectListeningContext,
+    telemetry: dependencies.telemetry as { enqueue: ReturnType<typeof vi.fn> },
     stopTransport,
     positionListeningPlayback,
     startListeningPlayback,
@@ -772,6 +773,23 @@ describe("production v5 Session host with synthetic native peer", () => {
     expect(entry.payload.schema).toBe("metric-record-stream-context/v1");
     expect(f.log).toContain("session:release");
     expect(f.peer.subscribers.size).toBe(0);
+  });
+
+  it("regression: listens with Session Automation Arm on and records that it was on", async () => {
+    const f = await fixture("midi", false);
+    const inspect = f.inspectListeningContext.getMockImplementation()!;
+    f.inspectListeningContext.mockImplementation(async (params) => {
+      const result = await inspect(params);
+      result.transport.recording.sessionAutomationRecord = true;
+      return result;
+    });
+    expect((await f.run()).stage).toBe("completed");
+    expect(f.sessionListeningPass).toHaveBeenCalled();
+    expect(
+      f.telemetry.enqueue.mock.calls.some(([event]) =>
+        JSON.stringify(event).includes("Automation Arm is on"),
+      ),
+    ).toBe(true);
   });
 
   it("denies disabled qualification without acquiring a source or native capture", async () => {

@@ -266,10 +266,17 @@ class ListeningPlaybackTest(unittest.TestCase):
             self.assertEqual(result["error"]["code"], "unsupported_capability")
             self.assertEqual(before, vars(state))
 
+    def test_session_automation_arm_on_does_not_block_playback(self):
+        self.song.session_automation_record = True
+        start_listening_playback(self.context, self.params)
+        self.assertNotEqual(self.calls, [])
+
     def test_recording_unknown_set_or_listener_states_cannot_bypass_the_gate(self):
         for field in ("is_playing", "record_mode", "session_record", "arrangement_overdub",
                       "session_automation_record", "overdub", "loop", "back_to_arranger"):
             for value in (True, None):
+                if field == "session_automation_record" and value is True:
+                    continue
                 before = getattr(self.song, field)
                 setattr(self.song, field, value)
                 with self.assertRaises(ProtocolFailure):
@@ -521,7 +528,7 @@ class DeferredMarkerStartTest(unittest.TestCase):
 
     def test_post_start_recording_change_fails_without_stopping_or_rewinding(self):
         self.begin()
-        self.song.session_automation_record = True
+        self.song.session_record = True
         self.drain()
         self.assertEqual(self.success, [])
         self.assertEqual(len(self.failures), 1)

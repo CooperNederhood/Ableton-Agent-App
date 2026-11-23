@@ -239,7 +239,12 @@ class ListeningCommandsTest(unittest.TestCase):
             self.assertIsNone(evidence["firedSlotIndex"])
 
     def test_recording_or_unknown_flags_and_clip_state_fail_closed(self):
-        for field in ("record_mode", "session_record", "overdub", "session_automation_record"):
+        self.song.session_automation_record = True
+        self.assertTrue(self.inspect()["transport"]["safeToStart"])
+        self.song.session_automation_record = None
+        self.assertFalse(self.inspect()["transport"]["safeToStart"])
+        self.song.session_automation_record = False
+        for field in ("record_mode", "session_record", "overdub"):
             setattr(self.song, field, True)
             self.assertFalse(self.inspect()["transport"]["safeToStart"], field)
             setattr(self.song, field, None)

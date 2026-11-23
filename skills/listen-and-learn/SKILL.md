@@ -13,9 +13,21 @@ you were wrong, you turn the mistake into a memory proposal so you hear it
 correctly next time.
 
 The quiz agent's replies are hidden from you by design; the app only tells you
-that it finished. The test is only fair if you also keep yourself blind: until
-step 6, never read the quiz clip's notes (`ableton_midi_notes`, Set History,
-or note counts).
+that it finished.
+
+**The whole point is that you do NOT peek at the MIDI.** The quiz measures
+what you can hear, so the order below is the rule, not a suggestion:
+
+1. Listen to the clip.
+2. Write the pattern you heard as an ASCII grid in the sandbox, and show it
+   in chat.
+3. **Only then** read the real notes.
+4. Check whether your hearing was right.
+
+Until your answer is saved (step 5), never call `ableton_midi_notes`, never
+search Set History for the clip, and ignore any note count a Session or clip
+inspect shows. If you read or saw the notes early, stop: tell the user this
+quiz is void, and start a new one on a fresh slot.
 
 ## 1. Prepare
 
@@ -39,19 +51,28 @@ slot. Do not suggest a pattern.
 ## 3. Confirm the clip exists
 
 Inspect the Session to confirm that slot now holds a MIDI clip named "Quiz".
-Use only its location, length, and loop, nothing about its notes. If it is
-missing, report that the quiz agent failed and stop.
+Use only its location, length, and loop. Do not read, mention, or reason from
+its note count or anything else about its notes. If it is missing, report that
+the quiz agent failed and stop.
 
 ## 4. Listen
 
 Play the clip with `ableton_listening` action `play-session-and-listen`, then
-read the measurements with `ableton_context`. Listen again, or look at other
-features, until you have a confident answer or no new evidence.
+read the measurements with `ableton_context`. You must read them; the listen
+result alone is not an answer. Listen again, or look at other features, until
+you have a confident answer or no new evidence. Everything you conclude here
+must come from audio.
 
-## 5. Write your answer before you check
+## 5. Write your answer down before you check
 
-Write your transcription in the chat **before** reading the real notes. Use a
-grid with one row per drum pad (or per pitch) and one column per 16th note:
+Your next step is writing, not checking. **Do not call `ableton_midi_notes`
+yet.**
+
+Write your transcription as an ASCII grid with one row per drum pad (or per
+pitch) and one column per 16th note, one block per bar. Save it in the
+sandbox with `bash`, for example `cat > listen-answer.txt <<'EOF' … EOF` in
+the scratch directory, then show the same grid in chat. If bash cannot write
+files in this session, the chat copy is your saved answer.
 
 ```text
           1 . . . 2 . . . 3 . . . 4 . . .
@@ -61,13 +82,15 @@ Hi-hat    x . x . x . x . x . x . x . x .
 ```
 
 Mark accents with `X`, and give your confidence for each row and the audio
-evidence behind it.
+evidence behind it. Once it is saved, do not change it.
 
 ## 6. Check against the real notes
 
-Now read the clip's notes with `ableton_midi_notes` action `query`. Map drum
-notes to pad names. Show the real grid under yours and score it: correct hits,
-missed notes, extra notes, wrong pads or pitches, and timing errors.
+Only after step 5 is saved, read the clip's notes with `ableton_midi_notes`
+action `query`. Map drum notes to pad names. Read `listen-answer.txt` back,
+show the real grid under it in the same format, and score your answer as it
+was written: correct hits, missed notes, extra notes, wrong pads or pitches,
+and timing errors.
 
 ## 7. Learn
 

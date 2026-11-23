@@ -371,13 +371,12 @@ describe("DesktopProfileManager", () => {
       state: "local",
     });
 
-    await expect(
-      manager.readMemory({ name: "taste", location: session }),
-    ).resolves.toMatchObject({
+    const memory = await manager.readMemory({
       name: "taste",
-      description: "Older note",
-      content: expect.stringContaining("Notes."),
+      location: session,
     });
+    expect(memory).toMatchObject({ name: "taste", description: "Older note" });
+    expect(memory.content).toContain("Notes.");
 
     const conflict = await manager.copyArtifact({
       kind: "memory",

@@ -102,6 +102,7 @@ function defaultCatalog(): DesktopAgentCatalog {
         model: null,
         reasoningEffort: null,
         autoApprove: false,
+        color: "#ffa529",
         eventListeners: [],
         origin: "bundled",
         inherited: false,

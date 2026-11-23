@@ -5,7 +5,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
-  DesktopApi,
   DesktopProfileManagerSnapshot,
   DesktopScopedArtifact,
 } from "../contracts";
@@ -74,7 +73,7 @@ function snapshot(): DesktopProfileManagerSnapshot {
         sessionId: "session-2",
       }),
     ],
-  } as DesktopProfileManagerSnapshot;
+  };
 }
 
 describe("MemoryView", () => {
@@ -107,7 +106,7 @@ describe("MemoryView", () => {
           readMemory,
           deleteArtifact,
         },
-      } as unknown as DesktopApi,
+      },
     });
   });
 

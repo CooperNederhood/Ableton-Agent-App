@@ -81,6 +81,7 @@ describe("MemoryView", () => {
   let root: Root;
   const readMemory = vi.fn();
   const deleteArtifact = vi.fn();
+  const saveMemory = vi.fn();
 
   beforeEach(() => {
     (
@@ -93,11 +94,12 @@ describe("MemoryView", () => {
       Promise.resolve({
         name,
         description: "",
-        content: `# ${name}\n\nLikes dry kicks.`,
+        content: `---\nname: ${name}\ndescription: Mix notes\n---\n# ${name}\n\nLikes dry kicks.`,
         fingerprint: "b".repeat(64),
       }),
     );
     deleteArtifact.mockResolvedValue({ ...snapshot(), artifacts: [] });
+    saveMemory.mockResolvedValue(snapshot());
     Object.defineProperty(window, "desktop", {
       configurable: true,
       value: {
@@ -105,6 +107,7 @@ describe("MemoryView", () => {
           get: vi.fn().mockResolvedValue(snapshot()),
           readMemory,
           deleteArtifact,
+          saveMemory,
         },
       },
     });
@@ -145,6 +148,9 @@ describe("MemoryView", () => {
     expect(container.querySelector(".memory-reader")?.textContent).toContain(
       "Likes dry kicks.",
     );
+    expect(
+      container.querySelector(".memory-reader")?.textContent,
+    ).not.toContain("description:");
   });
 
   it("deletes the selected topic only after confirmation", async () => {
@@ -183,5 +189,61 @@ describe("MemoryView", () => {
     expect(onAskAgent).toHaveBeenCalledWith(
       "/update-memory Update the mix-preferences memory: ",
     );
+  });
+
+  it("saves hand-edited Markdown against the version that was read", async () => {
+    await render();
+
+    const button = (label: string) =>
+      [...container.querySelectorAll("button")].find(
+        (candidate) => candidate.textContent === label,
+      );
+    await act(async () => button("Update manually")?.click());
+    const editor = container.querySelector<HTMLTextAreaElement>(
+      "textarea.memory-editor",
+    );
+    expect(editor?.value).toContain("description: Mix notes");
+
+    await act(async () => {
+      if (editor === null) throw new Error("Editor did not open");
+      Object.defineProperty(editor, "value", {
+        configurable: true,
+        value: "# mix-preferences\n\nLikes wet kicks.",
+      });
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => button("Save changes")?.click());
+
+    expect(saveMemory).toHaveBeenCalledWith({
+      name: "mix-preferences",
+      location: { scope: "profile", profile: "default" },
+      content: "# mix-preferences\n\nLikes wet kicks.",
+      expectedFingerprint: "b".repeat(64),
+    });
+    expect(container.querySelector("textarea.memory-editor")).toBeNull();
+  });
+
+  it("lists every scope in Move, explaining the ones unavailable here", async () => {
+    await render();
+
+    const move = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Move ▾",
+    );
+    await act(async () => move?.click());
+    const items = [
+      ...container.querySelectorAll<HTMLButtonElement>(
+        '.scope-menu [role="menuitem"]',
+      ),
+    ].map((item) => [item.textContent, item.disabled]);
+
+    expect(items).toEqual([
+      ["Move to System", false],
+      ["ProfileHere now", true],
+      [
+        "Move to ProjectSave this Live Set inside a Live Project folder first",
+        true,
+      ],
+      ["Move to Session", false],
+    ]);
   });
 });

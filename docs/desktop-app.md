@@ -101,8 +101,13 @@ agent picker.
 
 Agents, Skills and Memory share one layout (`renderer/scope-library.tsx`):
 scope chips in the bar filter a list on the left, and the reader on the right
-shows the item's scope with **Move ▾**. Bundled items are locked and offer
-**Duplicate to Profile** instead. Scope colours (System grey, Profile gold,
+shows the item's scope with **Move ▾**. The menu lists every scope; ones that
+don't exist yet (Project needs a Set saved in a Live Project folder) are greyed
+out with the reason. Bundled items are locked and offer
+**Duplicate to Profile** instead. A memory topic can be changed through chat
+(**Edit in chat**) or by editing its Markdown file directly
+(**Update manually**); a manual save is refused if the file changed since it
+was opened. Scope colours (System grey, Profile gold,
 Project teal, Session purple) appear only on scope chips, row strips and the
 ladder; agent colours mark sub-agent work; Live track colours mark tracks. The
 design rules live in `.github/skills/frontend-design/SKILL.md`.

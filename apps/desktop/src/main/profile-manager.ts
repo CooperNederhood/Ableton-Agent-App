@@ -11,6 +11,7 @@ import {
   disableArtifact,
   loadLayeredAgentCatalog,
   moveArtifact,
+  publishMemoryChanges,
   readMemoryScope,
   renameMemoryTopic,
   transferMemoryTopic,
@@ -896,6 +897,30 @@ export class DesktopProfileManager implements ProfileManagerActions {
         content: topic.content,
         fingerprint: topic.fingerprint,
       };
+    });
+  }
+
+  /** Replaces one topic file with hand-edited Markdown, refusing stale edits. */
+  public async saveMemory(
+    request: Parameters<ProfileManagerActions["saveMemory"]>[0],
+  ): Promise<DesktopProfileManagerSnapshot> {
+    return this.#artifactOperation("save", "memory", request.name, async () => {
+      const snapshot = await this.get(this.options.getActiveProfile());
+      const location = await this.#memoryLocation(request.location, snapshot);
+      await publishMemoryChanges([
+        {
+          ...location,
+          writes: [
+            {
+              name: request.name,
+              content: request.content,
+              baseFingerprint: request.expectedFingerprint,
+            },
+          ],
+          deletes: [],
+        },
+      ]);
+      return this.get(snapshot.selectedProfile);
     });
   }
 

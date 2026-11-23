@@ -48,6 +48,7 @@ export function MemoryView({
   const [readError, setReadError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState<string>();
 
   const selectedLocationKey =
     selected === undefined ? undefined : memoryKey(selected);
@@ -55,6 +56,7 @@ export function MemoryView({
     setDocument(undefined);
     setReadError("");
     setConfirmDelete(false);
+    setDraft(undefined);
     if (selected === undefined) return;
     let cancelled = false;
     void window.desktop.profiles
@@ -95,6 +97,33 @@ export function MemoryView({
     } finally {
       setBusy(false);
       setConfirmDelete(false);
+    }
+  };
+
+  const save = async (
+    memory: DesktopScopedArtifact,
+    loaded: DesktopMemoryDocument,
+    content: string,
+  ): Promise<void> => {
+    setBusy(true);
+    setReadError("");
+    try {
+      profiles.setSnapshot(
+        await window.desktop.profiles.saveMemory({
+          name: memory.name,
+          location: ownedLocation(memory),
+          content,
+          expectedFingerprint: loaded.fingerprint,
+        }),
+      );
+      setDraft(undefined);
+      onProfilesChanged?.();
+    } catch (error) {
+      setReadError(
+        error instanceof Error ? error.message : "Memory could not be saved",
+      );
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -183,6 +212,36 @@ export function MemoryView({
                   )}
                 </div>
                 <div className="agent-header-actions">
+                  {draft !== undefined && document !== undefined ? (
+                    <>
+                      <button
+                        type="button"
+                        className="primary"
+                        disabled={busy || draft === document.content}
+                        onClick={() => void save(selected, document, draft)}
+                      >
+                        Save changes
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          setDraft(undefined);
+                          setReadError("");
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={document === undefined}
+                      onClick={() => setDraft(document?.content)}
+                    >
+                      Update manually
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() =>
@@ -225,14 +284,23 @@ export function MemoryView({
                 </div>
               </header>
               <div className="agent-detail-content memory-reader">
-                {readError !== "" ? (
+                {readError !== "" && (
                   <div className="notice" role="alert">
                     {readError}
                   </div>
+                )}
+                {draft !== undefined ? (
+                  <textarea
+                    className="memory-editor"
+                    aria-label={`${selected.name} memory Markdown`}
+                    spellCheck
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                  />
                 ) : document === undefined ? (
-                  <p role="status">Loading memory…</p>
+                  readError === "" && <p role="status">Loading memory…</p>
                 ) : (
-                  <AssistantMarkdown content={document.content} />
+                  <AssistantMarkdown content={memoryBody(document.content)} />
                 )}
               </div>
             </article>
@@ -251,4 +319,9 @@ function memoryKey(memory: DesktopScopedArtifact): string {
     memory.sessionId,
     memory.name,
   ].join("\u0000");
+}
+
+/** The topic text without its name/description header, which the page already shows. */
+function memoryBody(content: string): string {
+  return content.replace(/^---\n[\s\S]*?\n---\n/u, "");
 }

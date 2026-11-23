@@ -203,6 +203,21 @@ export function scopeDestination(
       };
 }
 
+/** Why a rung can't hold items right now, matching the agent's authoring rules. */
+export function scopeUnavailableReason(
+  context: ActiveScopeContext,
+  scope: DesktopArtifactScope,
+): string | undefined {
+  if (scope === "system" || scope === "profile") return undefined;
+  if (context.sessionId === undefined || context.liveSetId === undefined) {
+    return "Start a session with a Live Set first";
+  }
+  if (scope === "project" && context.liveProjectId === undefined) {
+    return "Save this Live Set inside a Live Project folder first";
+  }
+  return undefined;
+}
+
 /** Items that apply to the active context, one row per scope that holds them. */
 export function contextArtifacts(
   snapshot: DesktopProfileManagerSnapshot,
@@ -373,11 +388,16 @@ export function ScopeActions({
     }
   };
 
-  const destinations = LIBRARY_SCOPES.flatMap((scope) => {
+  const destinations = LIBRARY_SCOPES.map((scope) => {
     const destination = scopeDestination(context, scope);
-    return destination === undefined || sameLocation(source, destination)
-      ? []
-      : [{ scope, destination }];
+    const current =
+      destination !== undefined && sameLocation(source, destination);
+    return {
+      scope,
+      destination,
+      note: current ? "Here now" : scopeUnavailableReason(context, scope),
+      current,
+    };
   });
   const profileDestination = scopeDestination(context, "profile")!;
 
@@ -397,26 +417,37 @@ export function ScopeActions({
             type="button"
             aria-haspopup="menu"
             aria-expanded={open}
-            disabled={busy || destinations.length === 0}
+            disabled={busy}
             onClick={() => setOpen((current) => !current)}
           >
             Move ▾
           </button>
           {open && (
             <div className="scope-menu" role="menu">
-              {destinations.map(({ scope, destination }) => (
+              {destinations.map(({ scope, destination, note, current }) => (
                 <button
                   key={scope}
                   type="button"
                   role="menuitem"
-                  onClick={() => void transfer("move", destination)}
+                  aria-current={current ? "true" : undefined}
+                  disabled={current || destination === undefined}
+                  onClick={() =>
+                    destination !== undefined &&
+                    void transfer("move", destination)
+                  }
                 >
                   <span
                     className="scope-dot"
                     data-scope={scope}
                     aria-hidden="true"
                   />
-                  Move to {SCOPE_LABELS[scope]}
+                  <span className="scope-menu-label">
+                    {current ? "" : "Move to "}
+                    {SCOPE_LABELS[scope]}
+                    {note !== undefined && (
+                      <small className="scope-menu-note">{note}</small>
+                    )}
+                  </span>
                 </button>
               ))}
             </div>

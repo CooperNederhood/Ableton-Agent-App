@@ -2342,6 +2342,17 @@ export const ipcSchemas = {
       .strict(),
     response: desktopMemoryDocumentSchema,
   },
+  "profiles:save-memory": {
+    request: z
+      .object({
+        name: z.string().min(1).max(128),
+        location: desktopArtifactLocationSchema,
+        content: z.string().max(64 * 1024),
+        expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    response: desktopProfileManagerSnapshotSchema,
+  },
   "profiles:set-artifact-disabled": {
     request: z
       .object({
@@ -2836,6 +2847,12 @@ export interface DesktopApi {
       name: string;
       location: DesktopArtifactLocation;
     }): Promise<DesktopMemoryDocument>;
+    saveMemory(request: {
+      name: string;
+      location: DesktopArtifactLocation;
+      content: string;
+      expectedFingerprint: string;
+    }): Promise<DesktopProfileManagerSnapshot>;
   };
   ableton: {
     connect(): Promise<DesktopConnectionStatus>;

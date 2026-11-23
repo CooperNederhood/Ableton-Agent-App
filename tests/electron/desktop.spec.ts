@@ -2414,6 +2414,75 @@ test("renders plan.md in the Inspector and routes composer approval through IPC"
   }
 });
 
+test("fills the content area with a usable conversation at common widths", async () => {
+  const { application, profile } = await launchIsolatedDesktop();
+  try {
+    const window = await application.firstWindow();
+    await window.waitForLoadState("domcontentloaded");
+    await expect(window.locator(".workspace")).toBeVisible({
+      timeout: 30_000,
+    });
+    for (const [width, height] of [
+      [1440, 827],
+      [1100, 900],
+    ] as const) {
+      await application.evaluate(
+        ({ BrowserWindow }, size) => {
+          BrowserWindow.getAllWindows()[0]?.setSize(size.width, size.height);
+        },
+        { width, height },
+      );
+      const measure = () =>
+        window.evaluate(() => {
+          const box = (selector: string) =>
+            document.querySelector(selector)?.getBoundingClientRect();
+          const rail = box(".navigation-rail");
+          return {
+            viewport: document.documentElement.clientWidth,
+            main: Math.round(box("#main-content")?.width ?? 0),
+            workspace: Math.round(box(".workspace")?.width ?? 0),
+            conversation: Math.round(box("section.conversation")?.width ?? 0),
+            clippedLabels: Array.from(
+              document.querySelectorAll<HTMLElement>(
+                ".navigation-rail .rail-item span",
+              ),
+            )
+              .filter((label) => {
+                const rect = label.getBoundingClientRect();
+                return (
+                  rail === undefined ||
+                  rect.left < rail.left ||
+                  rect.right > rail.right
+                );
+              })
+              .map((label) => label.textContent),
+          };
+        });
+      await expect
+        .poll(async () => (await measure()).viewport)
+        .toBeLessThanOrEqual(width);
+      await expect
+        .poll(async () => {
+          const layout = await measure();
+          return {
+            fillsContent: layout.workspace >= layout.main - 1,
+            usableConversation: layout.conversation >= 400,
+            clippedLabels: layout.clippedLabels,
+            layout,
+          };
+        })
+        .toMatchObject({
+          fillsContent: true,
+          usableConversation: true,
+          clippedLabels: [],
+        });
+    }
+  } finally {
+    await application.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
 test("resizes both workspace sidebars and restores their session widths", async () => {
   const { application, profile } = await launchIsolatedDesktop();
   try {

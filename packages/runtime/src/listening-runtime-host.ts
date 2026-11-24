@@ -62,6 +62,10 @@ import {
   denyListening as deny,
 } from "./listening-failure.js";
 import { createSessionListeningServices } from "./session-listening-runtime.js";
+import {
+  createMonitoringController,
+  type MonitoringPassPlan,
+} from "./monitoring-controller.js";
 import type {
   ListeningRuntimeDependencies,
   ListeningRuntimeHost,
@@ -1893,8 +1897,122 @@ export function createListeningRuntimeHost(
       }),
   };
 
+  const monitoringPlans = new WeakMap<
+    MonitoringPassPlan,
+    { descriptors: readonly ListenerDescriptor[]; inspection: InspectListeningContextResult }
+  >();
+  const monitoring = createMonitoringController({
+    ...(dependencies.telemetry ? { telemetry: dependencies.telemetry } : {}),
+    plan: ({ listenerIds, maxBars, owner: expectedOwner, context }) =>
+      stage("monitoring-plan", context, async () => {
+        const snapshot = await inspect(
+          listenerIds,
+          { startBeat: 0, endBeat: 1 },
+          context,
+          expectedOwner,
+          undefined,
+          false,
+          false,
+          undefined,
+          "session",
+        );
+        const transport = snapshot.inspection.transport;
+        if (
+          transport.playing !== false ||
+          listeningRecordingBlockers(transport.recording).some(
+            (key) => transport.recording[key] !== false,
+          )
+        )
+          deny("transport_not_stopped", undefined, [
+            failureFact("transport.playing", transport.playing, false),
+          ]);
+        if (
+          transport.tempo === null ||
+          transport.timeSignature === null ||
+          transport.currentBeat === null
+        )
+          deny("transport_timing_unknown", undefined, [
+            failureFact("transport.tempo", transport.tempo, "known"),
+            failureFact("transport.timeSignature", transport.timeSignature, "known"),
+            failureFact("transport.currentBeat", transport.currentBeat, "known"),
+          ]);
+        const meter = transport.timeSignature;
+        const barBeats = (meter.numerator * 4) / meter.denominator;
+        const passBars = Math.floor(
+          (MAX_CONTINUOUS_METRIC_LISTENING_SECONDS * transport.tempo) /
+            60 /
+            barBeats,
+        );
+        const startBeat = transport.currentBeat;
+        const plan: MonitoringPassPlan = {
+          startBeat,
+          endBeat: startBeat + Math.min(maxBars, passBars) * barBeats,
+          alignment: listeningMusicalAlignmentSchema.parse({
+            version: 1,
+            coordinate: "transport-beats",
+            meter,
+            barOriginBeat: 0,
+            tempoBpm: transport.tempo,
+            tempoEvidence: "message-rate-monitored-constant",
+            provenance: "capture-snapshot/v1",
+          }),
+          tracks: snapshot.inspection.listeners.map((listener, index) => ({
+            listenerId: listenerIds[index]!,
+            trackReference: listener.binding.track.expectedReference,
+          })),
+        };
+        monitoringPlans.set(plan, snapshot);
+        return plan;
+      }),
+    arm: ({ plan, passId, sink, context }) =>
+      stage("monitoring-arm", context, async () => {
+        const snapshot = monitoringPlans.get(plan)!;
+        const timingPolicy = listeningTimingPolicySchema.parse(
+          options.resolveTimingPolicy?.() ?? DEFAULT_LISTENING_TIMING_POLICY,
+        );
+        const bindings = snapshot.descriptors.map((descriptor, index) => {
+          const track = snapshot.inspection.listeners[index]!.binding.track;
+          const targetIndex = track.kind === "master" ? null : track.index;
+          return createMetricCaptureBinding({
+            requestedMetrics: ["mel-bands"],
+            descriptor,
+            tempoBpm: plan.alignment.tempoBpm,
+            timingPolicy,
+            source: {
+              view: "arrangement",
+              target: {
+                kind: track.kind,
+                index: targetIndex ?? null,
+                expectedReference: track.expectedReference,
+              },
+              transport: { startBeat: plan.startBeat, endBeat: plan.endBeat },
+            },
+          });
+        });
+        assertMetricDspGeometry(bindings);
+        const capture = await prepareMetricListenerStream(listeners(), {
+          passId,
+          trace: context.trace,
+          signal: context.signal!,
+          ...(dependencies.telemetry
+            ? { telemetry: dependencies.telemetry }
+            : {}),
+          bindings,
+          streamSink: sink,
+          deadlines: { setupMs: 120_000, inactivityMs: 120_000 },
+        });
+        void capture.result.catch(() => {});
+        return {
+          result: capture.result,
+          nativeLaunch: capture.nativeLaunch,
+          disarm: () => capture.disarm(),
+        };
+      }),
+  });
+
   const host = createListeningHost({
     services,
+    monitoring,
     ...(dependencies.telemetry ? { telemetry: dependencies.telemetry } : {}),
     resolveOwner: (context) =>
       stage("owner-resolution", context, () => owner(context)),
@@ -2197,6 +2315,7 @@ export function createListeningRuntimeHost(
     shutdown: async () => {
       closed = true;
       try {
+        await monitoring.shutdown();
         await host.shutdown();
       } finally {
         states.clear();

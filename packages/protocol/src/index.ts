@@ -22,6 +22,7 @@ export * from "./metric-record-stream.js";
 export * from "./metric-record-feature-source.js";
 export * from "./native-continuous-metric-listening-schemas.js";
 export * from "./listening-features.js";
+export * from "./monitoring-observer.js";
 export * from "./listening-musical-alignment.js";
 export * from "./analyzer-profile.js";
 export * from "./analyzer-timeline.js";

@@ -2193,7 +2193,7 @@ describe("Ableton tools", () => {
       allowedToolNames: ["ableton_listening"],
     });
     expect(tool?.description).toContain(
-      "Allowed action values in this scope: inspect-listeners, play-session-and-listen, play-arrangement-and-listen, get-pass, list-passes, cancel.",
+      "Allowed action values in this scope: inspect-listeners, play-session-and-listen, play-arrangement-and-listen, get-pass, list-passes, cancel, start-monitoring, get-monitoring, stop-monitoring.",
     );
     expect(tool?.description).toContain(
       "Eligible listeners are resolved automatically from the requested source; inspect-listeners is optional for disambiguation, never a prerequisite.",

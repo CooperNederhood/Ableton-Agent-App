@@ -20,7 +20,7 @@ import {
   monitoringFeatureDistance,
 } from "./monitoring-stream.js";
 
-type MonitoringView = ReturnType<ListeningMonitoringPort["get"]>;
+type MonitoringView = Awaited<ReturnType<ListeningMonitoringPort["get"]>>;
 type ViewEpisode = MonitoringView["episodes"][number]["episode"];
 
 export interface MonitoringPassPlan {
@@ -65,6 +65,8 @@ const WAITING_FOR_STOP = new Set([
   "transport_not_stopped",
   "listener_not_idle",
 ]);
+const ACTIVE = new Set(["armed", "monitoring", "rearming"]);
+const WAIT_STEP_MS = 100;
 const MAX_EPISODES = 1024;
 const PAGE_EPISODES = 256;
 
@@ -141,7 +143,10 @@ export function createMonitoringController(
       liveSetId: monitoring.owner.liveSetId,
       correlationId: monitoring.context.trace.correlationId,
       causationId: monitoring.context.trace.causationId,
-      trace: { traceId: monitoring.context.trace.traceId, spanId: randomUUID() },
+      trace: {
+        traceId: monitoring.context.trace.traceId,
+        spanId: randomUUID(),
+      },
       ...(outcome === undefined ? {} : { outcome }),
       ...(outcome === "failure" ? { level: "error" as const } : {}),
       attributes: { monitoringId: monitoring.id, ...attributes },
@@ -223,7 +228,10 @@ export function createMonitoringController(
         alignment: pass.alignment,
         observer: (listenerId) => monitoring.observers.get(listenerId)!,
         onBar: (report) => {
-          sealed.set(report.listenerId, (sealed.get(report.listenerId) ?? 0) + 1);
+          sealed.set(
+            report.listenerId,
+            (sealed.get(report.listenerId) ?? 0) + 1,
+          );
           append(monitoring, report.listenerId, report.episodes);
         },
       });
@@ -326,7 +334,9 @@ export function createMonitoringController(
           patternVersion: snapshot.patternVersion,
           lastBar: snapshot.lastBar,
           lastDistance:
-            snapshot.lastDistance === null ? null : finite(snapshot.lastDistance),
+            snapshot.lastDistance === null
+              ? null
+              : finite(snapshot.lastDistance),
         };
       }),
       episodes: structuredClone(episodes),
@@ -423,26 +433,43 @@ export function createMonitoringController(
       await armed;
       return view(monitoring);
     },
-    get(monitoringId, owner, afterSequence) {
-      return view(owned(monitoringId, owner), afterSequence);
+    async get(monitoringId, owner, { afterSequence, waitMs = 0, signal } = {}) {
+      const monitoring = owned(monitoringId, owner);
+      const deadline = Date.now() + waitMs;
+      while (
+        Date.now() < deadline &&
+        signal?.aborted !== true &&
+        ACTIVE.has(monitoring.status) &&
+        !monitoring.episodes.some(
+          ({ sequence }) => sequence > (afterSequence ?? -1),
+        )
+      )
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.min(WAIT_STEP_MS, deadline - Date.now())),
+        );
+      return view(monitoring, afterSequence);
     },
     async stop(monitoringId, owner) {
       const monitoring = owned(monitoringId, owner);
-      if (["armed", "monitoring", "rearming"].includes(monitoring.status)) {
+      if (ACTIVE.has(monitoring.status)) {
         monitoring.status = "stopped";
         monitoring.abort.abort();
         await finish(monitoring);
         closeAll(monitoring, "stopped");
-        record(monitoring, "stopped", {
-          barsRemaining: monitoring.barsRemaining,
-        }, "cancelled");
+        record(
+          monitoring,
+          "stopped",
+          {
+            barsRemaining: monitoring.barsRemaining,
+          },
+          "cancelled",
+        );
       }
       return view(monitoring);
     },
     async shutdown() {
       for (const monitoring of all.values()) {
-        if (["armed", "monitoring", "rearming"].includes(monitoring.status))
-          monitoring.status = "stopped";
+        if (ACTIVE.has(monitoring.status)) monitoring.status = "stopped";
         monitoring.abort.abort();
         await finish(monitoring);
       }

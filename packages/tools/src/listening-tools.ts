@@ -104,7 +104,7 @@ export const FEATURE_VALUE_DETAIL_GUIDANCE =
 export const LISTENING_AGENT_GUIDANCE = `Listen returns capture status and automatically derived musical values. Captures share song transport: never batch or parallelize listening calls. Run one capture at a time; inspect current state and stop transport only if it is moving, through ordinary approval. Do not start playback separately: both listening actions start it themselves. Listening captures available metric families automatically; no metric-family selector is needed. Normally omit listenerIds; these identify installed devices, not metric or feature names. play-session-and-listen requires target.view="session", not target.kind; target.track.kind="regular" identifies the track. Read stored values with ableton_context read using a source/range or a returned readTarget; no playback, derivation or inventory call is needed. Use stored compare/search for multi-measure matching instead of manually paging every timeline. Default pages contain compact musical values, units, normalization, channel validity and coverage. Segment-level availability rows preserve unavailable ranges and reasons with null values; they are not grid cells or measured zeros. Follow nextCursor for remaining values. Only when needed, use the same target with detail="evidence" for full canonical metadata and support intervals, or detail="original-measurements" for native analyzer frames; these are separate optional detail streams, not prerequisites for musical interpretation. Missing evidence never authorizes replay; neither does a forgotten capture target. Prepare stopped transport and the requested source through ordinary approvals. Session clips and Arrangement are distinct; a planned Session-to-Arrangement handoff requires stopped transport and Back to Arrangement. Never repair/retry a rejected pass automatically. A Session capture stops the transport it started; an Arrangement capture leaves playback running. Source attribution is not exclusive and timing is descriptive, not sample-accurate. ${LISTENING_FEATURE_CATALOG}`;
 
 export const MONITORING_GUIDANCE =
-  'Monitoring follows each selected track bar by bar while it plays, finds its steady repeating pattern, and reports when that pattern changes and when a new one settles. It stores nothing and returns immediately once armed. Requires stopped transport: start-monitoring arms at the current playhead; then the user or ableton_transport starts playback (Arrangement, or Session clips on the monitored tracks). A stop or jump marks tracks uncertain; monitoring re-arms automatically from the new stopped position. Poll get-monitoring with afterSequence for new episodes ("pattern-established", "fill", "pattern-changed", "uncertain", "closed"); bars are 1-based song bars. Call stop-monitoring when finished. Use one monitoring at a time and never together with a capture listen.';
+  'Monitoring follows each selected track bar by bar while it plays, finds its steady repeating pattern, and reports when that pattern changes and when a new one settles. It stores nothing and returns immediately once armed. Requires stopped transport: start-monitoring arms at the current playhead; then the user or ableton_transport starts playback (Arrangement, or Session clips on the monitored tracks). A stop or jump marks tracks uncertain; monitoring re-arms automatically from the new stopped position. Poll get-monitoring with afterSequence and waitMs 30000 for new episodes, instead of repeated immediate calls ("pattern-established", "fill", "pattern-changed", "uncertain", "closed"); bars are 1-based song bars. Call stop-monitoring when finished. Use one monitoring at a time and never together with a capture listen.';
 
 export const monitoringEpisodeSchema = z.discriminatedUnion("kind", [
   z.strictObject({
@@ -132,7 +132,12 @@ export const monitoringEpisodeSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("uncertain"),
     bar: z.number().int().nullable(),
-    reason: z.enum(["transport-stopped", "transport-jump", "tempo-changed", "gap"]),
+    reason: z.enum([
+      "transport-stopped",
+      "transport-jump",
+      "tempo-changed",
+      "gap",
+    ]),
   }),
   z.strictObject({
     kind: z.literal("closed"),
@@ -322,15 +327,18 @@ export const listeningOperationParamsSchema = z.discriminatedUnion("action", [
       action: z.literal("get-monitoring"),
       monitoringId: id,
       afterSequence: z.number().int().nonnegative().optional(),
+      waitMs: z.number().int().min(0).max(30_000).optional(),
     })
     .strict()
     .describe(
-      "Read monitoring status, each track's pattern state and the episode log. Pass afterSequence = the previous nextSequence to read only new episodes.",
+      "Read monitoring status, each track's pattern state and the episode log. Pass afterSequence = the previous nextSequence to read only new episodes. waitMs (up to 30000) waits for a new episode or the end of monitoring before returning.",
     ),
   z
     .object({ action: z.literal("stop-monitoring"), monitoringId: id })
     .strict()
-    .describe("Stop monitoring and disarm its listeners. Does not stop transport."),
+    .describe(
+      "Stop monitoring and disarm its listeners. Does not stop transport.",
+    ),
 ]);
 
 export const listeningJobSchema = z

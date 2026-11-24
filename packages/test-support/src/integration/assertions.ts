@@ -32,6 +32,10 @@ import {
   verifyListeningComprehension,
 } from "./listening-comprehension.js";
 import { verifyStorageShape } from "./storage-shape.js";
+import {
+  validateMonitoringEpisodes,
+  verifyMonitoringEpisodes,
+} from "./monitoring-episodes.js";
 
 export class AssertionRegistry {
   private readonly entries = new Map<
@@ -480,6 +484,28 @@ export function createDefaultAssertions(): AssertionRegistry {
           "Missing smoke restart requirement",
         );
       },
+    )
+    .register(
+      "monitoring-episodes",
+      (input, parameters) => {
+        try {
+          return result(
+            true,
+            "ok",
+            verifyMonitoringEpisodes(input, parameters).slice(0, 8192),
+          );
+        } catch (error) {
+          return result(
+            false,
+            "monitoring-episodes",
+            (error instanceof Error
+              ? error.message
+              : "Invalid monitoring evidence"
+            ).slice(0, 8192),
+          );
+        }
+      },
+      validateMonitoringEpisodes,
     )
     .register(
       "agent-listening-result",

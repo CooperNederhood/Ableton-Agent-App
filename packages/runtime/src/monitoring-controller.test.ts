@@ -90,20 +90,22 @@ describe("monitoring controller", () => {
 
     passes[0]!.launch.resolve();
     await settle();
-    expect(controller.get(started.monitoringId, owner).status).toBe(
+    expect((await controller.get(started.monitoringId, owner)).status).toBe(
       "monitoring",
     );
     passes[0]!.result.reject(new Error("metric_source_transport_stopped"));
     await settle();
 
-    const rearmed = controller.get(started.monitoringId, owner);
+    const rearmed = await controller.get(started.monitoringId, owner);
     expect(rearmed).toMatchObject({ status: "armed", startBeat: 32 });
     expect(rearmed.barsRemaining).toBe(16);
 
+    const waiting = controller.get(started.monitoringId, owner, {
+      waitMs: 5_000,
+    });
     passes[1]!.launch.resolve();
     passes[1]!.result.resolve([]);
-    await settle();
-    const done = controller.get(started.monitoringId, owner);
+    const done = await waiting;
     expect(done).toMatchObject({ status: "completed", barsRemaining: 0 });
     expect(done.episodes.map(({ episode }) => episode.kind)).toEqual([
       "closed",
@@ -117,9 +119,9 @@ describe("monitoring controller", () => {
       owner,
       context,
     );
-    expect(() =>
+    await expect(
       controller.get(started.monitoringId, { ...owner, agentId: "other" }),
-    ).toThrow(ListeningFailure);
+    ).rejects.toThrow(ListeningFailure);
     const stopped = await controller.stop(started.monitoringId, owner);
     expect(passes[0]!.disarm).toHaveBeenCalled();
     expect(stopped.status).toBe("stopped");

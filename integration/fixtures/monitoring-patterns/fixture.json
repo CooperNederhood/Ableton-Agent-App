@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "monitoring-patterns",
+  "qualification": "reviewed-live",
+  "provenance": {
+    "ownership": "user-authorized",
+    "description": "User-supplied two-MIDI-track Set for bar-by-bar monitoring, 120 BPM, 1-bar global quantization, saved stopped at beat 0. Track 0 operator (Operator): Arrangement clip-1 beats 0-96 then clip-2 beats 96-128, so its pattern changes at song bar 25. Track 1 drums (808 Core Kit): Session scene 2 long-clip-listen is 32 bars with the pattern changing at clip bar 17; its Arrangement also changes at bar 17. Both tracks carry a Machine-Listening listener at device index 1. Original saved bytes retained; Core Library instruments and samples are installed prerequisites, not redistributed."
+  },
+  "resources": [
+    {
+      "path": "project.als",
+      "target": "project.als",
+      "sha256": "e0df2703b4f56cee5c917c1bb0b65593bd2e83719adcea4772fdde58ca49baad",
+      "bytes": 153565
+    }
+  ],
+  "dependencies": ["machine-listening"],
+  "listenerBindings": [
+    {
+      "slot": "MidiTrack:12/DeviceChain/DeviceChain/Devices/MxDeviceAudioEffect:1",
+      "trackIndex": 0,
+      "deviceIndex": 1,
+      "dependency": "machine-listening",
+      "sourcePath": "Presets/Audio Effects/Max Audio Effect/Machine-Listening-Development/Machine-Listening-Development.amxd"
+    },
+    {
+      "slot": "MidiTrack:15/DeviceChain/DeviceChain/Devices/MxDeviceAudioEffect:1",
+      "trackIndex": 1,
+      "deviceIndex": 1,
+      "dependency": "machine-listening",
+      "sourcePath": "Presets/Audio Effects/Max Audio Effect/Machine-Listening-Development/Machine-Listening-Development.amxd"
+    }
+  ],
+  "baseline": {
+    "tempo": 120,
+    "trackCount": 2
+  }
+}

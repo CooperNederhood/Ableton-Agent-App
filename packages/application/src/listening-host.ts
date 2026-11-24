@@ -69,8 +69,12 @@ export interface ListeningMonitoringPort {
   get(
     monitoringId: string,
     owner: ListeningOwner,
-    afterSequence?: number,
-  ): MonitoringView;
+    options?: {
+      readonly afterSequence?: number | undefined;
+      readonly waitMs?: number | undefined;
+      readonly signal?: AbortSignal | undefined;
+    },
+  ): Promise<MonitoringView>;
   stop(monitoringId: string, owner: ListeningOwner): Promise<MonitoringView>;
 }
 
@@ -580,10 +584,14 @@ export function createListeningHost(options: ListeningHostOptions): Required<
           } else if (params.action === "get-monitoring") {
             result = {
               action: params.action,
-              monitoring: options.monitoring.get(
+              monitoring: await options.monitoring.get(
                 params.monitoringId,
                 owner,
-                params.afterSequence,
+                {
+                  afterSequence: params.afterSequence,
+                  waitMs: params.waitMs,
+                  signal: context.signal,
+                },
               ),
             };
           } else {

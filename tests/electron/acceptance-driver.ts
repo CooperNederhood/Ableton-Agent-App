@@ -3072,7 +3072,9 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           ) ||
           link.step.assertions.some(
             ({ name }) =>
-              name === "agent-listening-result" || name === "feature-search",
+              name === "agent-listening-result" ||
+              name === "feature-search" ||
+              name === "monitoring-episodes",
           )
             ? await this.#readAgentListening(
                 context,

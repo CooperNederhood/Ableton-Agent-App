@@ -233,6 +233,8 @@ the context database.
   (or another tool) presses play, or fires a Session clip, whenever they like.
 - `get-monitoring` returns the status (`armed`, `monitoring`, `rearming`,
   `completed`, `failed`, `stopped`) and new episodes since `afterSequence`.
+  Each response's `nextSequence` is the last delivered episode (-1 before
+  any); pass it back unchanged as the next `afterSequence`.
 - `stop-monitoring` disarms and closes the observers.
 
 Monitoring reuses the existing `arrangement` device mode: each pass arms at the
@@ -250,14 +252,16 @@ runs the loop:
    loop lengths of 1, 2, 4 and 8 bars (up to `maxWindowBars`). It emits
    `pattern-established` once a loop repeats, `fill` for a one-bar miss,
    `pattern-changed` after two missed bars, and then `pattern-established`
-   again for the new loop.
+   again for the new loop. Each matching bar replaces the stored copy of
+   its place in the loop. This lets slow drift in how bars line up with the
+   analysis frames go unflagged, while a sudden change still stands out.
 4. If playback stops or jumps, the pass ends, the observers emit `uncertain`,
    and monitoring re-arms from the new stopped position.
 
 Only one monitoring can run at a time. Starting it while Live is already
 playing is not supported yet. The match threshold
-(`MONITORING_MATCH_THRESHOLD`) is a first guess and must be calibrated against
-real Live audio.
+(`MONITORING_MATCH_THRESHOLD`, 0.25) is calibrated against real Live audio.
+Steady repeats score below about 0.2 and a real change scores about 1.0.
 
 ## Measurements
 

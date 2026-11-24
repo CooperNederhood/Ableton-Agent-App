@@ -190,7 +190,7 @@ export const monitoringViewSchema = z
         }),
       )
       .max(256),
-    nextSequence: z.number().int().nonnegative(),
+    nextSequence: z.number().int().min(-1),
     error: z.string().max(512).optional(),
   })
   .strict();
@@ -326,7 +326,7 @@ export const listeningOperationParamsSchema = z.discriminatedUnion("action", [
     .object({
       action: z.literal("get-monitoring"),
       monitoringId: id,
-      afterSequence: z.number().int().nonnegative().optional(),
+      afterSequence: z.number().int().min(-1).optional(),
       waitMs: z.number().int().min(0).max(30_000).optional(),
     })
     .strict()

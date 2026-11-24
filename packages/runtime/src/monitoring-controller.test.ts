@@ -101,15 +101,27 @@ describe("monitoring controller", () => {
     expect(rearmed.barsRemaining).toBe(16);
 
     const waiting = controller.get(started.monitoringId, owner, {
+      afterSequence: started.nextSequence,
       waitMs: 5_000,
     });
     passes[1]!.launch.resolve();
     passes[1]!.result.resolve([]);
     const done = await waiting;
-    expect(done).toMatchObject({ status: "completed", barsRemaining: 0 });
+    expect(done).toMatchObject({
+      status: "completed",
+      barsRemaining: 0,
+      nextSequence: 0,
+    });
     expect(done.episodes.map(({ episode }) => episode.kind)).toEqual([
       "closed",
     ]);
+    expect(
+      (
+        await controller.get(started.monitoringId, owner, {
+          afterSequence: done.nextSequence,
+        })
+      ).episodes,
+    ).toEqual([]);
   });
 
   it("stop disarms the armed pass and refuses other owners", async () => {

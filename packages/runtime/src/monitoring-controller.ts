@@ -340,10 +340,9 @@ export function createMonitoringController(
         };
       }),
       episodes: structuredClone(episodes),
+      // The cursor to pass back as afterSequence: the last delivered episode.
       nextSequence:
-        episodes.length === 0
-          ? Math.max(afterSequence + 1, 0)
-          : episodes.at(-1)!.sequence + 1,
+        episodes.length === 0 ? afterSequence : episodes.at(-1)!.sequence,
       ...(monitoring.error === undefined ? {} : { error: monitoring.error }),
     };
   };

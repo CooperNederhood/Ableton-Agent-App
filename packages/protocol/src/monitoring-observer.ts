@@ -131,6 +131,10 @@ export class MonitoringObserver<T> {
     const distance = this.#measure(input);
     this.#lastDistance = distance;
     const matched = distance <= this.#floor;
+    // A matching bar becomes the template for its phase, so slow drift (bar
+    // slicing against the analysis frame grid) is followed while an abrupt
+    // change still stands out.
+    if (matched) this.#template[this.#phase(input.bar)] = input;
     if (this.#state === "tracking") {
       if (matched) return [];
       this.#pending = [{ bar: input, distance }];
@@ -182,10 +186,16 @@ export class MonitoringObserver<T> {
     return [{ kind: "closed", bar: this.#lastBar, reason }];
   }
 
-  #measure(input: MonitoringBar<T>): number {
+  #phase(bar: number): number {
     const period = this.#template.length;
-    const phase = (((input.bar - this.#anchorBar) % period) + period) % period;
-    return this.#distance(input.features, this.#template[phase]!.features);
+    return (((bar - this.#anchorBar) % period) + period) % period;
+  }
+
+  #measure(input: MonitoringBar<T>): number {
+    return this.#distance(
+      input.features,
+      this.#template[this.#phase(input.bar)]!.features,
+    );
   }
 
   #acquire(input: MonitoringBar<T>): MonitoringEpisode[] {

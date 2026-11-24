@@ -21,9 +21,10 @@ export const MONITORING_FEATURE = "mel-grid/v1" as const;
 
 /**
  * Distance at or below which two bars count as the same pattern bar. In real
- * Live, repeats of a steady loop measured 0.003–0.07, and 0.5 missed a change.
+ * Live, steady repeats measured 0.003–0.07, the bar before a change 0.15 (it
+ * picks up the next bar's onset) and the first changed bar about 1.0.
  */
-export const MONITORING_MATCH_THRESHOLD = 0.15;
+export const MONITORING_MATCH_THRESHOLD = 0.25;
 
 /**
  * Euclidean distance between the bars' unit-normalized mel grids: 0 is

@@ -62,6 +62,17 @@ describe("MonitoringObserver", () => {
     expect(episodes[2]).toMatchObject({ periodBars: 2, at: 20 });
   });
 
+  it("follows slow drift without reporting a change", () => {
+    const target = observer();
+    const drift = Array.from({ length: 24 }, (_, index) => 1 + index * 0.05);
+    const episodes = feed(target, [...drift, ...repeat([5], 8)]);
+    expect(episodes.map((e) => [e.kind, e.at])).toEqual([
+      ["pattern-established", 2],
+      ["pattern-changed", 26],
+      ["pattern-established", 26],
+    ]);
+  });
+
   it("treats a one-bar deviation that returns to the pattern as a fill", () => {
     const target = observer();
     const episodes = feed(target, [...repeat([1, 2], 8), 9, 2, 1, 2]);

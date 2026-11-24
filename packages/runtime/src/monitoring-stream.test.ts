@@ -8,7 +8,6 @@ import {
 } from "@ableton-agent/protocol";
 import {
   createMonitoringStreamSink,
-  MONITORING_MATCH_THRESHOLD,
   monitoringFeatureDistance,
   type MonitoringBarReport,
 } from "./monitoring-stream.js";
@@ -24,6 +23,9 @@ const alignment: ListeningMusicalAlignment = {
 };
 
 const SAMPLES_PER_SIXTEENTH = 6_000; // 48 kHz, 120 BPM
+// Synthetic records drift against the 16th grid (repeats score ~0.15-0.26,
+// changes ~1.4), so this tests sealing with a looser bound than real Live.
+const SYNTHETIC_MATCH_THRESHOLD = 0.5;
 
 /** Bars 1-6 play pattern A, bars 7-12 pattern B; each repeats every bar. */
 function shape(chunk: MetricRecordChunk, origin: number, silentBar?: number) {
@@ -54,7 +56,7 @@ async function run(options: { silentBar?: number } = {}) {
   const observer = new MonitoringObserver<ListeningFeature>({
     distance: monitoringFeatureDistance,
     maxWindowBars: 8,
-    matchThreshold: MONITORING_MATCH_THRESHOLD,
+    matchThreshold: SYNTHETIC_MATCH_THRESHOLD,
   });
   const sink = createMonitoringStreamSink({
     alignment,

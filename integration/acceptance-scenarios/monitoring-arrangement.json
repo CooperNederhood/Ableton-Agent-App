@@ -6,11 +6,14 @@
   "permissions": [
     {
       "tool": "ableton_transport",
-      "action": "set-playing",
+      "action": "seek",
       "risk": "medium",
       "maxUses": 1,
       "stepIds": ["monitor"],
-      "arguments": { "action": "set-playing", "isPlaying": true }
+      "arguments": {
+        "action": "seek",
+        "time": 0
+      }
     },
     {
       "tool": "ableton_transport",
@@ -18,14 +21,32 @@
       "risk": "medium",
       "maxUses": 1,
       "stepIds": ["monitor"],
-      "arguments": { "action": "set-playing", "isPlaying": false }
+      "arguments": {
+        "action": "set-playing",
+        "isPlaying": true
+      }
+    },
+    {
+      "tool": "ableton_transport",
+      "action": "set-playing",
+      "risk": "medium",
+      "maxUses": 1,
+      "stepIds": ["monitor"],
+      "arguments": {
+        "action": "set-playing",
+        "isPlaying": false
+      }
     }
   ],
-  "budget": { "runMs": 480000, "cleanupMs": 60000, "persistenceMs": 30000 },
+  "budget": {
+    "runMs": 480000,
+    "cleanupMs": 60000,
+    "persistenceMs": 30000
+  },
   "steps": [
     {
       "id": "monitor",
-      "message": "Monitor the operator track for 32 bars, looking for patterns up to 8 bars long, then play the Arrangement from the start. Follow along until monitoring finishes, then tell me the bar where its pattern first settled, the bar where it changed, and the bar where the new pattern settled.",
+      "message": "Move the Arrangement playhead to the start. Then monitor the operator track for 32 bars, looking for patterns up to 8 bars long, and play the Arrangement. Follow along until monitoring finishes, then tell me the bar where its pattern first settled, the bar where it changed, and the bar where the new pattern settled.",
       "timeoutMs": 420000,
       "assertions": [
         {

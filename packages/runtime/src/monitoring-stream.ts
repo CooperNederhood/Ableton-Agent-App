@@ -19,8 +19,11 @@ import type { MetricRecordStagedSink } from "./metric-record-ingestion.js";
 /** Monitoring compares bars by their normalized mel spectrum on a 16th grid. */
 export const MONITORING_FEATURE = "mel-grid/v1" as const;
 
-/** Distance at or below which two bars count as the same pattern bar. */
-export const MONITORING_MATCH_THRESHOLD = 0.5;
+/**
+ * Distance at or below which two bars count as the same pattern bar. In real
+ * Live, repeats of a steady loop measured 0.003–0.07, and 0.5 missed a change.
+ */
+export const MONITORING_MATCH_THRESHOLD = 0.15;
 
 /**
  * Euclidean distance between the bars' unit-normalized mel grids: 0 is

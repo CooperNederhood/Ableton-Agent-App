@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "monitoring-arrangement",
   "fixtureId": "monitoring-patterns",
-  "requiredCapabilities": ["automation"],
+  "requiredCapabilities": ["automation", "session-midi"],
   "permissions": [
     {
       "tool": "ableton_transport",

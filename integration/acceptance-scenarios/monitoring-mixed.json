@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "id": "monitoring-mixed",
+  "fixtureId": "monitoring-patterns",
+  "requiredCapabilities": ["automation", "session-midi"],
+  "permissions": [
+    {
+      "tool": "ableton_transport",
+      "action": "seek",
+      "risk": "medium",
+      "maxUses": 1,
+      "stepIds": ["monitor"],
+      "arguments": {
+        "action": "seek",
+        "time": 0
+      }
+    },
+    {
+      "tool": "ableton_session_clips",
+      "action": "launch",
+      "risk": "medium",
+      "maxUses": 1,
+      "stepIds": ["monitor"],
+      "sourceId": "drums-long",
+      "arguments": {
+        "action": "launch",
+        "index": 1,
+        "expectedReference": "$source.trackId",
+        "expectedName": "drums",
+        "sceneIndex": "$source.slotIndex",
+        "expectedClipReference": "$source.clipId"
+      }
+    },
+    {
+      "tool": "ableton_transport",
+      "action": "set-playing",
+      "risk": "medium",
+      "maxUses": 1,
+      "stepIds": ["monitor"],
+      "arguments": {
+        "action": "set-playing",
+        "isPlaying": false
+      }
+    }
+  ],
+  "budget": {
+    "runMs": 480000,
+    "cleanupMs": 60000,
+    "persistenceMs": 30000
+  },
+  "steps": [
+    {
+      "id": "monitor",
+      "message": "Move the Arrangement playhead to the start. Then monitor both the operator and drums tracks for 32 bars, looking for patterns up to 8 bars long, and launch the third Session clip on the drums track; the operator track plays from the Arrangement. Follow along until monitoring finishes, then tell me for each track the bar where its pattern first settled, the bar where it changed, and the bar where the new pattern settled.",
+      "timeoutMs": 420000,
+      "assertions": [
+        {
+          "name": "monitoring-episodes",
+          "parameters": {
+            "changeBars": "17,25",
+            "slackBars": 2,
+            "establishBars": 3
+          }
+        }
+      ],
+      "sourceId": "drums-long"
+    }
+  ],
+  "assertions": []
+}

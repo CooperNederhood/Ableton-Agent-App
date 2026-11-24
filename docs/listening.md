@@ -230,7 +230,9 @@ the context database.
 
 - `start-monitoring` arms listeners on the chosen tracks while the transport is
   stopped and returns a `monitoringId`. It does not start playback: the user
-  (or another tool) presses play, or fires a Session clip, whenever they like.
+  (or another tool) presses play, or fires a Session clip, whenever they like
+  — but only after `start-monitoring` returns. Playback that starts first makes
+  it fail with `transport_not_stopped`.
 - `get-monitoring` returns the status (`armed`, `monitoring`, `rearming`,
   `completed`, `failed`, `stopped`) and new episodes since `afterSequence`.
   Each response's `nextSequence` is the last delivered episode (-1 before

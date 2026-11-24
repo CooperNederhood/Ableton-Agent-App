@@ -15,6 +15,22 @@
     }
   ],
   "dependencies": ["machine-listening"],
+  "sources": [
+    {
+      "id": "drums-long",
+      "trackName": "drums",
+      "clipName": "long-clip-listen",
+      "sceneIndex": 2,
+      "trackIndex": 1,
+      "clipLaunchQuantization": "global",
+      "activeLengthBeats": 128,
+      "listenerBindingSlot": "MidiTrack:15/DeviceChain/DeviceChain/Devices/MxDeviceAudioEffect:1",
+      "midi": {
+        "notesSha256": "92edbf70fbb271a4d6bbc1505b4d1e2380de1cdaadae8f4c24d172740a062dc4",
+        "instrumentChainSha256": "a52ee81b67e438a538ee90817b1fc2bf1fea8e6ee0812423e08d9d9cbbc78af4"
+      }
+    }
+  ],
   "listenerBindings": [
     {
       "slot": "MidiTrack:12/DeviceChain/DeviceChain/Devices/MxDeviceAudioEffect:1",
@@ -33,7 +49,23 @@
   ],
   "baseline": {
     "tempo": 120,
-    "trackCount": 2
+    "globalQuantization": "bar",
+    "transportPlaying": false,
+    "currentSongTime": 128,
+    "playingSessionClips": 0,
+    "rememberedSessionClips": 0,
+    "queuedSessionClips": 0,
+    "recording": false,
+    "arrangementRecord": false,
+    "sessionRecord": false,
+    "signatureNumerator": 4,
+    "signatureDenominator": 4,
+    "clipStart": 0,
+    "loopStart": 0,
+    "launchMode": "trigger",
+    "legato": false,
+    "followActionsEnabled": false,
+    "listenerBoundToSource": true
   },
   "coreLibraryResources": [
     {

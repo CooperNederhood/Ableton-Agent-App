@@ -21,6 +21,8 @@
     "listening-consolidation-long-audio",
     "listening-consolidation-long-midi",
     "monitoring-arrangement",
-    "monitoring-arrangement-two-tracks"
+    "monitoring-arrangement-two-tracks",
+    "monitoring-session",
+    "monitoring-mixed"
   ]
 }

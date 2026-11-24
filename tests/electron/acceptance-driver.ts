@@ -1969,7 +1969,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       ))
         if (!Object.hasOwn(observed, key) || observed[key] !== expected)
           throw new Error(
-            `Blocked source precondition: ${definition.id}.${key}`,
+            `Blocked source precondition: ${definition.id}.${key} (expected ${String(expected)}, observed ${String(observed[key])})`,
           );
       if (observed.rememberedSessionClips !== expectedRemembered)
         throw new Error(

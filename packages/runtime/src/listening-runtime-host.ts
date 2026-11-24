@@ -1899,7 +1899,10 @@ export function createListeningRuntimeHost(
 
   const monitoringPlans = new WeakMap<
     MonitoringPassPlan,
-    { descriptors: readonly ListenerDescriptor[]; inspection: InspectListeningContextResult }
+    {
+      descriptors: readonly ListenerDescriptor[];
+      inspection: InspectListeningContextResult;
+    }
   >();
   const monitoring = createMonitoringController({
     ...(dependencies.telemetry ? { telemetry: dependencies.telemetry } : {}),
@@ -1933,8 +1936,16 @@ export function createListeningRuntimeHost(
         )
           deny("transport_timing_unknown", undefined, [
             failureFact("transport.tempo", transport.tempo, "known"),
-            failureFact("transport.timeSignature", transport.timeSignature, "known"),
-            failureFact("transport.currentBeat", transport.currentBeat, "known"),
+            failureFact(
+              "transport.timeSignature",
+              transport.timeSignature,
+              "known",
+            ),
+            failureFact(
+              "transport.currentBeat",
+              transport.currentBeat,
+              "known",
+            ),
           ]);
         const meter = transport.timeSignature;
         const barBeats = (meter.numerator * 4) / meter.denominator;

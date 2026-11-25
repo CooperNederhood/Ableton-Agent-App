@@ -90,6 +90,8 @@ interface Monitor {
   trackReference: string | null;
   /** Armed while a pass was already playing; joins at the next stop. */
   pending: boolean;
+  /** Bars left before the monitor closes itself; null follows until stopped. */
+  barsRemaining: number | null;
 }
 
 function finite(value: number): number | null {
@@ -176,6 +178,7 @@ export function createMonitoringController(
       trackReference: monitor.trackReference,
       listenerId: monitor.listenerId,
       pending: monitor.pending,
+      barsRemaining: monitor.barsRemaining,
       state: snapshot.state,
       periodBars: snapshot.periodBars,
       patternVersion: snapshot.patternVersion,
@@ -225,6 +228,13 @@ export function createMonitoringController(
   const close = (monitor: Monitor, reason: string) => {
     if (monitor.observer.snapshot().state !== "closed")
       append(monitor, monitor.observer.close(reason));
+  };
+
+  const complete = (monitor: Monitor) => {
+    close(monitor, "completed");
+    monitors.delete(monitor.listenerId);
+    record("completed", { listenerId: monitor.listenerId });
+    if (monitors.size === 0) void handle?.disarm().catch(() => {});
   };
 
   const sleep = (ms: number, signal: AbortSignal) =>
@@ -277,7 +287,10 @@ export function createMonitoringController(
             (sealed.get(report.listenerId) ?? 0) + 1,
           );
           const monitor = monitors.get(report.listenerId);
-          if (monitor !== undefined) append(monitor, report.episodes);
+          if (monitor === undefined) return;
+          append(monitor, report.episodes);
+          if (monitor.barsRemaining !== null && --monitor.barsRemaining === 0)
+            complete(monitor);
         },
       });
       const passId = randomUUID();
@@ -413,6 +426,7 @@ export function createMonitoringController(
           listenerId,
           trackReference: null,
           pending: playing,
+          barsRemaining: request.maxBars ?? null,
           observer: new MonitoringObserver<ListeningFeature>({
             distance: monitoringFeatureDistance,
             maxWindowBars: request.maxWindowBars ?? 8,

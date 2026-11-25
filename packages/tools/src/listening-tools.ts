@@ -104,7 +104,7 @@ export const FEATURE_VALUE_DETAIL_GUIDANCE =
 export const LISTENING_AGENT_GUIDANCE = `Listen returns capture status and automatically derived musical values. Captures share song transport: never batch or parallelize listening calls. Run one capture at a time; inspect current state and stop transport only if it is moving, through ordinary approval. Do not start playback separately: both listening actions start it themselves. Listening captures available metric families automatically; no metric-family selector is needed. Normally omit listenerIds; these identify installed devices, not metric or feature names. play-session-and-listen requires target.view="session", not target.kind; target.track.kind="regular" identifies the track. Read stored values with ableton_context read using a source/range or a returned readTarget; no playback, derivation or inventory call is needed. Use stored compare/search for multi-measure matching instead of manually paging every timeline. Default pages contain compact musical values, units, normalization, channel validity and coverage. Segment-level availability rows preserve unavailable ranges and reasons with null values; they are not grid cells or measured zeros. Follow nextCursor for remaining values. Only when needed, use the same target with detail="evidence" for full canonical metadata and support intervals, or detail="original-measurements" for native analyzer frames; these are separate optional detail streams, not prerequisites for musical interpretation. Missing evidence never authorizes replay; neither does a forgotten capture target. Prepare stopped transport and the requested source through ordinary approvals. Session clips and Arrangement are distinct; a planned Session-to-Arrangement handoff requires stopped transport and Back to Arrangement. Never repair/retry a rejected pass automatically. A Session capture stops the transport it started; an Arrangement capture leaves playback running. Source attribution is not exclusive and timing is descriptive, not sample-accurate. ${LISTENING_FEATURE_CATALOG}`;
 
 export const MONITORING_GUIDANCE =
-  'Monitors follow tracks bar by bar while Live plays, find each steady repeating pattern, and report when it changes and when a new one settles. Monitors are shared by the whole app: the user can also arm or disarm them from the app, and any agent wired to a monitor in the Wiring tab is told about its changes automatically. start-monitoring arms the selected tracks and returns once they are armed. Arming needs stopped transport: if Live is playing, status is "waiting" and the tracks join at the next stop. Only after status is "armed" may playback start (ableton_transport, Session clip launch, or the user). Never request playback or a clip launch in the same parallel batch as start-monitoring. A stop or jump marks tracks uncertain; monitors re-arm automatically from the new stopped position. Poll get-monitoring with afterSequence and waitMs 30000 for new episodes, instead of repeated immediate calls ("pattern-established", "fill", "pattern-changed", "uncertain", "closed"); bars are 1-based song bars. stop-monitoring disarms tracks; leave monitors the user armed alone unless asked. Never run a capture listen while monitors are armed.';
+  'Monitors follow tracks bar by bar while Live plays, find each steady repeating pattern, and report when it changes and when a new one settles. Monitors are shared by the whole app: the user can also arm or disarm them from the app, and any agent wired to a monitor in the Wiring tab is told about its changes automatically. start-monitoring arms the selected tracks and returns once they are armed. Arming needs stopped transport: if Live is playing, status is "waiting" and the tracks join at the next stop. Only after status is "armed" may playback start (ableton_transport, Session clip launch, or the user). Never request playback or a clip launch in the same parallel batch as start-monitoring. A stop or jump marks tracks uncertain; monitors re-arm automatically from the new stopped position. Poll get-monitoring with afterSequence and waitMs 30000 for new episodes, instead of repeated immediate calls ("pattern-established", "fill", "pattern-changed", "uncertain", "closed"); bars are 1-based song bars. A monitor started with maxBars closes ("closed", reason "completed") after that many bars. stop-monitoring disarms tracks; leave monitors the user armed alone unless asked. Never run a capture listen while monitors are armed.';
 
 export const monitoringEpisodeSchema = z.discriminatedUnion("kind", [
   z.strictObject({
@@ -163,6 +163,7 @@ export const monitoringViewSchema = z
           trackReference: id.nullable(),
           listenerId: id,
           pending: z.boolean(),
+          barsRemaining: z.number().int().nonnegative().nullable(),
           state: z.enum([
             "armed",
             "acquiring",
@@ -308,6 +309,15 @@ export const listeningOperationParamsSchema = z.discriminatedUnion("action", [
         .union([z.literal(1), z.literal(2), z.literal(4), z.literal(8)])
         .default(8)
         .describe("Longest repeating pattern, in bars, to look for."),
+      maxBars: z
+        .number()
+        .int()
+        .min(1)
+        .max(1024)
+        .optional()
+        .describe(
+          "Bars to follow before these monitors disarm on their own. Omit to monitor until stopped.",
+        ),
     })
     .strict()
     .describe(MONITORING_GUIDANCE),

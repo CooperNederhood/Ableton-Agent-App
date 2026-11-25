@@ -61,6 +61,7 @@ export interface ListeningMonitoringPort {
     request: {
       readonly listenerIds: readonly string[];
       readonly maxWindowBars?: 1 | 2 | 4 | 8 | undefined;
+      readonly maxBars?: number | undefined;
     },
     context: ListeningExecutionContext,
   ): Promise<MonitoringView>;
@@ -564,7 +565,11 @@ export function createListeningHost(options: ListeningHostOptions): Required<
             result = {
               action: params.action,
               monitoring: await options.monitoring.arm(
-                { listenerIds, maxWindowBars: params.maxWindowBars },
+                {
+                  listenerIds,
+                  maxWindowBars: params.maxWindowBars,
+                  maxBars: params.maxBars,
+                },
                 context,
               ),
             };

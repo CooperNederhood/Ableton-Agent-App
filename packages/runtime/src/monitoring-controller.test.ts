@@ -1,11 +1,13 @@
 import { ListeningFailure } from "@ableton-agent/application";
 import type { ListeningMusicalAlignment } from "@ableton-agent/protocol";
+import { createSyntheticMetricRecordStreamFixture } from "@ableton-agent/protocol/testing";
 import { describe, expect, it, vi } from "vitest";
 import {
   createMonitoringController,
   type MonitoringPassHandle,
   type MonitoringPassPlan,
 } from "./monitoring-controller.js";
+import type { MetricRecordStagedSink } from "./metric-record-ingestion.js";
 
 const alignment: ListeningMusicalAlignment = {
   version: 1,
@@ -38,6 +40,7 @@ function harness() {
     result: ReturnType<typeof deferred<unknown>>;
     launch: ReturnType<typeof deferred<void>>;
     disarm: ReturnType<typeof vi.fn>;
+    sink: MetricRecordStagedSink;
   }[] = [];
   const plans: (number | "playing")[] = [];
   const planned: string[][] = [];
@@ -58,9 +61,10 @@ function harness() {
         })),
       };
     },
-    arm: async ({ plan }): Promise<MonitoringPassHandle> => {
+    arm: async ({ plan, sink }): Promise<MonitoringPassHandle> => {
       const pass = {
         plan,
+        sink,
         result: deferred<unknown>(),
         launch: deferred<void>(),
         disarm: vi.fn(async () => {}),
@@ -107,6 +111,31 @@ describe("monitoring controller", () => {
     const rearmed = await controller.read();
     expect(rearmed).toMatchObject({ status: "armed", startBeat: 32 });
     expect(rearmed.episodes).toEqual([]);
+  });
+
+  it("closes a monitor after maxBars and ends monitoring", async () => {
+    const { controller, passes } = harness();
+    const fixture = await createSyntheticMetricRecordStreamFixture({
+      seconds: 12,
+      requestedMetrics: ["mel-bands"],
+    });
+    const listenerId = fixture.descriptor.ownership.listenerId;
+    await controller.arm({ listenerIds: [listenerId], maxBars: 2 }, context);
+    const { sink, launch, disarm } = passes[0]!;
+    launch.resolve();
+    await sink.begin(fixture.descriptor);
+    for await (const chunk of fixture.chunks()) await sink.append(chunk);
+    await settle();
+
+    const done = await controller.read();
+    expect(done.status).toBe("off");
+    expect(done.tracks).toEqual([]);
+    expect(done.episodes.at(-1)?.episode).toMatchObject({
+      kind: "closed",
+      bar: 2,
+      reason: "completed",
+    });
+    expect(disarm).toHaveBeenCalled();
   });
 
   it("is shared: the app arms, an agent adds a track, and both are reported", async () => {

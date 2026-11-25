@@ -237,7 +237,9 @@ Wiring receives its episodes as Live events, so it does not need to poll.
   is already armed). It does not start playback: the user (or another tool)
   presses play, or fires a Session clip, whenever they like. If Live is
   playing, the status is `waiting` and new tracks are `pending`; they join at
-  the next stop.
+  the next stop. With `maxBars`, each new monitor closes itself (`closed`,
+  reason `completed`) after that many bars; without it, a monitor follows
+  until stopped.
 - `get-monitoring` returns the status (`off`, `waiting`, `armed`,
   `monitoring`, `rearming`, `failed`) and new episodes since `afterSequence`.
   Each response's `nextSequence` is the last delivered episode (-1 before
@@ -251,7 +253,8 @@ track, Session or Arrangement. `packages/runtime/src/monitoring-controller.ts`
 runs the loop:
 
 1. Plan a pass for every armed track from the stopped playhead (up to 600
-   seconds). While Live is playing, it waits and retries. Arming or disarming
+   seconds, and no more bars than the feature grid can segment at once:
+   `monitoringPassBars`). While Live is playing, it waits and retries. Arming or disarming
    a track while a pass is armed but not yet playing re-plans it.
 2. Arm the listeners with a streaming sink
    (`packages/runtime/src/monitoring-stream.ts`), which seals each complete bar

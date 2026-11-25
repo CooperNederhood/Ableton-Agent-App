@@ -1,4 +1,6 @@
 import {
+  LISTENING_FEATURE_LIMITS,
+  MAX_CONTINUOUS_METRIC_LISTENING_SECONDS,
   compareListeningFeatures,
   extractListeningFeature,
   projectMetricFeatureSource,
@@ -45,6 +47,20 @@ export function monitoringFeatureDistance(
   return (
     comparison.distance * Math.sqrt(comparison.coverage?.comparedValues ?? 1)
   );
+}
+
+/**
+ * Bars in one armed pass: capped by the continuous listening window and by the
+ * feature grid, which segments the whole pass into 16th cells up front. One
+ * bar is reserved for a playhead that starts between grid lines.
+ */
+export function monitoringPassBars(tempoBpm: number, barBeats: number): number {
+  const byTime = Math.floor(
+    (MAX_CONTINUOUS_METRIC_LISTENING_SECONDS * tempoBpm) / 60 / barBeats,
+  );
+  const byGrid =
+    Math.floor(LISTENING_FEATURE_LIMITS.cells / (barBeats * 4)) - 1;
+  return Math.max(1, Math.min(byTime, byGrid));
 }
 
 export interface MonitoringBarReport {

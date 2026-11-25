@@ -67,6 +67,7 @@ import {
   createMonitoringController,
   type MonitoringPassPlan,
 } from "./monitoring-controller.js";
+import { monitoringPassBars } from "./monitoring-stream.js";
 import type {
   ListeningRuntimeDependencies,
   ListeningRuntimeHost,
@@ -1950,11 +1951,7 @@ export function createListeningRuntimeHost(
           ]);
         const meter = transport.timeSignature;
         const barBeats = (meter.numerator * 4) / meter.denominator;
-        const passBars = Math.floor(
-          (MAX_CONTINUOUS_METRIC_LISTENING_SECONDS * transport.tempo) /
-            60 /
-            barBeats,
-        );
+        const passBars = monitoringPassBars(transport.tempo, barBeats);
         const startBeat = transport.currentBeat;
         const plan: MonitoringPassPlan = {
           startBeat,

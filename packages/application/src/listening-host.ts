@@ -12,6 +12,7 @@ import {
   type ListeningOperationParams,
   type ListeningOperationResult,
   type ListeningJobView,
+  type MonitoringView,
 } from "@ableton-agent/tools";
 import type {
   CopilotAgentServiceOptions,
@@ -47,9 +48,35 @@ type ArrangementSources = NonNullable<
 type CaptureParams = Extract<
   ListeningOperationParams,
   {
-    action: "play-session-and-listen" | "play-arrangement-and-listen";
+    action:
+      | "play-session-and-listen"
+      | "play-arrangement-and-listen"
+      | "start-monitoring";
   }
 >;
+
+/** Open-ended per-track pattern monitoring; owns its own arm/re-arm loop. */
+export interface ListeningMonitoringPort {
+  start(
+    request: {
+      readonly listenerIds: readonly string[];
+      readonly maxBars: number;
+      readonly maxWindowBars: number;
+    },
+    owner: ListeningOwner,
+    context: ListeningExecutionContext,
+  ): Promise<MonitoringView>;
+  get(
+    monitoringId: string,
+    owner: ListeningOwner,
+    options?: {
+      readonly afterSequence?: number | undefined;
+      readonly waitMs?: number | undefined;
+      readonly signal?: AbortSignal | undefined;
+    },
+  ): Promise<MonitoringView>;
+  stop(monitoringId: string, owner: ListeningOwner): Promise<MonitoringView>;
+}
 
 export interface ListeningHostOptions extends Pick<
   ListeningCoordinatorOptions,
@@ -77,6 +104,7 @@ export interface ListeningHostOptions extends Pick<
     sources: ArrangementSources,
     context: ListeningExecutionContext,
   ) => Promise<{ startBeat: number; endBeat: number }>;
+  readonly monitoring?: ListeningMonitoringPort;
 }
 
 const cursorSchema = z.strictObject({
@@ -293,6 +321,14 @@ export function createListeningHost(options: ListeningHostOptions): Required<
       const params = listeningOperationParamsSchema.parse(input);
       context.signal?.throwIfAborted();
       emit("progress", { phase: "resolving-exact-capture-scope" });
+      if (params.action === "start-monitoring") {
+        const ids = await resolveListenerIds(params, context);
+        emit("completed", { listenerCount: ids.length });
+        return listeningOperationParamsSchema.parse({
+          ...params,
+          listenerIds: ids,
+        });
+      }
       if (
         params.action !== "play-session-and-listen" &&
         params.action !== "play-arrangement-and-listen"
@@ -511,6 +547,62 @@ export function createListeningHost(options: ListeningHostOptions): Required<
                   ).toString("base64url"),
                 }),
           };
+        } else if (
+          params.action === "start-monitoring" ||
+          params.action === "get-monitoring" ||
+          params.action === "stop-monitoring"
+        ) {
+          if (options.monitoring === undefined)
+            throw new ListeningFailure(
+              "monitoring_unavailable",
+              "Monitoring is not available in this runtime",
+            );
+          const owner = await awaitListeningBoundary(
+            options.resolveOwner(context),
+            context.signal,
+          );
+          if (params.action === "start-monitoring") {
+            if (context.actorKind === "application")
+              throw new ListeningFailure(
+                "permission_denied",
+                "Monitoring requires an initiating agent owner",
+              );
+            const listenerIds =
+              params.listenerIds ?? (await resolveListenerIds(params, context));
+            result = {
+              action: params.action,
+              monitoring: await options.monitoring.start(
+                {
+                  listenerIds,
+                  maxBars: params.maxBars,
+                  maxWindowBars: params.maxWindowBars,
+                },
+                owner,
+                context,
+              ),
+            };
+          } else if (params.action === "get-monitoring") {
+            result = {
+              action: params.action,
+              monitoring: await options.monitoring.get(
+                params.monitoringId,
+                owner,
+                {
+                  afterSequence: params.afterSequence,
+                  waitMs: params.waitMs,
+                  signal: context.signal,
+                },
+              ),
+            };
+          } else {
+            result = {
+              action: params.action,
+              monitoring: await options.monitoring.stop(
+                params.monitoringId,
+                owner,
+              ),
+            };
+          }
         } else if (params.action === "get-pass" || params.action === "cancel") {
           const job = owned(params.passId, context);
           result = {

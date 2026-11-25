@@ -217,7 +217,7 @@ export function validateSupportedSessionBaseline(
       common.loopEnd === common.activeLengthBeats &&
       common.loopStart === 0 &&
       common.clipStart === 0,
-    "Unsupported Session active source region",
+    `Unsupported Session active source region (activeLengthBeats=${String(common.activeLengthBeats)}, clipStart=${String(common.clipStart)}, loopStart=${String(common.loopStart)}, loopEnd=${String(common.loopEnd)})`,
   );
   const sourceSettings = { ...common, loopEnd: 4, activeLengthBeats: 4 };
   if (kind === "audio")

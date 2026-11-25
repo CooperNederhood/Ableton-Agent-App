@@ -277,7 +277,7 @@ export function validateFixtureSourceEvidence(
     observed.instrumentChainSha256 !== evidence.source.instrumentChainSha256
   )
     throw new Error(
-      "Observed MIDI content differs from independently declared fixture",
+      `Observed MIDI content differs from independently declared fixture (observed notesSha256=${observed.midiNotesSha256}, instrumentChainSha256=${observed.instrumentChainSha256})`,
     );
 }
 

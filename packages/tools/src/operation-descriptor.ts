@@ -354,7 +354,9 @@ function applicationContextDescriptors(): readonly AbletonOperationDescriptor[] 
         toolName: "ableton_listening",
         title: plays
           ? "Play and listen to audio"
-          : "Inspect or cancel listening",
+          : action.endsWith("-monitoring")
+            ? "Monitor live audio patterns"
+            : "Inspect or cancel listening",
         inputSchema,
         resultSchema: listeningOperationResultSchema,
         risk: plays ? "reversible" : "read",

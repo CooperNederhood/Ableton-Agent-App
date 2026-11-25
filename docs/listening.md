@@ -220,6 +220,51 @@ job stages and capture plumbing in `listening-runtime-host.ts`:
 Arrangement timing is simpler: the start position is set directly, so no onset
 window is needed.
 
+## Capture listening vs monitoring
+
+The flows above are **capture listening**: the agent plays an exact range, and
+the result is stored for later reading. **Monitoring** is different. It is an
+open-ended observer that follows whatever plays on up to 8 tracks, bar by bar,
+and reports when a repeating pattern settles or changes. Nothing is stored in
+the context database.
+
+- `start-monitoring` arms listeners on the chosen tracks while the transport is
+  stopped and returns a `monitoringId`. It does not start playback: the user
+  (or another tool) presses play, or fires a Session clip, whenever they like
+  — but only after `start-monitoring` returns. Playback that starts first makes
+  it fail with `transport_not_stopped`.
+- `get-monitoring` returns the status (`armed`, `monitoring`, `rearming`,
+  `completed`, `failed`, `stopped`) and new episodes since `afterSequence`.
+  Each response's `nextSequence` is the last delivered episode (-1 before
+  any); pass it back unchanged as the next `afterSequence`.
+- `stop-monitoring` disarms and closes the observers.
+
+Monitoring reuses the existing `arrangement` device mode: each pass arms at the
+current stopped playhead and records mel bands from whatever is audible on the
+track, Session or Arrangement. `packages/runtime/src/monitoring-controller.ts`
+runs the loop:
+
+1. Plan a pass from the stopped playhead (up to 600 seconds, capped by
+   `maxBars`). While Live is playing, it waits and retries.
+2. Arm the listeners with a streaming sink
+   (`packages/runtime/src/monitoring-stream.ts`), which seals each complete bar
+   into a mel-band vector per track.
+3. Each sealed bar goes to that track's `MonitoringObserver`
+   (`packages/protocol/src/monitoring-observer.ts`). This state machine tries
+   loop lengths of 1, 2, 4 and 8 bars (up to `maxWindowBars`). It emits
+   `pattern-established` once a loop repeats, `fill` for a one-bar miss,
+   `pattern-changed` after two missed bars, and then `pattern-established`
+   again for the new loop. Each matching bar replaces the stored copy of
+   its place in the loop. This lets slow drift in how bars line up with the
+   analysis frames go unflagged, while a sudden change still stands out.
+4. If playback stops or jumps, the pass ends, the observers emit `uncertain`,
+   and monitoring re-arms from the new stopped position.
+
+Only one monitoring can run at a time. Starting it while Live is already
+playing is not supported yet. The match threshold
+(`MONITORING_MATCH_THRESHOLD`, 0.25) is calibrated against real Live audio.
+Steady repeats score below about 0.2 and a real change scores about 1.0.
+
 ## Measurements
 
 Each capture records several metric families side by side. If one family fails,
@@ -292,5 +337,6 @@ already heard without loading all the data into the prompt.
 | Clip launch and observed start        | `remote-script/AbletonAgent/session_listening_pass.py`                   |
 | Device arm and clock checks           | `max-patches/audio-listener/audio_listener_metric_controller.js`         |
 | Feature definitions                   | `packages/protocol/src/listening-feature-contracts.ts`                   |
+| Monitoring loop and pattern detection | `packages/runtime/src/monitoring-controller.ts`, `packages/protocol/src/monitoring-observer.ts` |
 | Stored captures                       | `packages/project-state/src/context-repository.ts`                       |
 | Design decision                       | [ADR 0006](decisions/0006-playback-listening-and-entity-context.md)      |

@@ -1969,7 +1969,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       ))
         if (!Object.hasOwn(observed, key) || observed[key] !== expected)
           throw new Error(
-            `Blocked source precondition: ${definition.id}.${key}`,
+            `Blocked source precondition: ${definition.id}.${key} (expected ${String(expected)}, observed ${String(observed[key])})`,
           );
       if (observed.rememberedSessionClips !== expectedRemembered)
         throw new Error(
@@ -3072,7 +3072,9 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           ) ||
           link.step.assertions.some(
             ({ name }) =>
-              name === "agent-listening-result" || name === "feature-search",
+              name === "agent-listening-result" ||
+              name === "feature-search" ||
+              name === "monitoring-episodes",
           )
             ? await this.#readAgentListening(
                 context,

@@ -163,9 +163,11 @@ const validHistoryRange = (query: {
   to?: string | undefined;
 }): boolean =>
   query.from === undefined || query.to === undefined || query.from <= query.to;
-const telemetryQuerySchema = z
+const rootTraceQuerySchema = z
   .object({
     ...telemetryFilterShape,
+    search: z.string().trim().min(1).max(128).optional(),
+    excludeRootNames: telemetryStringListSchema.optional(),
     cursor: z.string().min(1).max(256).optional(),
     limit: z.number().int().min(1).max(500).default(100),
     order: z.enum(["asc", "desc"]).default("desc"),
@@ -2684,7 +2686,7 @@ export const ipcSchemas = {
     response: desktopMonitorsStateSchema,
   },
   "event-history:search": {
-    request: telemetryQuerySchema,
+    request: rootTraceQuerySchema,
     response: rootTracePageSchema,
   },
   "event-history:agent": {

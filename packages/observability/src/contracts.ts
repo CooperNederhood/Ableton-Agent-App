@@ -480,7 +480,27 @@ export const rootTraceSummarySchema = z
   })
   .strict();
 
-export const rootTraceQuerySchema = telemetryQuerySchema;
+export const rootTraceQuerySchema = z
+  .object({
+    ...telemetryFilterShape,
+    /** Case-insensitive substring of any event name or source in the trace. */
+    search: z.string().trim().min(1).max(128).optional(),
+    /** Hides traces whose first event has one of these names. */
+    excludeRootNames: stringFilterSchema.optional(),
+    cursor: z.string().min(1).max(256).optional(),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_QUERY_LIMIT)
+      .default(DEFAULT_QUERY_LIMIT),
+    order: z.enum(["asc", "desc"]).default("desc"),
+  })
+  .strict()
+  .refine(validTimeRange, {
+    message: "'from' must not be later than 'to'",
+    path: ["from"],
+  });
 
 export const rootTracePageSchema = z
   .object({

@@ -401,17 +401,50 @@ function wirePath(from: Point, to: Point): string {
 
 // ── Wiring view ──────────────────────────────────────────────────────────
 
+export type WiringMode = "live" | "history";
+
+/** One bar for both Wiring modes so switching never moves the tabs or content. */
+export function WiringBar({
+  mode,
+  onModeChange,
+  children,
+}: {
+  mode: WiringMode;
+  onModeChange: (mode: WiringMode) => void;
+  children?: ReactNode;
+}): React.JSX.Element {
+  return (
+    <div className="wiring-bar">
+      <h2 id="events-heading">Wiring</h2>
+      <div className="events-mode-tabs" role="tablist" aria-label="Wiring mode">
+        {(["live", "history"] as const).map((value) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={mode === value}
+            onClick={() => onModeChange(value)}
+          >
+            {value === "live" ? "Connections" : "History"}
+          </button>
+        ))}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 export function WiringView({
   state,
   dispatch,
-  modeTabs,
+  onModeChange,
   agentColor,
   renderEventDetails,
   onError,
 }: {
   state: DesktopState;
   dispatch: DesktopDispatch;
-  modeTabs: ReactNode;
+  onModeChange: (mode: WiringMode) => void;
   agentColor: (definitionName: string) => string;
   renderEventDetails: (event: DesktopLiveEventState) => ReactNode;
   onError: ReportError;
@@ -640,9 +673,7 @@ export function WiringView({
 
   return (
     <div className="wiring-view">
-      <div className="wiring-bar">
-        <h2 id="events-heading">Wiring</h2>
-        {modeTabs}
+      <WiringBar mode="live" onModeChange={onModeChange}>
         <div className="wiring-chips" role="group" aria-label="Show">
           {(Object.keys(FILTER_LABELS) as Filter[]).map((value) => (
             <button
@@ -696,7 +727,7 @@ export function WiringView({
         >
           Add event…
         </button>
-      </div>
+      </WiringBar>
       {!sessionActive && (
         <div className="notice" role="status">
           Wiring controls will be available after the production session is

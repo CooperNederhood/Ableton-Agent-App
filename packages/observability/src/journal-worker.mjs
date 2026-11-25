@@ -858,8 +858,20 @@ function readHistory(query, domain) {
 }
 
 function rootSummaries(query) {
-  const { cursor: encoded, limit, order, ...filter } = query;
+  const {
+    cursor: encoded,
+    limit,
+    order,
+    search,
+    excludeRootNames,
+    ...filter
+  } = query;
   const { clauses, parameters } = eventWhere(filter);
+  if (search !== undefined) {
+    const pattern = `%${search.replace(/[\\%_]/gu, "\\$&")}%`;
+    clauses.push("(name LIKE ? ESCAPE '\\' OR source LIKE ? ESCAPE '\\')");
+    parameters.push(pattern, pattern);
+  }
   const matchingWhere = whereSql(clauses);
   const cte = `WITH matching_roots AS (
       SELECT DISTINCT root_trace_id FROM app_events${matchingWhere}
@@ -890,12 +902,23 @@ function rootSummaries(query) {
         ON matching_roots.root_trace_id = events.root_trace_id
       GROUP BY events.root_trace_id
     )`;
+  const summaryClauses = [];
+  const summaryParameters = [...parameters];
+  if (excludeRootNames !== undefined) {
+    summaryClauses.push(
+      `first_event_name NOT IN (${placeholders(excludeRootNames)})`,
+    );
+    summaryParameters.push(...excludeRootNames);
+  }
   const totalItems = number(
-    row(`${cte} SELECT count(*) AS count FROM summaries`, parameters),
+    row(
+      `${cte} SELECT count(*) AS count FROM summaries${whereSql(summaryClauses)}`,
+      summaryParameters,
+    ),
     "count",
   );
-  const pageClauses = [];
-  const pageParameters = [...parameters];
+  const pageClauses = [...summaryClauses];
+  const pageParameters = [...summaryParameters];
   if (encoded !== undefined) {
     const decoded = cursor(encoded, "roots", order);
     pageClauses.push(`first_sequence ${order === "asc" ? ">" : "<"} ?`);

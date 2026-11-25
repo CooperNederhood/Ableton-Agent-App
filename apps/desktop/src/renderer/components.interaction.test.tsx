@@ -465,6 +465,7 @@ describe("desktop component interactions", () => {
             preferences: { ...reduced.preferences, eventsViewMode: "live" },
           }}
           dispatch={dispatch}
+          onModeChange={vi.fn()}
         />,
       ),
     );

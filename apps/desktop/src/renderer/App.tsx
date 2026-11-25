@@ -112,7 +112,12 @@ import {
   eventKindLabels,
   latestStateLabel,
 } from "./live-event-drafts";
-import { MonitorArmMenu, WiringView } from "./WiringView";
+import {
+  MonitorArmMenu,
+  WiringBar,
+  WiringView,
+  type WiringMode,
+} from "./WiringView";
 import type { DesktopListeningJob } from "../listening-contracts";
 
 type CatalogSkill = DesktopState["agentCatalog"]["skills"][number];
@@ -1288,38 +1293,49 @@ export function EventsView({
 
   if (historyMode) {
     return (
-      <section className="events-view" aria-labelledby="events-heading">
-        <EventsModeHeading mode="history" onChange={setMode} />
-        <EventHistoryView state={state} dispatch={dispatch} />
+      <section
+        className="events-view wiring-mode"
+        aria-labelledby="events-heading"
+      >
+        <EventHistoryView
+          state={state}
+          dispatch={dispatch}
+          onModeChange={setMode}
+        />
       </section>
     );
   }
 
   if (state.eventsLoad.status !== "loaded") {
     return (
-      <section className="events-view" aria-labelledby="events-heading">
-        <EventsModeHeading mode="live" onChange={setMode} />
-        {state.eventsLoad.status === "failed" ? (
-          <div className="event-load-error" role="alert">
-            <strong>Events could not be loaded</strong>
-            <p>{state.eventsLoad.message}</p>
-            <button
-              type="button"
-              onClick={() =>
-                void loadLiveEvents(dispatch, () =>
-                  window.desktop.events.list(),
-                )
-              }
-            >
-              Retry
-            </button>
-          </div>
-        ) : (
-          <PresentationState
-            title="Loading Events…"
-            detail="Reading event definitions and current Live state."
-          />
-        )}
+      <section
+        className="events-view wiring-mode"
+        aria-labelledby="events-heading"
+      >
+        <WiringBar mode="live" onModeChange={setMode} />
+        <div className="wiring-pane">
+          {state.eventsLoad.status === "failed" ? (
+            <div className="event-load-error" role="alert">
+              <strong>Events could not be loaded</strong>
+              <p>{state.eventsLoad.message}</p>
+              <button
+                type="button"
+                onClick={() =>
+                  void loadLiveEvents(dispatch, () =>
+                    window.desktop.events.list(),
+                  )
+                }
+              >
+                Retry
+              </button>
+            </div>
+          ) : (
+            <PresentationState
+              title="Loading Events…"
+              detail="Reading event definitions and current Live state."
+            />
+          )}
+        </div>
       </section>
     );
   }
@@ -1332,7 +1348,7 @@ export function EventsView({
       <WiringView
         state={state}
         dispatch={dispatch}
-        modeTabs={<EventsModeTabs mode="live" onChange={setMode} />}
+        onModeChange={setMode}
         agentColor={(definitionName) =>
           agentColor(state.agentCatalog.definitions, definitionName)
         }
@@ -1359,49 +1375,6 @@ export function EventsView({
   );
 }
 
-function EventsModeHeading({
-  mode,
-  onChange,
-}: {
-  mode: "live" | "history";
-  onChange: (mode: "live" | "history") => void;
-}): React.JSX.Element {
-  return (
-    <div className="panel-heading">
-      <div>
-        <h2 id="events-heading">Wiring</h2>
-        <p>Connect what happens in Live to the agents that should hear it.</p>
-        <EventsModeTabs mode={mode} onChange={onChange} />
-      </div>
-    </div>
-  );
-}
-
-function EventsModeTabs({
-  mode,
-  onChange,
-}: {
-  mode: "live" | "history";
-  onChange: (mode: "live" | "history") => void;
-}): React.JSX.Element {
-  return (
-    <div className="events-mode-tabs" role="tablist" aria-label="Wiring mode">
-      {(["live", "history"] as const).map((value) => (
-        <button
-          key={value}
-          type="button"
-          role="tab"
-          aria-selected={mode === value}
-          className={mode === value ? "selected" : ""}
-          onClick={() => onChange(value)}
-        >
-          {value === "live" ? "Connections" : "History"}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 type JournalEvent = TelemetryEventPage["items"][number];
 type ConfigurationSnapshot = ConfigurationSnapshotPage["items"][number];
 type RootTrace = RootTracePage["items"][number];
@@ -1417,33 +1390,41 @@ function attributeText(
   return undefined;
 }
 
+/** Root traces started by app polling rather than by Live or the agent. */
+const BACKGROUND_ROOT_NAMES = [
+  "bridge.request.queued",
+  "listening.runtime.discovery.queued",
+];
+
+const HISTORY_RANGES = {
+  "": { label: "Any time", ms: undefined },
+  hour: { label: "Last hour", ms: 3_600_000 },
+  day: { label: "Last 24 hours", ms: 86_400_000 },
+  week: { label: "Last 7 days", ms: 604_800_000 },
+} as const;
+
+interface EventHistoryFilters {
+  search: string;
+  level: string;
+  outcome: string;
+  range: keyof typeof HISTORY_RANGES;
+  hideBackground: boolean;
+}
+
 function eventHistoryQuery(
-  filters: {
-    names: string;
-    sources: string;
-    level: string;
-    outcome: string;
-    from: string;
-    to: string;
-  },
+  filters: EventHistoryFilters,
   cursor?: string,
+  now = Date.now(),
 ): RootTraceQuery {
-  const split = (value: string): string[] | undefined => {
-    const values = value
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean);
-    return values.length === 0 ? undefined : [...new Set(values)];
-  };
+  const search = filters.search.trim();
+  const rangeMs = HISTORY_RANGES[filters.range].ms;
   return {
     limit: 100,
     order: "desc",
-    ...(split(filters.names) === undefined
-      ? {}
-      : { names: split(filters.names) }),
-    ...(split(filters.sources) === undefined
-      ? {}
-      : { sources: split(filters.sources) }),
+    ...(search === "" ? {} : { search }),
+    ...(filters.hideBackground
+      ? { excludeRootNames: BACKGROUND_ROOT_NAMES }
+      : {}),
     ...(filters.level === ""
       ? {}
       : { levels: [filters.level as "debug" | "info" | "warn" | "error"] }),
@@ -1454,10 +1435,9 @@ function eventHistoryQuery(
             filters.outcome as "success" | "failure" | "cancelled" | "unknown",
           ],
         }),
-    ...(filters.from === ""
+    ...(rangeMs === undefined
       ? {}
-      : { from: new Date(filters.from).toISOString() }),
-    ...(filters.to === "" ? {} : { to: new Date(filters.to).toISOString() }),
+      : { from: new Date(now - rangeMs).toISOString() }),
     ...(cursor === undefined ? {} : { cursor }),
   };
 }
@@ -1517,35 +1497,23 @@ export async function openListeningFailureHistory(
 export function EventHistoryView({
   state,
   dispatch,
+  onModeChange,
 }: {
   state: DesktopState;
   dispatch: DesktopDispatch;
+  onModeChange: (mode: WiringMode) => void;
 }): React.JSX.Element {
-  const [filters, setFilters] = useState({
-    names: "",
-    sources: "",
+  const [filters, setFilters] = useState<EventHistoryFilters>({
+    search: "",
     level: "",
     outcome: "",
-    from: "",
-    to: "",
+    range: "",
+    hideBackground: true,
   });
-  const refresh = (): void => {
-    let query: RootTraceQuery;
-    try {
-      query = eventHistoryQuery(filters);
-    } catch {
-      dispatch({
-        type: "event-history-load-failed",
-        message: "History dates must be valid.",
-      });
-      return;
-    }
+  const historyMode = state.preferences.eventsViewMode === "history";
 
-    void loadEventHistory(
-      dispatch,
-      (value) => window.desktop.eventHistory.search(value),
-      query,
-    );
+  useEffect(() => {
+    if (!historyMode) return;
     void Promise.all([
       window.desktop.eventHistory.configurations({ limit: 100, order: "desc" }),
       window.desktop.eventHistory.health(),
@@ -1557,11 +1525,21 @@ export function EventHistoryView({
       .catch((error: unknown) =>
         eventError(dispatch, error, "History metadata could not be loaded"),
       );
-  };
+  }, [historyMode]);
 
+  const refresh = (): void =>
+    void loadEventHistory(
+      dispatch,
+      (value) => window.desktop.eventHistory.search(value),
+      eventHistoryQuery(filters),
+    );
+
+  // Filters apply as they change; typing waits for a short pause.
   useEffect(() => {
-    if (state.preferences.eventsViewMode === "history") refresh();
-  }, [state.preferences.eventsViewMode]);
+    if (!historyMode) return;
+    const timer = setTimeout(refresh, 250);
+    return () => clearTimeout(timer);
+  }, [historyMode, filters]);
 
   const selectTrace = (trace: RootTrace): void => {
     const traceId = trace.rootTraceId;
@@ -1585,197 +1563,186 @@ export function EventHistoryView({
   };
 
   return (
-    <div className="event-history-layout">
-      <form
-        className="history-filters"
-        onSubmit={(event) => {
-          event.preventDefault();
-          refresh();
-        }}
-      >
-        <label>
-          Event names
-          <input
-            value={filters.names}
-            placeholder="agent.turn, tool.completed"
-            onChange={(event) =>
-              setFilters({ ...filters, names: event.target.value })
-            }
-          />
-        </label>
-        <label>
-          Sources
-          <input
-            value={filters.sources}
-            placeholder="runtime, desktop"
-            onChange={(event) =>
-              setFilters({ ...filters, sources: event.target.value })
-            }
-          />
-        </label>
-        <label>
-          Level
-          <select
-            value={filters.level}
-            onChange={(event) =>
-              setFilters({ ...filters, level: event.target.value })
-            }
-          >
-            <option value="">All</option>
-            <option value="debug">Debug</option>
-            <option value="info">Info</option>
-            <option value="warn">Warning</option>
-            <option value="error">Error</option>
-          </select>
-        </label>
-        <label>
-          Outcome
-          <select
-            value={filters.outcome}
-            onChange={(event) =>
-              setFilters({ ...filters, outcome: event.target.value })
-            }
-          >
-            <option value="">All</option>
-            <option value="success">Success</option>
-            <option value="failure">Failure</option>
-            <option value="cancelled">Cancelled</option>
-            <option value="unknown">Unknown</option>
-          </select>
-        </label>
-        <label>
-          From
-          <input
-            type="datetime-local"
-            value={filters.from}
-            onChange={(event) =>
-              setFilters({ ...filters, from: event.target.value })
-            }
-          />
-        </label>
-        <label>
-          To
-          <input
-            type="datetime-local"
-            value={filters.to}
-            onChange={(event) =>
-              setFilters({ ...filters, to: event.target.value })
-            }
-          />
-        </label>
-        <button type="submit">Apply filters</button>
-      </form>
-      {state.eventHistory.health && (
-        <p className="history-health">
-          Journal {state.eventHistory.health.status} ·{" "}
-          {state.eventHistory.health.persistedEvents} events ·{" "}
-          {formatBytes(state.eventHistory.health.databaseBytes)}
-        </p>
-      )}
-      {state.eventHistory.status === "failed" && (
-        <div role="alert" className="event-load-error">
-          {state.eventHistory.message}
-        </div>
-      )}
-      {state.eventHistory.status === "loading" &&
-      state.eventHistory.items.length === 0 &&
-      state.eventHistory.selectedTraceId === undefined ? (
-        <PresentationState
-          title="Loading event history…"
-          detail="Querying the local journal."
+    <>
+      <WiringBar mode="history" onModeChange={onModeChange}>
+        <input
+          type="search"
+          className="history-search"
+          aria-label="Search events or sources"
+          placeholder="Search events or sources"
+          value={filters.search}
+          onChange={(event) =>
+            setFilters({ ...filters, search: event.target.value })
+          }
         />
-      ) : state.eventHistory.items.length === 0 &&
-        state.eventHistory.selectedTraceId === undefined ? (
-        <EmptyState
-          title="No detailed history"
-          detail="Local detailed history is enabled by default. New instrumented events will appear here."
-        />
-      ) : (
-        <div className="history-workspace">
-          <div className="history-root-list" aria-label="Root occurrences">
-            {state.eventHistory.items.map((trace) => (
-              <button
-                type="button"
-                className={
-                  state.eventHistory.selectedTraceId === trace.rootTraceId
-                    ? "history-root selected"
-                    : "history-root"
-                }
-                key={trace.rootTraceId}
-                onClick={() => selectTrace(trace)}
-              >
-                <strong>{trace.firstEventName}</strong>
-                <span>
-                  {trace.eventCount}{" "}
-                  {trace.eventCount === 1 ? "event" : "events"}
-                  {trace.hasErrors ? " · errors" : ""}
-                </span>
-                <time>{new Date(trace.firstOccurredAt).toLocaleString()}</time>
-              </button>
-            ))}
-            {state.eventHistory.nextCursor && (
-              <button
-                type="button"
-                onClick={() =>
-                  void loadEventHistory(
-                    dispatch,
-                    (value) => window.desktop.eventHistory.search(value),
-                    eventHistoryQuery(filters, state.eventHistory.nextCursor),
-                    true,
-                  )
-                }
-              >
-                Load more
-              </button>
-            )}
+        <select
+          aria-label="Level"
+          value={filters.level}
+          onChange={(event) =>
+            setFilters({ ...filters, level: event.target.value })
+          }
+        >
+          <option value="">Any level</option>
+          <option value="debug">Debug</option>
+          <option value="info">Info</option>
+          <option value="warn">Warning</option>
+          <option value="error">Error</option>
+        </select>
+        <select
+          aria-label="Outcome"
+          value={filters.outcome}
+          onChange={(event) =>
+            setFilters({ ...filters, outcome: event.target.value })
+          }
+        >
+          <option value="">Any outcome</option>
+          <option value="success">Success</option>
+          <option value="failure">Failure</option>
+          <option value="cancelled">Cancelled</option>
+          <option value="unknown">Unknown</option>
+        </select>
+        <select
+          aria-label="Time range"
+          value={filters.range}
+          onChange={(event) =>
+            setFilters({
+              ...filters,
+              range: event.target.value as EventHistoryFilters["range"],
+            })
+          }
+        >
+          {Object.entries(HISTORY_RANGES).map(([value, { label }]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+        <label className="wiring-check">
+          <input
+            type="checkbox"
+            checked={filters.hideBackground}
+            onChange={(event) =>
+              setFilters({ ...filters, hideBackground: event.target.checked })
+            }
+          />
+          Hide background polling
+        </label>
+        <span className="wiring-spacer" />
+        {state.eventHistory.health && (
+          <span className="wiring-muted tabular">
+            {state.eventHistory.health.persistedEvents} events ·{" "}
+            {formatBytes(state.eventHistory.health.databaseBytes)}
+          </span>
+        )}
+      </WiringBar>
+      <div className="event-history-layout">
+        {state.eventHistory.status === "failed" && (
+          <div role="alert" className="event-load-error">
+            {state.eventHistory.message}
           </div>
-          <EventTraceInspector
-            state={state}
-            events={state.eventHistory.trace}
-            configurations={state.eventHistory.configurations}
-            traceId={state.eventHistory.selectedTraceId}
-            traceNextCursor={state.eventHistory.traceNextCursor}
-            traceTotalEvents={state.eventHistory.traceTotalEvents}
-            onLoadMore={(traceId, cursor) => {
-              void window.desktop.eventHistory
-                .trace(traceId, {
-                  cursor,
-                  limit: 100,
-                  order: "asc",
-                })
-                .then((page) =>
-                  dispatch({
-                    type: "event-history-trace-loaded",
-                    traceId,
-                    page,
-                    append: true,
-                  }),
-                )
-                .catch((error: unknown) =>
-                  eventError(
-                    dispatch,
-                    error,
-                    "More trace detail could not be loaded",
-                  ),
-                );
-            }}
-            onDelete={(traceId) => {
-              if (!window.confirm("Delete this trace from local history?"))
-                return;
-              void window.desktop.eventHistory
-                .deleteTrace(traceId)
-                .then(() => {
-                  dispatch({ type: "event-history-select-trace" });
-                  refresh();
-                })
-                .catch((error: unknown) =>
-                  eventError(dispatch, error, "Trace could not be deleted"),
-                );
-            }}
+        )}
+        {state.eventHistory.status === "loading" &&
+        state.eventHistory.items.length === 0 &&
+        state.eventHistory.selectedTraceId === undefined ? (
+          <PresentationState
+            title="Loading event history…"
+            detail="Querying the local journal."
           />
-        </div>
-      )}
-    </div>
+        ) : state.eventHistory.items.length === 0 &&
+          state.eventHistory.selectedTraceId === undefined ? (
+          <EmptyState
+            title="No detailed history"
+            detail="Local detailed history is enabled by default. New instrumented events will appear here."
+          />
+        ) : (
+          <div className="history-workspace">
+            <div className="history-root-list" aria-label="Root occurrences">
+              {state.eventHistory.items.map((trace) => (
+                <button
+                  type="button"
+                  className={
+                    state.eventHistory.selectedTraceId === trace.rootTraceId
+                      ? "history-root selected"
+                      : "history-root"
+                  }
+                  key={trace.rootTraceId}
+                  onClick={() => selectTrace(trace)}
+                >
+                  <strong>{trace.firstEventName}</strong>
+                  <span>
+                    {trace.eventCount}{" "}
+                    {trace.eventCount === 1 ? "event" : "events"}
+                    {trace.hasErrors ? " · errors" : ""}
+                  </span>
+                  <time>
+                    {new Date(trace.firstOccurredAt).toLocaleString()}
+                  </time>
+                </button>
+              ))}
+              {state.eventHistory.nextCursor && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    void loadEventHistory(
+                      dispatch,
+                      (value) => window.desktop.eventHistory.search(value),
+                      eventHistoryQuery(filters, state.eventHistory.nextCursor),
+                      true,
+                    )
+                  }
+                >
+                  Load more
+                </button>
+              )}
+            </div>
+            <EventTraceInspector
+              state={state}
+              events={state.eventHistory.trace}
+              configurations={state.eventHistory.configurations}
+              traceId={state.eventHistory.selectedTraceId}
+              traceNextCursor={state.eventHistory.traceNextCursor}
+              traceTotalEvents={state.eventHistory.traceTotalEvents}
+              onLoadMore={(traceId, cursor) => {
+                void window.desktop.eventHistory
+                  .trace(traceId, {
+                    cursor,
+                    limit: 100,
+                    order: "asc",
+                  })
+                  .then((page) =>
+                    dispatch({
+                      type: "event-history-trace-loaded",
+                      traceId,
+                      page,
+                      append: true,
+                    }),
+                  )
+                  .catch((error: unknown) =>
+                    eventError(
+                      dispatch,
+                      error,
+                      "More trace detail could not be loaded",
+                    ),
+                  );
+              }}
+              onDelete={(traceId) => {
+                if (!window.confirm("Delete this trace from local history?"))
+                  return;
+                void window.desktop.eventHistory
+                  .deleteTrace(traceId)
+                  .then(() => {
+                    dispatch({ type: "event-history-select-trace" });
+                    refresh();
+                  })
+                  .catch((error: unknown) =>
+                    eventError(dispatch, error, "Trace could not be deleted"),
+                  );
+              }}
+            />
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 

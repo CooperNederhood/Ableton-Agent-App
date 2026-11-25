@@ -751,10 +751,21 @@ small,
 
 .events-mode-tabs {
   display: flex;
-  gap: 6px;
-  margin-top: 12px;
 }
-
+.events-mode-tabs button {
+  min-height: 24px;
+  padding: 2px 10px;
+  border-radius: 0;
+}
+.events-mode-tabs button + button {
+  margin-left: -1px;
+}
+.events-mode-tabs button:first-child {
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+.events-mode-tabs button:last-child {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
 .events-mode-tabs button[aria-selected="true"] {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 22%, var(--surface-list));
@@ -762,32 +773,16 @@ small,
 
 .event-history-layout {
   display: grid;
+  flex: 1;
+  align-content: start;
   gap: 14px;
   min-height: 0;
-  margin-top: 16px;
-}
-
-.history-filters {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  align-items: end;
-  gap: 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
   padding: 12px;
-  background: var(--surface-list);
+  overflow: auto;
 }
 
-.history-filters label {
-  display: grid;
-  gap: 5px;
-  color: var(--text-muted);
-  font-size: 1rem;
-}
-
-.history-health {
-  margin: 0;
-  color: var(--text-muted);
+.history-search {
+  width: 220px;
 }
 
 .history-workspace {
@@ -4311,6 +4306,15 @@ kbd {
 .wiring-muted {
   color: var(--text-faint);
   font-size: 0.9167rem;
+}
+.wiring-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+}
+.wiring-pane {
+  padding: 12px;
 }
 .wiring-bar button[aria-expanded="true"] {
   background: var(--selection);

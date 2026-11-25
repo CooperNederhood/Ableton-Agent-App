@@ -3,14 +3,9 @@ import {
   parseSkillInvocation,
   type SkillInvocation,
 } from "@ableton-agent/agent-config/skill-invocation";
-import { createAgentEventListenerId } from "@ableton-agent/agent-config/live-event-id";
 import { DEFAULT_LISTENING_TIMING_POLICY } from "@ableton-agent/protocol";
 import {
-  MAX_LIVE_EVENT_MESSAGE_PREFIX_LENGTH,
-  resolvePreparedContextConfiguration,
-  type AgentEventListener,
   type CurrentAgentDefinition,
-  type PreparedContextConfiguration,
   AGENT_COLOR_PALETTE,
   defaultAgentColor,
 } from "@ableton-agent/agent-config/schemas";
@@ -3319,12 +3314,11 @@ function SidebarIcon({
   );
 }
 
-type AgentDetailSection = "general" | "capabilities" | "connections";
+type AgentDetailSection = "general" | "capabilities";
 
 function agentDetailSectionLabel(section: AgentDetailSection): string {
   if (section === "general") return "General";
-  if (section === "capabilities") return "Capabilities";
-  return "Connections";
+  return "Capabilities";
 }
 
 function AgentDetailSectionIcon({
@@ -3339,16 +3333,10 @@ function AgentDetailSectionIcon({
           <circle cx="9" cy="6" r="3" />
           <path d="M3.5 15c.7-3 2.5-4.5 5.5-4.5s4.8 1.5 5.5 4.5" />
         </>
-      ) : section === "capabilities" ? (
+      ) : (
         <>
           <path d="M9 2.5v3M9 12.5v3M2.5 9h3M12.5 9h3" />
           <circle cx="9" cy="9" r="3.5" />
-        </>
-      ) : (
-        <>
-          <circle cx="9" cy="9" r="2" />
-          <path d="M5.5 5.5a5 5 0 0 0 0 7M12.5 5.5a5 5 0 0 1 0 7" />
-          <path d="M3 3a8.5 8.5 0 0 0 0 12M15 3a8.5 8.5 0 0 1 0 12" />
         </>
       )}
     </svg>
@@ -3367,7 +3355,6 @@ function AgentDetailTabs({
   const sections = [
     "general",
     "capabilities",
-    "connections",
   ] as const satisfies readonly AgentDetailSection[];
   return (
     <div
@@ -3931,6 +3918,7 @@ export function AgentsView({
   const [busyAgentId, setBusyAgentId] = useState<string>();
   const [savingDefinitionName, setSavingDefinitionName] = useState<string>();
   const [creatingDefinition, setCreatingDefinition] = useState<string>();
+  const [newAgent, setNewAgent] = useState<NewAgentDraft>();
   const [confirmResetId, setConfirmResetId] = useState<string>();
   const [modelsState, setModelsState] = useState<
     | { status: "loading"; models: DesktopAgentModel[] }
@@ -3966,10 +3954,17 @@ export function AgentsView({
     const keys = new Set([
       ...activeAgents.map(({ id }) => `active:${id}`),
       ...inactiveDefinitions.map(({ name }) => `definition:${name}`),
+      ...(newAgent === undefined ? [] : [NEW_AGENT_KEY]),
     ]);
     if (inspectedKey !== undefined && keys.has(inspectedKey)) return;
     setInspectedKey(defaultInspectedKey);
-  }, [activeAgents, defaultInspectedKey, inactiveDefinitions, inspectedKey]);
+  }, [
+    activeAgents,
+    defaultInspectedKey,
+    inactiveDefinitions,
+    inspectedKey,
+    newAgent,
+  ]);
 
   const reportError = useCallback(
     (error: unknown, fallback: string): void => {
@@ -4115,6 +4110,43 @@ export function AgentsView({
       setSavingDefinitionName(undefined);
     }
   };
+  const startNewAgent = (): void => {
+    setNewAgent((current) => current ?? emptyNewAgentDraft());
+    setInspectedKey(NEW_AGENT_KEY);
+  };
+  const discardNewAgent = (): void => {
+    setNewAgent(undefined);
+    setInspectedKey(defaultInspectedKey);
+  };
+  const createDefinition = async (draft: NewAgentDraft): Promise<void> => {
+    if (session === undefined) return;
+    const definition = newAgentDefinition(
+      draft,
+      state.agentCatalog.definitions,
+    );
+    setSavingDefinitionName(definition.name);
+    try {
+      const profileStatus = await window.desktop.profiles.status();
+      const profileSnapshot = await window.desktop.profiles.get(
+        profileStatus.activeProfile,
+      );
+      const created = await window.desktop.agents.createDefinition(
+        definition,
+        profileSnapshot.revision,
+      );
+      dispatch({
+        type: "event",
+        event: { type: "agents.catalog_changed", catalog: created.catalog },
+      });
+      setNewAgent(undefined);
+      setInspectedKey(`definition:${definition.name}`);
+      onProfilesChanged?.();
+    } catch (error) {
+      reportError(error, `Could not create ${definition.label}`);
+    } finally {
+      setSavingDefinitionName(undefined);
+    }
+  };
   const selectAgent = async (
     instanceId: string,
     open: boolean,
@@ -4156,6 +4188,14 @@ export function AgentsView({
         <span className="spacer" />
         <button disabled={refreshing} onClick={() => void refresh()}>
           {refreshing ? "Refreshing…" : "Refresh definitions"}
+        </button>
+        <button
+          type="button"
+          className="primary"
+          disabled={session === undefined}
+          onClick={startNewAgent}
+        >
+          New agent
         </button>
       </div>
       {state.agentCatalog.diagnostics.length > 0 && (
@@ -4240,7 +4280,8 @@ export function AgentsView({
       {state.lifecycle === "starting" && session === undefined ? (
         <p role="status">Loading active agents…</p>
       ) : state.agentCatalog.definitions.length === 0 &&
-        activeAgents.length === 0 ? (
+        activeAgents.length === 0 &&
+        newAgent === undefined ? (
         <EmptyState
           title="No valid agents found"
           detail="Add YAML definitions to the configured agents directory."
@@ -4301,6 +4342,23 @@ export function AgentsView({
                     />
                   );
                 })}
+              {newAgent !== undefined && (
+                <button
+                  type="button"
+                  className={`agent-navigation-item ${inspectedKey === NEW_AGENT_KEY ? "active" : ""}`}
+                  aria-current={
+                    inspectedKey === NEW_AGENT_KEY ? "page" : undefined
+                  }
+                  data-scope="session"
+                  onClick={() => setInspectedKey(NEW_AGENT_KEY)}
+                >
+                  <span className="row-strip" aria-hidden="true" />
+                  <span className="agent-navigation-label">
+                    <strong>{newAgent.label.trim() || "Untitled agent"}</strong>
+                  </span>
+                  <span className="row-marks">New</span>
+                </button>
+              )}
             </div>
           </nav>
           <div className="agent-detail-workspace">
@@ -4322,8 +4380,6 @@ export function AgentsView({
                     : resolvedDefinition.reasoningEffort,
                 autoApprove:
                   resolvedDefinition.autoApprove ?? agent.autoApprove,
-                eventListeners:
-                  resolvedDefinition.eventListeners ?? agent.eventListeners,
               };
               return (
                 <ActiveAgentCard
@@ -4339,7 +4395,6 @@ export function AgentsView({
                   }
                   agent={agent}
                   availableSkills={state.agentCatalog.skills}
-                  liveEvents={state.events.events}
                   models={modelsState.models}
                   modelsStatus={modelsState.status}
                   definitionUpdated={state.agentCatalog.definitions.some(
@@ -4406,7 +4461,6 @@ export function AgentsView({
                 confirmingReset={false}
                 selected={false}
                 availableSkills={state.agentCatalog.skills}
-                liveEvents={state.events.events}
                 models={modelsState.models}
                 modelsStatus={modelsState.status}
                 definitionUpdated={false}
@@ -4415,10 +4469,176 @@ export function AgentsView({
                 key={definition.name}
               />
             ))}
+            {newAgent !== undefined && (
+              <NewAgentCard
+                draft={newAgent}
+                hidden={inspectedKey !== NEW_AGENT_KEY}
+                saving={savingDefinitionName !== undefined}
+                canCreate={session !== undefined}
+                fileName={`${uniqueAgentName(newAgent.label, state.agentCatalog.definitions)}.yaml`}
+                onChange={setNewAgent}
+                onDiscard={discardNewAgent}
+                onCreate={() => void createDefinition(newAgent)}
+              />
+            )}
           </div>
         </div>
       )}
     </section>
+  );
+}
+
+const NEW_AGENT_KEY = "new-agent";
+
+interface NewAgentDraft {
+  readonly label: string;
+  readonly description: string;
+  readonly systemPrompt: string;
+}
+
+function emptyNewAgentDraft(): NewAgentDraft {
+  return {
+    label: "",
+    description: "",
+    systemPrompt:
+      "You help the user with their Ableton Live set. Describe this agent's focus here.",
+  };
+}
+
+function uniqueAgentName(
+  label: string,
+  definitions: readonly DesktopAgentDefinition[],
+): string {
+  const base =
+    label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/gu, "-")
+      .replace(/^[^a-z]+/u, "")
+      .replace(/-+$/u, "")
+      .slice(0, 56) || "agent";
+  const taken = new Set(definitions.map(({ name }) => name));
+  if (!taken.has(base)) return base;
+  let suffix = 2;
+  while (taken.has(`${base}-${suffix}`)) suffix += 1;
+  return `${base}-${suffix}`;
+}
+
+function newAgentDefinition(
+  draft: NewAgentDraft,
+  definitions: readonly DesktopAgentDefinition[],
+): CurrentAgentDefinition {
+  const name = uniqueAgentName(draft.label, definitions);
+  const used = new Set(definitions.map(({ color }) => color));
+  return {
+    version: 2,
+    name,
+    label: draft.label.trim(),
+    description: draft.description.trim(),
+    systemPrompt: draft.systemPrompt.trim(),
+    tools: ["*"],
+    editScope: ["session"],
+    skills: [],
+    model: null,
+    reasoningEffort: null,
+    autoApprove: false,
+    delegatable: false,
+    hideResultFromParent: false,
+    color:
+      AGENT_COLOR_PALETTE.find((color) => !used.has(color)) ??
+      defaultAgentColor(name),
+  };
+}
+
+function NewAgentCard({
+  draft,
+  hidden,
+  saving,
+  canCreate,
+  fileName,
+  onChange,
+  onDiscard,
+  onCreate,
+}: {
+  draft: NewAgentDraft;
+  hidden: boolean;
+  saving: boolean;
+  canCreate: boolean;
+  fileName: string;
+  onChange: (draft: NewAgentDraft) => void;
+  onDiscard: () => void;
+  onCreate: () => void;
+}): React.JSX.Element {
+  const ready =
+    draft.label.trim().length > 0 &&
+    draft.description.trim().length > 0 &&
+    draft.systemPrompt.trim().length > 0;
+  return (
+    <article className="agent-detail" hidden={hidden} aria-label="New agent">
+      <header className="agent-detail-header">
+        <div>
+          <div className="agent-title-line">
+            <h3>{draft.label.trim() || "New agent"}</h3>
+            <ScopeChip origin="session" />
+            <span className="scope-badge">Unsaved</span>
+          </div>
+          <p>
+            Starts with every tool and the whole set in scope. You can change
+            that after it is created.
+          </p>
+        </div>
+        <div className="agent-header-actions">
+          <button type="button" disabled={saving} onClick={onDiscard}>
+            Discard
+          </button>
+          <button
+            type="button"
+            className="primary"
+            disabled={!canCreate || saving || !ready}
+            onClick={onCreate}
+          >
+            {saving ? "Creating…" : "Create in Session"}
+          </button>
+        </div>
+      </header>
+      <div className="agent-detail-body">
+        <div className="skill-overview-grid">
+          <label>
+            Display name
+            <input
+              value={draft.label}
+              maxLength={128}
+              placeholder="Drum coach"
+              onChange={(event) =>
+                onChange({ ...draft, label: event.currentTarget.value })
+              }
+            />
+            <small className="field-help">Saved as {fileName}</small>
+          </label>
+          <label>
+            Description
+            <textarea
+              value={draft.description}
+              rows={3}
+              maxLength={512}
+              placeholder="What this agent is for, in one or two sentences."
+              onChange={(event) =>
+                onChange({ ...draft, description: event.currentTarget.value })
+              }
+            />
+          </label>
+          <label>
+            Instructions
+            <textarea
+              value={draft.systemPrompt}
+              rows={10}
+              onChange={(event) =>
+                onChange({ ...draft, systemPrompt: event.currentTarget.value })
+              }
+            />
+          </label>
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -4563,11 +4783,9 @@ function desktopDefinitionFromActiveAgent(
     resolvedTools: agent.config.resolvedTools,
     editScope: agent.config.editScope,
     skills: agent.config.skills,
-    inputChannels: agent.config.inputChannels,
     model: agent.model ?? null,
     reasoningEffort: agent.reasoningEffort ?? null,
     autoApprove: agent.autoApprove,
-    eventListeners: agent.eventListeners,
     origin: "session",
     inherited: false,
     overrides: [],
@@ -4733,365 +4951,6 @@ function parseTrackScope(
   return tracks.length > 0 ? tracks : ["session"];
 }
 
-export type EventListenerDraft = Pick<
-  AgentEventListener,
-  "enabled" | "responseMode"
-> & {
-  selected: boolean;
-  messagePrefix: string;
-  preparedContextScope: PreparedContextConfiguration["scope"];
-  preparedContextTracks: string;
-  includeSessionClips: boolean;
-};
-
-function preparedContextTrackValue(
-  configuration: PreparedContextConfiguration,
-): string {
-  if (configuration.scope === "whole-session") return "";
-  return configuration.tracks
-    .map(
-      ({ track }) =>
-        `${track.name}${track.occurrence === 0 ? "" : ` #${track.occurrence + 1}`}`,
-    )
-    .join("\n");
-}
-
-function preparedContextFromDraft(
-  draft: EventListenerDraft,
-): PreparedContextConfiguration {
-  if (draft.preparedContextScope === "whole-session") {
-    return {
-      scope: "whole-session",
-      includeSessionClips: draft.includeSessionClips,
-    };
-  }
-  const parsed = parseTrackScope(draft.preparedContextTracks);
-  const tracks = parsed.filter((entry) => entry !== "session");
-  if (tracks.length === 0) {
-    throw new Error(
-      "Prepared context requires at least one selected track locator.",
-    );
-  }
-  return {
-    scope: "selected-tracks",
-    includeSessionClips: draft.includeSessionClips,
-    tracks,
-  };
-}
-
-function listenerForAgent(
-  event: DesktopLiveEventState,
-  agentInstanceId: string,
-): AgentEventListener | undefined {
-  return event.listeners.find(
-    (entry) => entry.agentInstanceId === agentInstanceId,
-  )?.listener;
-}
-
-function preparedContextStatusForAgent(
-  event: DesktopLiveEventState,
-  agentInstanceId: string,
-): NonNullable<
-  DesktopLiveEventState["listeners"][number]["preparedContextStatus"]
-> {
-  return (
-    event.listeners.find((entry) => entry.agentInstanceId === agentInstanceId)
-      ?.preparedContextStatus ?? { state: "unavailable" }
-  );
-}
-
-function eventListenerDraft(
-  event: DesktopLiveEventState,
-  agentInstanceId: string,
-): EventListenerDraft {
-  const listener = listenerForAgent(event, agentInstanceId);
-  const preparedContext = resolvePreparedContextConfiguration(
-    listener?.preparedContext,
-  );
-  return {
-    selected: listener !== undefined,
-    enabled: listener?.enabled ?? true,
-    responseMode: listener?.responseMode ?? "next-prompt",
-    messagePrefix: listener?.messagePrefix ?? "",
-    preparedContextScope: preparedContext.scope,
-    preparedContextTracks: preparedContextTrackValue(preparedContext),
-    includeSessionClips: preparedContext.includeSessionClips,
-  };
-}
-
-export async function saveAgentEventListeners(
-  api: DesktopApi["events"],
-  agentInstanceId: string,
-  events: readonly DesktopLiveEventState[],
-  drafts: Readonly<Record<string, EventListenerDraft>>,
-): Promise<void> {
-  for (const event of events) {
-    const draft = drafts[event.definition.id];
-    if (draft === undefined) continue;
-    const listener = listenerForAgent(event, agentInstanceId);
-    if (!draft.selected) {
-      if (listener !== undefined) {
-        await api.unassignListener(agentInstanceId, event.definition.id);
-      }
-      continue;
-    }
-    const messagePrefix = draft.messagePrefix.trim();
-    const preparedContext = preparedContextFromDraft(draft);
-    if (listener === undefined) {
-      await api.assignListener(agentInstanceId, event.definition.id, {
-        enabled: draft.enabled,
-        responseMode: draft.responseMode,
-        ...(messagePrefix === "" ? {} : { messagePrefix }),
-        preparedContext,
-      });
-      continue;
-    }
-    const normalizedCurrentPrefix = listener.messagePrefix ?? "";
-    const currentPreparedContext = resolvePreparedContextConfiguration(
-      listener.preparedContext,
-    );
-    const preparedContextChanged =
-      JSON.stringify(currentPreparedContext) !==
-      JSON.stringify(preparedContext);
-    if (
-      listener.enabled !== draft.enabled ||
-      listener.responseMode !== draft.responseMode ||
-      normalizedCurrentPrefix !== messagePrefix ||
-      preparedContextChanged
-    ) {
-      await api.updateListener(agentInstanceId, event.definition.id, {
-        enabled: draft.enabled,
-        responseMode: draft.responseMode,
-        messagePrefix: messagePrefix === "" ? null : messagePrefix,
-        ...(preparedContextChanged ? { preparedContext } : {}),
-      });
-    }
-  }
-}
-
-export function ListeningEventsEditor({
-  agentInstanceId,
-  events,
-  busy,
-  onError,
-}: {
-  agentInstanceId: string;
-  events: readonly DesktopLiveEventState[];
-  busy: boolean;
-  onError: (error: unknown) => void;
-}): React.JSX.Element {
-  const [drafts, setDrafts] = useState<Record<string, EventListenerDraft>>(() =>
-    Object.fromEntries(
-      events.map((event) => [
-        event.definition.id,
-        eventListenerDraft(event, agentInstanceId),
-      ]),
-    ),
-  );
-  const [saving, setSaving] = useState(false);
-  const eventIds = events.map(({ definition }) => definition.id).join("\n");
-
-  useEffect(() => {
-    setDrafts((current) =>
-      Object.fromEntries(
-        events.map((event) => [
-          event.definition.id,
-          current[event.definition.id] ??
-            eventListenerDraft(event, agentInstanceId),
-        ]),
-      ),
-    );
-  }, [agentInstanceId, eventIds, events]);
-
-  const updateDraft = (
-    eventId: string,
-    update: Partial<EventListenerDraft>,
-  ): void => {
-    setDrafts((current) => ({
-      ...current,
-      [eventId]: {
-        ...(current[eventId] ?? {
-          selected: false,
-          enabled: true,
-          responseMode: "next-prompt",
-          messagePrefix: "",
-          preparedContextScope: "whole-session",
-          preparedContextTracks: "",
-          includeSessionClips: true,
-        }),
-        ...update,
-      },
-    }));
-  };
-  const save = async (): Promise<void> => {
-    setSaving(true);
-    try {
-      await saveAgentEventListeners(
-        window.desktop.events,
-        agentInstanceId,
-        events,
-        drafts,
-      );
-    } catch (error) {
-      onError(error);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <fieldset className="listening-events-editor">
-      <legend>Listening Events</legend>
-      {events.length === 0 ? (
-        <small>No Live events are available in this production session.</small>
-      ) : (
-        events.map((event) => {
-          const draft =
-            drafts[event.definition.id] ??
-            eventListenerDraft(event, agentInstanceId);
-          const unavailable = !event.definition.enabled;
-          const unresolved = event.resolution.status !== "resolved";
-          const preparedContextStatus = preparedContextStatusForAgent(
-            event,
-            agentInstanceId,
-          );
-          return (
-            <div className="listening-event-row" key={event.definition.id}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={draft.selected}
-                  onChange={(change) =>
-                    updateDraft(event.definition.id, {
-                      selected: change.target.checked,
-                    })
-                  }
-                />
-                <span>
-                  {event.definition.name}
-                  <small>
-                    {unavailable ? "Event disabled" : "Event enabled"}
-                    {" · "}
-                    {unresolved ? "Unresolved target" : "Resolved target"}
-                  </small>
-                </span>
-              </label>
-              {draft.selected && (
-                <div className="listening-event-settings">
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={draft.enabled}
-                      onChange={(change) =>
-                        updateDraft(event.definition.id, {
-                          enabled: change.target.checked,
-                        })
-                      }
-                    />
-                    Listener enabled
-                  </label>
-                  <label>
-                    Delivery
-                    <select
-                      value={draft.responseMode}
-                      onChange={(change) =>
-                        updateDraft(event.definition.id, {
-                          responseMode: change.target.value as
-                            "automatic" | "next-prompt",
-                        })
-                      }
-                    >
-                      <option value="automatic">Automatic</option>
-                      <option value="next-prompt">Next prompt</option>
-                    </select>
-                  </label>
-                  <label>
-                    Message prefix <small>Optional.</small>
-                    <textarea
-                      maxLength={MAX_LIVE_EVENT_MESSAGE_PREFIX_LENGTH}
-                      rows={3}
-                      value={draft.messagePrefix}
-                      onChange={(change) =>
-                        updateDraft(event.definition.id, {
-                          messagePrefix: change.target.value,
-                        })
-                      }
-                    />
-                  </label>
-                  <label>
-                    Prepared context
-                    <select
-                      value={draft.preparedContextScope}
-                      onChange={(change) =>
-                        updateDraft(event.definition.id, {
-                          preparedContextScope: change.target
-                            .value as PreparedContextConfiguration["scope"],
-                        })
-                      }
-                    >
-                      <option value="whole-session">
-                        Whole session (bounded)
-                      </option>
-                      <option value="selected-tracks">Selected tracks</option>
-                    </select>
-                  </label>
-                  {draft.preparedContextScope === "selected-tracks" && (
-                    <label>
-                      Tracks{" "}
-                      <small>
-                        One locator per line: track name, optionally #2 for a
-                        duplicate name.
-                      </small>
-                      <textarea
-                        rows={3}
-                        required
-                        value={draft.preparedContextTracks}
-                        onChange={(change) =>
-                          updateDraft(event.definition.id, {
-                            preparedContextTracks: change.target.value,
-                          })
-                        }
-                      />
-                    </label>
-                  )}
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={draft.includeSessionClips}
-                      onChange={(change) =>
-                        updateDraft(event.definition.id, {
-                          includeSessionClips: change.target.checked,
-                        })
-                      }
-                    />
-                    Include Session clips
-                  </label>
-                  <small>
-                    Cache: {preparedContextStatus.state}
-                    {preparedContextStatus.state === "unavailable"
-                      ? ""
-                      : ` · captured ${new Date(
-                          preparedContextStatus.capturedAt,
-                        ).toLocaleTimeString()}${
-                          preparedContextStatus.unresolvedTrackLocators ===
-                          undefined
-                            ? ""
-                            : ` · ${preparedContextStatus.unresolvedTrackLocators} unresolved track locator(s)`
-                        }`}
-                  </small>
-                </div>
-              )}
-            </div>
-          );
-        })
-      )}
-      <button disabled={busy || saving} onClick={() => void save()}>
-        {saving ? "Saving…" : "Save listening events"}
-      </button>
-    </fieldset>
-  );
-}
-
 export function AgentModelEditor({
   agentLabel,
   currentModelId,
@@ -5245,247 +5104,13 @@ function normalizedDefinition(
     tools: [...definition.tools],
     editScope: [...definition.editScope],
     skills: [...definition.skills],
-    inputChannels: [...definition.inputChannels],
     model: definition.model ?? null,
     reasoningEffort: definition.reasoningEffort ?? null,
     autoApprove: definition.autoApprove ?? false,
     delegatable: definition.delegatable ?? false,
     hideResultFromParent: definition.hideResultFromParent ?? false,
     color: definition.color,
-    eventListeners: [...(definition.eventListeners ?? [])],
   };
-}
-
-function DefinitionListeningEventsEditor({
-  events,
-  listeners,
-  disabled,
-  onChange,
-}: {
-  events: readonly DesktopLiveEventState[];
-  listeners: readonly AgentEventListener[];
-  disabled: boolean;
-  onChange: (listeners: AgentEventListener[]) => void;
-}): React.JSX.Element {
-  const update = (
-    eventId: string,
-    change: (listener: AgentEventListener) => AgentEventListener,
-  ): void => {
-    onChange(
-      listeners.map((listener) =>
-        listener.eventId === eventId ? change(listener) : listener,
-      ),
-    );
-  };
-  return (
-    <fieldset className="listening-events-editor">
-      <legend>Listening Events</legend>
-      {events.length === 0 ? (
-        <small>No Live events are available in this production session.</small>
-      ) : (
-        events.map((event) => {
-          const listener = listeners.find(
-            (candidate) => candidate.eventId === event.definition.id,
-          );
-          const preparedContext = resolvePreparedContextConfiguration(
-            listener?.preparedContext,
-          );
-          return (
-            <div className="listening-event-row" key={event.definition.id}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={listener !== undefined}
-                  disabled={disabled}
-                  onChange={(change) => {
-                    if (!change.target.checked) {
-                      onChange(
-                        listeners.filter(
-                          (candidate) =>
-                            candidate.eventId !== event.definition.id,
-                        ),
-                      );
-                      return;
-                    }
-                    onChange([
-                      ...listeners,
-                      {
-                        id: createAgentEventListenerId(crypto.randomUUID()),
-                        eventId: event.definition.id,
-                        enabled: true,
-                        responseMode: "next-prompt",
-                        preparedContext: {
-                          scope: "whole-session",
-                          includeSessionClips: true,
-                        },
-                      },
-                    ]);
-                  }}
-                />
-                <span>
-                  {event.definition.name}
-                  <small>
-                    {event.definition.enabled
-                      ? "Event enabled"
-                      : "Event disabled"}
-                    {" · "}
-                    {event.resolution.status === "resolved"
-                      ? "Resolved target"
-                      : "Unresolved target"}
-                  </small>
-                </span>
-              </label>
-              {listener !== undefined && (
-                <div className="listening-event-settings">
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={listener.enabled}
-                      disabled={disabled}
-                      onChange={(change) =>
-                        update(event.definition.id, (current) => ({
-                          ...current,
-                          enabled: change.target.checked,
-                        }))
-                      }
-                    />
-                    Listener enabled
-                  </label>
-                  <label>
-                    Delivery
-                    <select
-                      value={listener.responseMode}
-                      disabled={disabled}
-                      onChange={(change) =>
-                        update(event.definition.id, (current) => ({
-                          ...current,
-                          responseMode: change.target.value as
-                            "automatic" | "next-prompt",
-                        }))
-                      }
-                    >
-                      <option value="automatic">Automatic</option>
-                      <option value="next-prompt">Next prompt</option>
-                    </select>
-                  </label>
-                  <label>
-                    Message prefix <small>Optional.</small>
-                    <textarea
-                      maxLength={MAX_LIVE_EVENT_MESSAGE_PREFIX_LENGTH}
-                      rows={3}
-                      disabled={disabled}
-                      value={listener.messagePrefix ?? ""}
-                      onChange={(change) =>
-                        update(event.definition.id, (current) => {
-                          const updated = { ...current };
-                          if (change.target.value.trim() === "") {
-                            delete updated.messagePrefix;
-                          } else {
-                            updated.messagePrefix = change.target.value;
-                          }
-                          return updated;
-                        })
-                      }
-                    />
-                  </label>
-                  <label>
-                    Prepared context
-                    <select
-                      value={preparedContext.scope}
-                      disabled={disabled}
-                      onChange={(change) =>
-                        update(event.definition.id, (current) => ({
-                          ...current,
-                          preparedContext:
-                            change.target.value === "selected-tracks"
-                              ? {
-                                  scope: "selected-tracks",
-                                  tracks: [
-                                    {
-                                      track: {
-                                        name: "Selected track",
-                                        occurrence: 0,
-                                      },
-                                    },
-                                  ],
-                                  includeSessionClips:
-                                    preparedContext.includeSessionClips,
-                                }
-                              : {
-                                  scope: "whole-session",
-                                  includeSessionClips:
-                                    preparedContext.includeSessionClips,
-                                },
-                        }))
-                      }
-                    >
-                      <option value="whole-session">
-                        Whole session (bounded)
-                      </option>
-                      <option value="selected-tracks">Selected tracks</option>
-                    </select>
-                  </label>
-                  {preparedContext.scope === "selected-tracks" && (
-                    <label>
-                      Tracks{" "}
-                      <small>
-                        One locator per line: track name, optionally #2 for a
-                        duplicate name.
-                      </small>
-                      <textarea
-                        rows={3}
-                        required
-                        disabled={disabled}
-                        value={preparedContextTrackValue(preparedContext)}
-                        onChange={(change) => {
-                          const parsed = parseTrackScope(change.target.value);
-                          const tracks = parsed.filter(
-                            (entry) => entry !== "session",
-                          );
-                          update(event.definition.id, (current) => ({
-                            ...current,
-                            preparedContext: {
-                              scope: "selected-tracks",
-                              tracks,
-                              includeSessionClips:
-                                preparedContext.includeSessionClips,
-                            },
-                          }));
-                        }}
-                      />
-                    </label>
-                  )}
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={preparedContext.includeSessionClips}
-                      disabled={disabled}
-                      onChange={(change) =>
-                        update(event.definition.id, (current) => ({
-                          ...current,
-                          preparedContext:
-                            preparedContext.scope === "selected-tracks"
-                              ? {
-                                  ...preparedContext,
-                                  includeSessionClips: change.target.checked,
-                                }
-                              : {
-                                  scope: "whole-session",
-                                  includeSessionClips: change.target.checked,
-                                },
-                        }))
-                      }
-                    />
-                    Include Session clips
-                  </label>
-                </div>
-              )}
-            </div>
-          );
-        })
-      )}
-    </fieldset>
-  );
 }
 
 function ActiveAgentCard({
@@ -5493,7 +5118,6 @@ function ActiveAgentCard({
   scopeActions,
   agent,
   availableSkills,
-  liveEvents,
   models,
   modelsStatus,
   definitionUpdated,
@@ -5516,7 +5140,6 @@ function ActiveAgentCard({
   scopeActions?: React.ReactNode;
   agent?: DesktopActiveAgent | undefined;
   availableSkills: DesktopState["agentCatalog"]["skills"];
-  liveEvents: readonly DesktopLiveEventState[];
   models: readonly DesktopAgentModel[];
   modelsStatus: "loading" | "loaded" | "failed";
   definitionUpdated: boolean;
@@ -6023,32 +5646,6 @@ function ActiveAgentCard({
                 resolvedOperations={definition.resolvedOperations ?? []}
               />
             </details>
-          </div>
-        )}
-        {section === "connections" && (
-          <div className="agent-editor-section agent-connections-editor">
-            <label>
-              Input channels <small>One per line.</small>
-              <textarea
-                aria-label={`Input channels for ${title}`}
-                rows={4}
-                value={listValue(draft.inputChannels)}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    inputChannels: parseList(event.target.value),
-                  }))
-                }
-              />
-            </label>
-            <DefinitionListeningEventsEditor
-              events={liveEvents}
-              listeners={draft.eventListeners}
-              disabled={busy}
-              onChange={(eventListeners) =>
-                setDraft((current) => ({ ...current, eventListeners }))
-              }
-            />
           </div>
         )}
       </div>

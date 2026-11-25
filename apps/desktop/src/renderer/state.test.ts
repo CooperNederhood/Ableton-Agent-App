@@ -29,7 +29,6 @@ function stateWithAgents(): DesktopState {
       resolvedTools: [],
       editScope: ["session" as const],
       skills: [],
-      inputChannels: [],
     },
     boundTracks: [],
     outputSubscriptions: [],

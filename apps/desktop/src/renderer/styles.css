@@ -1834,8 +1834,7 @@ small,
 .agent-editor-section > .behavior-grid,
 .agent-editor-section > small,
 .agent-editor-section > .advanced-disclosure,
-.agent-prompt-editor,
-.agent-connections-editor > .listening-events-editor {
+.agent-prompt-editor {
   grid-column: 1 / -1;
 }
 
@@ -1877,44 +1876,6 @@ small,
   white-space: pre-wrap;
   font: inherit;
   color: var(--text-muted);
-}
-
-.agent-listening-summary {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 12px;
-}
-
-.listening-event-row {
-  display: grid;
-  gap: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 10px;
-}
-
-.listening-event-row > label span {
-  display: grid;
-  gap: 3px;
-}
-
-.listening-event-row small {
-  color: var(--text-muted);
-}
-
-.listening-event-settings {
-  display: grid;
-  grid-template-columns: minmax(150px, 0.6fr) minmax(180px, 0.8fr) minmax(
-      240px,
-      1.6fr
-    );
-  gap: 10px;
-  padding-left: 24px;
-}
-
-.agent-editor-section .listening-event-settings label {
-  display: grid;
-  align-items: start;
 }
 
 .agent-editor-section input[type="text"],

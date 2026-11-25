@@ -1461,14 +1461,12 @@ export const desktopAgentDefinitionSchema = z.object({
     z.union([z.literal("session"), desktopTrackScopeSelectorSchema]),
   ),
   skills: z.array(z.string().min(1)),
-  inputChannels: z.array(z.string().min(1)),
   model: z.string().trim().min(1).max(256).nullable().optional(),
   reasoningEffort: agentReasoningEffortSchema.nullable().optional(),
   autoApprove: z.boolean().optional(),
   delegatable: z.boolean().optional(),
   hideResultFromParent: z.boolean().optional(),
   color: z.string().regex(/^#[0-9a-f]{6}$/u),
-  eventListeners: z.array(agentEventListenerSchema).optional(),
   origin: z
     .enum(["bundled", "system", "profile", "project", "session"])
     .optional(),
@@ -2081,6 +2079,20 @@ export const ipcSchemas = {
         definition: agentDefinitionSchema,
         expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
         expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    response: z
+      .object({
+        catalog: desktopAgentCatalogSchema,
+        profileSnapshot: desktopProfileManagerSnapshotSchema,
+      })
+      .strict(),
+  },
+  "agents:create-definition": {
+    request: z
+      .object({
+        definition: agentDefinitionSchema,
+        expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
       })
       .strict(),
     response: z
@@ -2776,6 +2788,13 @@ export interface DesktopApi {
       definition: z.infer<typeof agentDefinitionSchema>,
       expectedRevision: string,
       expectedFingerprint: string,
+    ): Promise<{
+      catalog: DesktopAgentCatalog;
+      profileSnapshot: DesktopProfileManagerSnapshot;
+    }>;
+    createDefinition(
+      definition: z.infer<typeof agentDefinitionSchema>,
+      expectedRevision: string,
     ): Promise<{
       catalog: DesktopAgentCatalog;
       profileSnapshot: DesktopProfileManagerSnapshot;

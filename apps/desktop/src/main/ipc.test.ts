@@ -352,7 +352,7 @@ describe("desktop IPC", () => {
     expect(ipcMain.removeHandler).toHaveBeenCalledWith("entity-context:get");
   });
 
-  it("routes scoped agent definition saves through the profile manager", async () => {
+  it("routes scoped agent definition saves and creates through the profile manager", async () => {
     const saveAgentDefinition = vi.fn().mockResolvedValue({
       catalog: { definitions: [], skills: [], diagnostics: [] },
       profileSnapshot: {
@@ -366,7 +366,10 @@ describe("desktop IPC", () => {
     const handlers = createIpcHandlers(
       {} as DesktopService,
       {} as DiagnosticsActions,
-      { saveAgentDefinition } as unknown as ProfileManagerActions,
+      {
+        saveAgentDefinition,
+        createAgentDefinition: saveAgentDefinition,
+      } as unknown as ProfileManagerActions,
     );
     const request = {
       definition: {
@@ -378,21 +381,25 @@ describe("desktop IPC", () => {
         tools: ["*"],
         editScope: ["session"] as "session"[],
         skills: [],
-        inputChannels: [],
         model: null,
         reasoningEffort: null,
         autoApprove: false,
         delegatable: false,
         hideResultFromParent: false,
-        eventListeners: [],
       },
       expectedRevision: "a".repeat(64),
       expectedFingerprint: "b".repeat(64),
     };
 
     await handlers["agents:save-definition"](request);
-
     expect(saveAgentDefinition).toHaveBeenCalledWith(request);
+
+    const createRequest = {
+      definition: { ...request.definition, name: "drum-coach" },
+      expectedRevision: request.expectedRevision,
+    };
+    await handlers["agents:create-definition"](createRequest);
+    expect(saveAgentDefinition).toHaveBeenLastCalledWith(createRequest);
   });
 
   it("routes skill document operations through the profile manager", async () => {

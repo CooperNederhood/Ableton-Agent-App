@@ -46,7 +46,6 @@ async function fixture(
       "editScope:",
       "  - session",
       "skills: []",
-      "inputChannels: []",
     ].join("\n"),
   );
   await writeFile(
@@ -788,13 +787,11 @@ describe("DesktopProfileManager", () => {
         tools: ["*"],
         editScope: ["session"],
         skills: [],
-        inputChannels: [],
         model: null,
         reasoningEffort: null,
         autoApprove: true,
         delegatable: false,
         hideResultFromParent: false,
-        eventListeners: [],
       },
       expectedRevision: initial.revision,
       expectedFingerprint: inherited.fingerprint!,
@@ -853,7 +850,6 @@ describe("DesktopProfileManager", () => {
         "editScope:",
         "  - session",
         "skills: []",
-        "inputChannels: []",
       ].join("\n"),
     );
     const initial = await manager.get();
@@ -872,13 +868,11 @@ describe("DesktopProfileManager", () => {
         tools: ["session.inspect", "midi_notes.*"],
         editScope: ["session"],
         skills: [],
-        inputChannels: [],
         model: null,
         reasoningEffort: null,
         autoApprove: false,
         delegatable: false,
         hideResultFromParent: false,
-        eventListeners: [],
       },
       expectedRevision: initial.revision,
       expectedFingerprint: inherited!.fingerprint!,
@@ -917,13 +911,11 @@ describe("DesktopProfileManager", () => {
         tools: ["*"],
         editScope: ["session"],
         skills: [],
-        inputChannels: [],
         model: null,
         reasoningEffort: null,
         autoApprove: false,
         delegatable: false,
         hideResultFromParent: false,
-        eventListeners: [],
       },
       expectedRevision: initial.revision,
       expectedFingerprint: inherited.fingerprint!,
@@ -956,13 +948,11 @@ describe("DesktopProfileManager", () => {
         tools: ["*"],
         editScope: ["session"],
         skills: ["mix-review"],
-        inputChannels: [],
         model: null,
         reasoningEffort: null,
         autoApprove: false,
         delegatable: false,
         hideResultFromParent: false,
-        eventListeners: [],
       },
       expectedRevision: initial.revision,
       expectedFingerprint: inherited.fingerprint!,
@@ -1010,13 +1000,11 @@ describe("DesktopProfileManager", () => {
         tools: ["*"],
         editScope: ["session"],
         skills: [],
-        inputChannels: [],
         model: null,
         reasoningEffort: null,
         autoApprove: false,
         delegatable: false,
         hideResultFromParent: false,
-        eventListeners: [],
       },
       expectedRevision: initial.revision,
       expectedFingerprint: inherited.fingerprint!,
@@ -1035,7 +1023,7 @@ describe("DesktopProfileManager", () => {
     ).toMatchObject({ origin: "session", sessionId: "session-1" });
   });
 
-  it("rejects stale and unknown-listener definition edits", async () => {
+  it("rejects stale definition edits", async () => {
     const { manager, events } = await fixture({
       activeSessionId: "session-1",
     });
@@ -1049,13 +1037,11 @@ describe("DesktopProfileManager", () => {
       tools: ["*"],
       editScope: ["session"] as "session"[],
       skills: [],
-      inputChannels: [],
       model: null,
       reasoningEffort: null,
       autoApprove: false,
       delegatable: false,
       hideResultFromParent: false,
-      eventListeners: [],
     };
 
     await expect(
@@ -1082,28 +1068,57 @@ describe("DesktopProfileManager", () => {
     expect(events.at(-1)?.name).toBe(
       "profile.artifact-save-definition.cancelled",
     );
+  });
 
-    const refreshed = await manager.get();
+  it("creates a new Session-scope definition and rejects an existing name", async () => {
+    const { manager, refreshActiveCatalog, layout } = await fixture({
+      activeSessionId: "session-1",
+    });
+    const initial = await manager.get();
+    const definition = {
+      version: 2 as const,
+      name: "drum-coach",
+      label: "Drum coach",
+      description: "Helps with drums.",
+      systemPrompt: "Help with drums.",
+      tools: ["*"],
+      editScope: ["session"] as "session"[],
+      skills: [],
+      model: null,
+      reasoningEffort: null,
+      autoApprove: false,
+      delegatable: false,
+      hideResultFromParent: false,
+    };
+
+    const result = await manager.createAgentDefinition({
+      definition,
+      expectedRevision: initial.revision,
+    });
+
+    expect(refreshActiveCatalog).toHaveBeenCalledOnce();
+    expect(
+      result.profileSnapshot.artifacts.find(
+        ({ kind, name }) => kind === "agent" && name === "drum-coach",
+      ),
+    ).toMatchObject({ origin: "session", sessionId: "session-1" });
+    const sessionPaths = resolveArtifactScopePaths(layout, "session", {
+      liveSetId: "test-set",
+      sessionId: "session-1",
+    });
+    expect(
+      await readFile(
+        join(sessionPaths.agentsDirectory, "drum-coach.yaml"),
+        "utf8",
+      ),
+    ).toContain("Drum coach");
+
     await expect(
-      manager.saveAgentDefinition({
-        definition: {
-          ...definition,
-          eventListeners: [
-            {
-              id: "event-listener.00000000-0000-4000-8000-000000000001",
-              eventId: "live-event.00000000-0000-4000-8000-000000000002",
-              enabled: true,
-              responseMode: "automatic",
-            },
-          ],
-        },
-        expectedRevision: refreshed.revision,
-        expectedFingerprint: refreshed.artifacts.find(
-          ({ kind, name }) => kind === "agent" && name === "default",
-        )!.fingerprint!,
+      manager.createAgentDefinition({
+        definition: { ...definition, name: "default" },
+        expectedRevision: result.profileSnapshot.revision,
       }),
-    ).rejects.toThrow("unknown events");
-    expect(events.at(-1)?.name).toBe("profile.artifact-save-definition.failed");
+    ).rejects.toThrow("already exists");
   });
 
   it("rolls back the Session-scope artifact when catalog refresh fails", async () => {
@@ -1127,13 +1142,11 @@ describe("DesktopProfileManager", () => {
           tools: ["*"],
           editScope: ["session"],
           skills: [],
-          inputChannels: [],
           model: null,
           reasoningEffort: null,
           autoApprove: false,
           delegatable: false,
           hideResultFromParent: false,
-          eventListeners: [],
         },
         expectedRevision: initial.revision,
         expectedFingerprint: inherited.fingerprint!,

@@ -1349,6 +1349,8 @@ export class HeadlessDesktopService implements DesktopService {
             current.sdkSessionId,
             current.id,
           ),
+          eventListeners: current.eventListeners,
+          outputSubscriptions: current.outputSubscriptions,
           forkedHistory: current.forkedHistory ?? [],
         });
         await this.#application.reconfigureManagedAgent(
@@ -3976,7 +3978,6 @@ export class HeadlessDesktopService implements DesktopService {
           resolved_operations: instance.config.resolvedOperations ?? [],
           edit_scope: instance.config.editScope,
           skills: instance.config.skills,
-          input_channels: instance.config.inputChannels,
         },
       });
     } catch (error) {
@@ -4972,27 +4973,14 @@ export class HeadlessDesktopService implements DesktopService {
           : { resolvedOperations: definition.resolvedOperations }),
         editScope: definition.editScope,
         skills: definition.skills,
-        inputChannels: definition.inputChannels,
       },
       ...(sdkSessionId === undefined ? {} : { sdkSessionId }),
       lifecycle: "ready",
       mode: "interactive",
       boundTracks: [],
       modified: false,
-      eventListeners: (definition.eventListeners ?? []).map((listener) => ({
-        ...listener,
-        id: createAgentEventListenerId(randomUUID()),
-      })),
-      outputSubscriptions: [...new Set(definition.inputChannels)].map(
-        (producerId) => ({
-          assignmentId: createAgentInstanceAssignmentId(instanceId, producerId),
-          producerId,
-          enabled: true,
-          deliveryMode: "next-prompt",
-          usageInstruction: DEFAULT_SIGNAL_USAGE_INSTRUCTION,
-          processingPolicyIds: ["latest-window"],
-        }),
-      ),
+      eventListeners: [],
+      outputSubscriptions: [],
     };
   }
 

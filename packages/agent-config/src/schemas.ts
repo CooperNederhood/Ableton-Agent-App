@@ -311,9 +311,6 @@ const agentDefinitionCoreSchema = z.object({
   tools: z.array(toolPatternSchema).min(1).max(256),
   editScope: editScopeSchema,
   skills: z.array(skillNameSchema).max(128),
-  inputChannels: z
-    .array(z.string().trim().min(1).max(MAX_AGENT_ASSIGNMENT_COMPONENT_LENGTH))
-    .max(256),
 });
 
 const versionOneAgentDefinitionSchema = agentDefinitionCoreSchema.extend({
@@ -352,39 +349,17 @@ export function defaultAgentColor(name: string): string {
   return AGENT_COLOR_PALETTE[hash % AGENT_COLOR_PALETTE.length]!;
 }
 
-export const currentAgentDefinitionSchema = agentDefinitionCoreSchema
-  .extend({
-    version: z.literal(2),
-    label: z.string().trim().min(1).max(128),
-    color: agentColorSchema.optional(),
-    model: z.string().trim().min(1).max(256).nullable(),
-    reasoningEffort: agentReasoningEffortSchema.nullable(),
-    autoApprove: z.boolean(),
-    delegatable: z.boolean().default(false),
-    /** As a sub-agent, its final reply reaches the parent only as a fixed confirmation. */
-    hideResultFromParent: z.boolean().default(false),
-    eventListeners: z
-      .array(agentEventListenerSchema)
-      .max(MAX_EVENT_LISTENERS_PER_AGENT),
-  })
-  .superRefine((definition, context) => {
-    const listenerIds = definition.eventListeners.map(({ id }) => id);
-    if (new Set(listenerIds).size !== listenerIds.length) {
-      context.addIssue({
-        code: "custom",
-        path: ["eventListeners"],
-        message: "Agent event listener IDs must be unique",
-      });
-    }
-    const eventIds = definition.eventListeners.map(({ eventId }) => eventId);
-    if (new Set(eventIds).size !== eventIds.length) {
-      context.addIssue({
-        code: "custom",
-        path: ["eventListeners"],
-        message: "An agent definition may listen to each Live event once",
-      });
-    }
-  });
+export const currentAgentDefinitionSchema = agentDefinitionCoreSchema.extend({
+  version: z.literal(2),
+  label: z.string().trim().min(1).max(128),
+  color: agentColorSchema.optional(),
+  model: z.string().trim().min(1).max(256).nullable(),
+  reasoningEffort: agentReasoningEffortSchema.nullable(),
+  autoApprove: z.boolean(),
+  delegatable: z.boolean().default(false),
+  /** As a sub-agent, its final reply reaches the parent only as a fixed confirmation. */
+  hideResultFromParent: z.boolean().default(false),
+});
 export type CurrentAgentDefinition = z.infer<
   typeof currentAgentDefinitionSchema
 >;
@@ -409,7 +384,6 @@ export const agentDefinitionSchema = z
           autoApprove: false,
           delegatable: false,
           hideResultFromParent: false,
-          eventListeners: [],
         },
   );
 export type AgentDefinition = z.infer<typeof agentDefinitionSchema>;

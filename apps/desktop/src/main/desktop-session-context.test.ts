@@ -118,7 +118,6 @@ function session(liveSetId = "set:unsaved"): DesktopSession {
           resolvedOperations: ["session.inspect"],
           editScope: ["session"],
           skills: [],
-          inputChannels: [],
         },
       },
     ],

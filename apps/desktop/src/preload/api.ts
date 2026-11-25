@@ -106,6 +106,8 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
           expectedRevision,
           expectedFingerprint,
         }),
+      createDefinition: (definition, expectedRevision) =>
+        invoke("agents:create-definition", { definition, expectedRevision }),
       listActive: () => invoke("agents:active", {}),
       listModels: () => invoke("agents:models", {}),
       getAuthStatus: () => invoke("agents:auth-status", {}),

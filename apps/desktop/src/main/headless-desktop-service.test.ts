@@ -99,7 +99,6 @@ function defaultCatalog(): DesktopAgentCatalog {
         resolvedOperations: ["session.inspect"],
         editScope: ["session"],
         skills: [],
-        inputChannels: [],
         model: null,
         reasoningEffort: null,
         autoApprove: false,
@@ -552,7 +551,6 @@ describe("desktop persistence stores", () => {
         resolvedOperations: ["session.inspect"],
         editScope: ["session" as const],
         skills: [],
-        inputChannels: [],
       },
       lifecycle: "ready" as const,
       boundTracks: [],
@@ -2016,7 +2014,6 @@ describe("desktop adapter over the shared application", () => {
       resolvedOperations: ["session.inspect", "tracks.rename"],
       editScope: [{ track: { name: "Bass", occurrence: 0 } }],
       skills: [],
-      inputChannels: [],
       sourceFile: "bass-editor.yaml",
       fingerprint: "b".repeat(64),
     });
@@ -2325,7 +2322,6 @@ describe("desktop adapter over the shared application", () => {
       model: "model-b",
       reasoningEffort: "low",
       autoApprove: false,
-      eventListeners: before.eventListeners,
     });
     const reset = await service.resetActiveAgent(original.id);
     expect(reset).toMatchObject({
@@ -2335,14 +2331,9 @@ describe("desktop adapter over the shared application", () => {
       reasoningEffort: "low",
       autoApprove: false,
     });
-    expect(reset.eventListeners).toHaveLength(before.eventListeners.length);
-    expect(reset.eventListeners[0]).toMatchObject({
-      eventId: before.eventListeners[0]!.eventId,
-      enabled: before.eventListeners[0]!.enabled,
-      responseMode: before.eventListeners[0]!.responseMode,
-      messagePrefix: before.eventListeners[0]!.messagePrefix,
-    });
-    expect(reset.eventListeners[0]!.id).not.toBe(before.eventListeners[0]!.id);
+    expect(before.eventListeners).not.toHaveLength(0);
+    expect(reset.eventListeners).toEqual(before.eventListeners);
+    expect(reset.outputSubscriptions).toEqual(before.outputSubscriptions);
     expect(agent.managedConfigurations.get(original.id)?.model).toBe("model-b");
     expect(agent.managedConfigurations.get(original.id)?.reasoningEffort).toBe(
       "low",
@@ -6121,7 +6112,6 @@ describe("desktop adapter over the shared application", () => {
 
     await service.start();
     const session = (await service.getSessions())[0]!;
-    expect(session.activeAgents[0]?.config.inputChannels).toEqual([]);
     expect(session.activeAgents[0]?.outputSubscriptions).toEqual([]);
     expect(await service.listOutputs()).toMatchObject({
       connections: [expect.objectContaining({ producerId: "producer-1" })],

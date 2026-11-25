@@ -140,7 +140,7 @@ connects the bridge to the agents:
 
 ## Delivery modes
 
-Each listener picks one mode in the agent editor (**Listening Events**).
+Each listener picks one mode in the **Wiring** view.
 
 ### Next prompt
 
@@ -202,8 +202,9 @@ one `AgentEventListener`.
 - **History** searches the local event journal. You can follow an
   occurrence's trace through fan-out and delivery to each agent.
 
-The **Listening Events** section of the agent editor edits the same
-listeners from the agent's side.
+Wiring is the only place agents are connected to events and monitors.
+Agent definitions don't carry connections; an agent starts with none when it
+is added to a session.
 
 Every step (subscribe, occurrence, fan-out, queue, settle, delivery) is
 recorded as an observability event with the occurrence ID as its trace. See

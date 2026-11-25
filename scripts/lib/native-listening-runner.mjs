@@ -1991,7 +1991,6 @@ export async function createNativeListeningRunner({
                 resolvedOperations: actorConfiguration.resolvedOperations,
                 editScope: ["session"],
                 skills: [],
-                inputChannels: [],
               },
             },
           ],

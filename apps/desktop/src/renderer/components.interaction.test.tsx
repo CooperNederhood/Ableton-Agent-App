@@ -134,6 +134,7 @@ function rendererState(active = true): DesktopState {
         productionPlan: [],
         outputAssignments: [],
         liveEvents: [],
+        armedMonitorTracks: [],
       },
     ],
     agentCatalog: {

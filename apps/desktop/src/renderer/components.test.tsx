@@ -75,6 +75,7 @@ describe("desktop components", () => {
         productionPlan: [],
         outputAssignments: [],
         liveEvents: [],
+        armedMonitorTracks: [],
         selectedAgentInstanceId,
         activeAgents: [firstAgentId, secondAgentId].map((id, index) => ({
           id,
@@ -314,6 +315,7 @@ describe("desktop components", () => {
               productionPlan: [],
               outputAssignments: [],
               liveEvents: [],
+              armedMonitorTracks: [],
               selectedAgentInstanceId: activeAgentId,
               activeAgents: [
                 {
@@ -1467,6 +1469,7 @@ describe("desktop components", () => {
               productionPlan: [],
               outputAssignments: [],
               liveEvents: [],
+              armedMonitorTracks: [],
               selectedAgentInstanceId: activeAgentId,
               activeAgents: [
                 {
@@ -2098,6 +2101,7 @@ describe("desktop components", () => {
           productionPlan: [],
           outputAssignments: [],
           liveEvents: [],
+          armedMonitorTracks: [],
         },
       ],
       snapshot: {

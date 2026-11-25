@@ -55,6 +55,7 @@ function stateWithAgents(): DesktopState {
         productionPlan: [],
         outputAssignments: [],
         liveEvents: [],
+        armedMonitorTracks: [],
       },
     ],
   };

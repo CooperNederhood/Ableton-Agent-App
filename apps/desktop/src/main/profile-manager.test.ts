@@ -81,6 +81,7 @@ async function fixture(
           productionPlan: [],
           outputAssignments: [],
           liveEvents: [],
+          armedMonitorTracks: [],
         },
       ]),
     );
@@ -122,6 +123,7 @@ async function fixture(
       productionPlan: [],
       outputAssignments: [],
       liveEvents: [],
+      armedMonitorTracks: [],
     });
     await writeFile(layout.sessionsPath, JSON.stringify([session]));
     return session;
@@ -151,6 +153,7 @@ async function fixture(
                 productionPlan: [],
                 outputAssignments: [],
                 liveEvents: [],
+                armedMonitorTracks: [],
               }),
         )),
     persistActiveSession,
@@ -483,6 +486,7 @@ describe("DesktopProfileManager", () => {
       productionPlan: [],
       outputAssignments: [],
       liveEvents: [],
+      armedMonitorTracks: [],
     });
     const targetSession = sessionSchema.parse({
       version: 4,
@@ -496,6 +500,7 @@ describe("DesktopProfileManager", () => {
       productionPlan: [],
       outputAssignments: [],
       liveEvents: [],
+      armedMonitorTracks: [],
     });
     const activeSession = sessionSchema.parse({
       version: 4,
@@ -509,6 +514,7 @@ describe("DesktopProfileManager", () => {
       productionPlan: [],
       outputAssignments: [],
       liveEvents: [],
+      armedMonitorTracks: [],
     });
     await writeFile(
       layout.sessionsPath,
@@ -612,6 +618,7 @@ describe("DesktopProfileManager", () => {
       productionPlan: [],
       outputAssignments: [],
       liveEvents: [],
+      armedMonitorTracks: [],
     });
     const { manager, layout, refreshActiveCatalog } = await fixture({
       activeSessionId: "session-1",
@@ -633,6 +640,7 @@ describe("DesktopProfileManager", () => {
         productionPlan: [],
         outputAssignments: [],
         liveEvents: [],
+        armedMonitorTracks: [],
       }),
     ];
     await writeFile(layout.sessionsPath, JSON.stringify(sessions));

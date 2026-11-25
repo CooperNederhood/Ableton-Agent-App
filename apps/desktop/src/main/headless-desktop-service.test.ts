@@ -197,9 +197,13 @@ class FakeSignalRuntime implements SignalRuntime {
   removeAssignment(assignmentId: string) {
     return this.assignments.delete(assignmentId);
   }
+  readonly subscribers = new Set<(event: SignalRuntimeEvent) => void>();
   subscribe(listener: (event: SignalRuntimeEvent) => void) {
-    void listener;
-    return () => undefined;
+    this.subscribers.add(listener);
+    return () => this.subscribers.delete(listener);
+  }
+  emit(event: SignalRuntimeEvent) {
+    for (const listener of this.subscribers) listener(event);
   }
 }
 
@@ -612,6 +616,7 @@ describe("desktop persistence stores", () => {
         productionPlan: [],
         outputAssignments: [],
         liveEvents: [],
+        armedMonitorTracks: [],
       },
     ];
 
@@ -675,6 +680,7 @@ describe("desktop persistence stores", () => {
       productionPlan: [],
       outputAssignments: [],
       liveEvents: [],
+      armedMonitorTracks: [],
     });
     await store.save([session]);
     const source = resolveNestedSessionStorage(storage, {
@@ -724,6 +730,7 @@ describe("desktop persistence stores", () => {
       productionPlan: [],
       outputAssignments: [],
       liveEvents: [],
+      armedMonitorTracks: [],
     });
     await store.save([session]);
     const source = resolveNestedSessionStorage(storage, {
@@ -769,6 +776,7 @@ describe("desktop persistence stores", () => {
       productionPlan: [],
       outputAssignments: [],
       liveEvents: [],
+      armedMonitorTracks: [],
     });
     await store.save([session]);
     await mkdir(join(storage.liveProjectsRegistryPath, ".."), {
@@ -817,6 +825,7 @@ describe("desktop persistence stores", () => {
           productionPlan: [],
           outputAssignments: [],
           liveEvents: [],
+          armedMonitorTracks: [],
         },
       ]),
       "utf8",
@@ -6227,6 +6236,159 @@ describe("desktop adapter over the shared application", () => {
           event.events.monitors.listeners.some(({ armed }) => armed),
       ),
     ).toBe(true);
+  });
+
+  it("rediscovers listeners when a device connects after it was added", async () => {
+    const signals = new FakeSignalRuntime();
+    let found: string[] = [];
+    let discoveries = 0;
+    const monitors = {
+      registry: {
+        arm: async () => {
+          throw new Error("unused");
+        },
+        read: async () => {
+          throw new Error("unused");
+        },
+        disarm: async () => {
+          throw new Error("unused");
+        },
+        snapshot: () => ({
+          status: "off" as const,
+          tracks: [],
+          episodes: [],
+          nextSequence: 0,
+        }),
+        subscribe: () => () => undefined,
+        shutdown: async () => {},
+      },
+      discover: async () => {
+        discoveries += 1;
+        return {
+          action: "inspect-listeners" as const,
+          listeners: found.map((listenerId) => ({
+            listenerId,
+            instanceId: `${listenerId}-instance`,
+            trackReference: `${listenerId}-track`,
+            deviceReference: `${listenerId}-device`,
+            displayName: "Machine Listening",
+            capabilities: [],
+            ready: true,
+            limitations: [],
+          })),
+          truncated: false,
+        };
+      },
+      add: async () => ({}),
+    };
+    const { service, events } = await harness(
+      {},
+      { signals, monitors: monitors as never },
+    );
+    await service.start();
+    expect((await service.addMonitor("drums-track")).listeners).toEqual([]);
+    events.length = 0;
+
+    found = ["drums"];
+    const connected = [
+      ...signals.connections,
+      { ...signals.connections[0]!, connectionId: "connection-2" },
+    ];
+    signals.emit({ type: "connections.changed", connections: connected });
+    await vi.waitFor(() =>
+      expect(
+        events.some(
+          (event) =>
+            event.type === "events.changed" &&
+            event.events.monitors.listeners.some(
+              ({ listenerId }) => listenerId === "drums",
+            ),
+        ),
+      ).toBe(true),
+    );
+    const before = discoveries;
+    signals.emit({ type: "connections.changed", connections: connected });
+    expect(discoveries).toBe(before);
+    await service.stop();
+  });
+
+  it("remembers armed monitor tracks and re-arms them when devices reconnect", async () => {
+    const signals = new FakeSignalRuntime();
+    let armed: string[] = [];
+    const armCalls: string[][] = [];
+    const monitors = {
+      registry: {
+        arm: async (request: { listenerIds: readonly string[] }) => {
+          armCalls.push([...request.listenerIds]);
+          armed = [...new Set([...armed, ...request.listenerIds])];
+          return monitors.registry.snapshot();
+        },
+        read: async () => monitors.registry.snapshot(),
+        disarm: async () => {
+          armed = [];
+          return monitors.registry.snapshot();
+        },
+        snapshot: () => ({
+          status: armed.length > 0 ? ("armed" as const) : ("off" as const),
+          tracks: armed.map((listenerId) => ({
+            listenerId,
+            trackReference: `${listenerId}-track`,
+            pending: false,
+            state: "armed" as const,
+            periodBars: null,
+            patternVersion: 0,
+            lastBar: null,
+            lastDistance: null,
+          })),
+          episodes: [],
+          nextSequence: 0,
+        }),
+        subscribe: () => () => undefined,
+        shutdown: async () => {},
+      },
+      discover: async () => ({
+        action: "inspect-listeners" as const,
+        listeners: ["keys", "bass"].map((listenerId) => ({
+          listenerId,
+          instanceId: `${listenerId}-instance`,
+          trackReference: `${listenerId}-track`,
+          deviceReference: `${listenerId}-device`,
+          displayName: "Machine Listening",
+          capabilities: [],
+          ready: true,
+          limitations: [],
+        })),
+        truncated: false,
+      }),
+      add: async () => ({}),
+    };
+    const { service, sessionStore } = await harness(
+      {},
+      { signals, monitors: monitors as never },
+    );
+    await service.start();
+    await service.refreshMonitors();
+    await service.armMonitors(["keys"]);
+    const sessionId = (await service.getSessions())[0]!.id;
+    const saved = async () =>
+      (await sessionStore.load()).find(({ id }) => id === sessionId)!
+        .armedMonitorTracks;
+    expect(await saved()).toEqual(["keys-track"]);
+
+    // As after a restart: the registry is empty until the device reconnects.
+    armed = [];
+    armCalls.length = 0;
+    signals.emit({
+      type: "connections.changed",
+      connections: [
+        { ...signals.connections[0]!, connectionId: "reconnected" },
+      ],
+    });
+    await vi.waitFor(() => expect(armCalls).toEqual([["keys"]]));
+
+    await service.disarmMonitors();
+    expect(await saved()).toEqual([]);
+    await service.stop();
   });
 
   it("manages Live events and explicitly attributed listeners across agents", async () => {

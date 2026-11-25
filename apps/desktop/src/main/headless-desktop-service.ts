@@ -57,6 +57,7 @@ import {
 import {
   createAgentInstanceAssignmentId,
   stableTelemetryId,
+  type OutputConnection,
 } from "@ableton-agent/signal-routing";
 import {
   createNonBlockingObservabilityRecorder,
@@ -364,6 +365,7 @@ export class HeadlessDesktopService implements DesktopService {
   #unsubscribeSignals: (() => void) | undefined;
   #unsubscribeLiveEvents: (() => void) | undefined;
   #unsubscribeMonitors: (() => void) | undefined;
+  #monitorConnectionKey = "";
   /** Last discovered Machine Listening devices; refreshed on request. */
   #monitorListeners: Awaited<
     ReturnType<ListeningMonitors["discover"]>
@@ -4627,6 +4629,7 @@ export class HeadlessDesktopService implements DesktopService {
       productionPlan: [],
       outputAssignments: [],
       liveEvents: [],
+      armedMonitorTracks: [],
       ...(activeAgent === undefined
         ? { activeAgents: [] }
         : {
@@ -4696,6 +4699,7 @@ export class HeadlessDesktopService implements DesktopService {
         productionPlan: [],
         outputAssignments: [],
         liveEvents: [],
+        armedMonitorTracks: [],
       };
       session.activeAgents = await this.#switchManagedAppSession(
         this.#activeSession(),
@@ -5679,6 +5683,7 @@ export class HeadlessDesktopService implements DesktopService {
       const found = await monitors.discover(this.#monitorContext());
       this.#monitorListeners = found.listeners;
       this.#monitorError = undefined;
+      await this.#restoreArmedMonitors(monitors);
     } catch (error) {
       this.#monitorError =
         error instanceof Error ? error.message : String(error);
@@ -5705,6 +5710,10 @@ export class HeadlessDesktopService implements DesktopService {
       );
     }
     await monitors.registry.arm({ listenerIds: ids }, this.#monitorContext());
+    const armedTracks = this.#monitorTrackReferences(ids);
+    await this.#saveArmedMonitorTracks((tracks) => {
+      for (const track of armedTracks) tracks.add(track);
+    });
     this.#emitLiveEvents();
     return this.#monitorsState();
   }
@@ -5713,10 +5722,18 @@ export class HeadlessDesktopService implements DesktopService {
     listenerIds?: string[],
   ): Promise<DesktopMonitorsState> {
     this.#assertAccepting();
+    const disarmedTracks =
+      listenerIds === undefined
+        ? undefined
+        : this.#monitorTrackReferences(listenerIds);
     await this.#requireMonitors().registry.disarm(
       listenerIds,
       this.#monitorContext(),
     );
+    await this.#saveArmedMonitorTracks((tracks) => {
+      if (disarmedTracks === undefined) tracks.clear();
+      else for (const track of disarmedTracks) tracks.delete(track);
+    });
     this.#emitLiveEvents();
     return this.#monitorsState();
   }
@@ -5769,6 +5786,81 @@ export class HeadlessDesktopService implements DesktopService {
     }
     record("monitor.add_completed", {}, "success");
     return this.refreshMonitors();
+  }
+
+  // Listener devices connect after Live loads them, often after the add
+  // request's own discovery has run; heartbeats also publish, so only a
+  // changed set of connected devices triggers rediscovery.
+  #refreshMonitorsOnConnectionChange(
+    connections: readonly OutputConnection[],
+  ): void {
+    const key = connections
+      .filter(({ status }) => status === "connected")
+      .map(({ connectionId }) => connectionId)
+      .sort()
+      .join(",");
+    if (
+      key === this.#monitorConnectionKey ||
+      this.options.monitors === undefined ||
+      !this.#acceptingActions ||
+      this.#activeAppSessionId === undefined
+    )
+      return;
+    // Set only once a refresh runs, so devices that connect during startup
+    // are picked up by the next heartbeat.
+    this.#monitorConnectionKey = key;
+    void this.refreshMonitors().catch((error: unknown) =>
+      this.#report("Machine Listening devices could not be refreshed", error),
+    );
+  }
+
+  /** Re-arms connected monitors on tracks the user left armed in this session. */
+  async #restoreArmedMonitors(monitors: ListeningMonitors): Promise<void> {
+    const saved = new Set(this.#activeSession()?.armedMonitorTracks ?? []);
+    if (saved.size === 0) return;
+    const armed = new Set(
+      monitors.registry.snapshot().tracks.map(({ listenerId }) => listenerId),
+    );
+    const ids = this.#monitorListeners
+      .filter(
+        ({ listenerId, trackReference, ready }) =>
+          ready && saved.has(trackReference) && !armed.has(listenerId),
+      )
+      .map(({ listenerId }) => listenerId)
+      .slice(0, 8);
+    if (ids.length === 0) return;
+    await monitors.registry.arm({ listenerIds: ids }, this.#monitorContext());
+  }
+
+  #monitorTrackReferences(listenerIds: readonly string[]): string[] {
+    const wanted = new Set(listenerIds);
+    return [
+      ...this.#monitorListeners,
+      ...(this.options.monitors?.registry.snapshot().tracks ?? []),
+    ].flatMap(({ listenerId, trackReference }) =>
+      wanted.has(listenerId) && trackReference !== null ? [trackReference] : [],
+    );
+  }
+
+  async #saveArmedMonitorTracks(
+    update: (tracks: Set<string>) => void,
+  ): Promise<void> {
+    await this.#queueSessionAction(async () => {
+      const session = this.#activeSession();
+      if (session === undefined) return;
+      const tracks = new Set(session.armedMonitorTracks);
+      update(tracks);
+      const next = [...tracks].slice(0, 256);
+      if (
+        next.length === session.armedMonitorTracks.length &&
+        next.every((track, index) => track === session.armedMonitorTracks[index])
+      )
+        return;
+      await this.#replaceActiveProductionSession({
+        ...session,
+        armedMonitorTracks: next,
+      });
+    });
   }
 
   #requireMonitors(): ListeningMonitors {
@@ -6114,6 +6206,9 @@ export class HeadlessDesktopService implements DesktopService {
         message: event.message,
       });
       return;
+    }
+    if (event.type === "connections.changed") {
+      this.#refreshMonitorsOnConnectionChange(event.connections);
     }
     if (event.type === "latest-window.changed") {
       if (event.context === undefined) {

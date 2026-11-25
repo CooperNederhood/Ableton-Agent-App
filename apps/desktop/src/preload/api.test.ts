@@ -998,6 +998,7 @@ describe("preload API", () => {
         productionPlan: [],
         outputAssignments: [],
         liveEvents: [],
+        armedMonitorTracks: [],
       },
     };
     const transport = transportFor({

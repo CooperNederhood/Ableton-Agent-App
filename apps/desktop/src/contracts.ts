@@ -1301,6 +1301,8 @@ export const sessionSchema = z
       .array(liveEventDefinitionSchema)
       .max(MAX_LIVE_EVENTS_PER_SESSION)
       .default([]),
+    /** Live track references whose monitors re-arm when their device connects. */
+    armedMonitorTracks: z.array(z.string().min(1).max(200)).max(256).default([]),
   })
   .superRefine((session, context) => {
     const instanceIds = session.activeAgents.map(({ id }) => id);

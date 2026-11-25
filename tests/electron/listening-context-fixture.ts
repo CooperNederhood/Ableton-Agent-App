@@ -40,6 +40,7 @@ export async function seedListeningContext(profile: string): Promise<void> {
     productionPlan: [],
     outputAssignments: [],
     liveEvents: [],
+    armedMonitorTracks: [],
     contextStore: SESSION_CONTEXT_STORE_REFERENCE,
   });
   await registry.save([session]);

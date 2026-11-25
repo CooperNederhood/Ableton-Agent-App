@@ -254,7 +254,9 @@ runs the loop:
 
 1. Plan a pass for every armed track from the stopped playhead (up to 600
    seconds, and no more bars than the feature grid can segment at once:
-   `monitoringPassBars`). While Live is playing, it waits and retries. Arming or disarming
+   `monitoringPassBars`). When every armed monitor has a `maxBars` budget,
+   the pass ends after the largest one, so it finishes on its own instead of
+   being cancelled mid-capture. While Live is playing, it waits and retries. Arming or disarming
    a track while a pass is armed but not yet playing re-plans it.
 2. Arm the listeners with a streaming sink
    (`packages/runtime/src/monitoring-stream.ts`), which seals each complete bar

@@ -50,9 +50,14 @@ export interface MonitoringUpdate {
 }
 
 export interface MonitoringControllerDependencies {
-  /** Inspect a stopped transport and plan one pass from the playhead. */
+  /**
+   * Inspect a stopped transport and plan one pass from the playhead. With
+   * maxBars, the pass ends after that many full bars instead of being
+   * cancelled mid-capture.
+   */
   plan(input: {
     readonly listenerIds: readonly string[];
+    readonly maxBars?: number;
     readonly context: ListeningExecutionContext;
   }): Promise<MonitoringPassPlan>;
   arm(input: {
@@ -234,7 +239,6 @@ export function createMonitoringController(
     close(monitor, "completed");
     monitors.delete(monitor.listenerId);
     record("completed", { listenerId: monitor.listenerId });
-    if (monitors.size === 0) void handle?.disarm().catch(() => {});
   };
 
   const sleep = (ms: number, signal: AbortSignal) =>
@@ -257,8 +261,14 @@ export function createMonitoringController(
       replan = false;
       let pass: MonitoringPassPlan;
       try {
+        const budgets = [...monitors.values()].map(
+          ({ barsRemaining }) => barsRemaining,
+        );
         pass = await dependencies.plan({
           listenerIds: [...monitors.keys()],
+          ...(budgets.includes(null)
+            ? {}
+            : { maxBars: Math.max(...(budgets as number[])) }),
           context: passContext,
         });
       } catch (cause) {

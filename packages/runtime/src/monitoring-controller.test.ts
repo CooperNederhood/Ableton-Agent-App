@@ -44,10 +44,12 @@ function harness() {
   }[] = [];
   const plans: (number | "playing")[] = [];
   const planned: string[][] = [];
+  const budgets: (number | undefined)[] = [];
   const controller = createMonitoringController({
     pollMs: 1,
-    plan: async ({ listenerIds }) => {
+    plan: async ({ listenerIds, maxBars }) => {
       planned.push([...listenerIds]);
+      budgets.push(maxBars);
       const next = plans.shift() ?? 0;
       if (next === "playing")
         throw new ListeningFailure("transport_not_stopped", "playing");
@@ -80,7 +82,7 @@ function harness() {
       };
     },
   });
-  return { controller, passes, plans, planned };
+  return { controller, passes, plans, planned, budgets };
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
@@ -114,17 +116,20 @@ describe("monitoring controller", () => {
   });
 
   it("closes a monitor after maxBars and ends monitoring", async () => {
-    const { controller, passes } = harness();
+    const { controller, passes, budgets } = harness();
     const fixture = await createSyntheticMetricRecordStreamFixture({
       seconds: 12,
       requestedMetrics: ["mel-bands"],
     });
     const listenerId = fixture.descriptor.ownership.listenerId;
     await controller.arm({ listenerIds: [listenerId], maxBars: 2 }, context);
-    const { sink, launch, disarm } = passes[0]!;
+    // The pass is sized to the budget so it ends without a mid-capture cancel.
+    expect(budgets).toEqual([2]);
+    const { sink, launch, result, disarm } = passes[0]!;
     launch.resolve();
     await sink.begin(fixture.descriptor);
     for await (const chunk of fixture.chunks()) await sink.append(chunk);
+    result.resolve(undefined);
     await settle();
 
     const done = await controller.read();
@@ -135,7 +140,7 @@ describe("monitoring controller", () => {
       bar: 2,
       reason: "completed",
     });
-    expect(disarm).toHaveBeenCalled();
+    expect(disarm).not.toHaveBeenCalled();
   });
 
   it("is shared: the app arms, an agent adds a track, and both are reported", async () => {

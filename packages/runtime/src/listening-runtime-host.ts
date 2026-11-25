@@ -1908,7 +1908,7 @@ export function createListeningRuntimeHost(
   >();
   const monitoring = createMonitoringController({
     ...(dependencies.telemetry ? { telemetry: dependencies.telemetry } : {}),
-    plan: ({ listenerIds, context }) =>
+    plan: ({ listenerIds, maxBars, context }) =>
       stage("monitoring-plan", context, async () => {
         const snapshot = await inspect(
           listenerIds,
@@ -1953,9 +1953,15 @@ export function createListeningRuntimeHost(
         const barBeats = (meter.numerator * 4) / meter.denominator;
         const passBars = monitoringPassBars(transport.tempo, barBeats);
         const startBeat = transport.currentBeat;
+        const firstBar = Math.ceil(startBeat / barBeats) * barBeats;
         const plan: MonitoringPassPlan = {
           startBeat,
-          endBeat: startBeat + passBars * barBeats,
+          endBeat: Math.min(
+            startBeat + passBars * barBeats,
+            maxBars === undefined
+              ? Number.POSITIVE_INFINITY
+              : firstBar + maxBars * barBeats,
+          ),
           alignment: listeningMusicalAlignmentSchema.parse({
             version: 1,
             coordinate: "transport-beats",

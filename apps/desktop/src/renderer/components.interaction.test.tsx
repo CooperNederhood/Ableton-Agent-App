@@ -1160,7 +1160,7 @@ describe("desktop component interactions", () => {
     expect(
       container.querySelector(".agent-detail:not([hidden]) h3")?.textContent,
     ).toBe("Compose");
-    await click(container, "Create agent");
+    await click(container, "Start agent");
     expect(create).toHaveBeenCalledWith("compose");
     expect(
       container.querySelector(".agent-detail:not([hidden]) h3")?.textContent,
@@ -1419,6 +1419,75 @@ describe("desktop component interactions", () => {
     );
   });
 
+  it("picks edit-scope tracks and tool groups from menus", async () => {
+    const state = rendererState();
+    const track = (id: string, name: string) => ({
+      id,
+      name,
+      kind: "midi" as const,
+      color: "#79c2ff",
+      volume: 0.8,
+      pan: 0,
+      muted: false,
+      clips: [],
+      devices: [],
+    });
+    state.snapshot = {
+      liveSetId: "project-1",
+      liveSetName: "Test Set",
+      tempo: 120,
+      timeSignature: "4/4",
+      tracks: [
+        track("t1", "Drums"),
+        track("t2", "Bass"),
+        track("t3", "Drums"),
+      ],
+    };
+    const saveDefinition = vi.fn().mockResolvedValue({
+      catalog: state.agentCatalog,
+      profileSnapshot: {},
+    });
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: desktopApi({ saveDefinition }),
+    });
+
+    await act(async () => {
+      root.render(<AgentHarness state={state} />);
+      await Promise.resolve();
+    });
+    await clickAria(container, "Capabilities");
+    await click(container, "Selected tracks");
+    const trackBox = (name: string): HTMLInputElement => {
+      const option = [
+        ...container.querySelectorAll<HTMLLabelElement>(".track-scope-option"),
+      ].find((label) => label.textContent?.trim() === name);
+      if (option === undefined) throw new Error(`Track '${name}' not found`);
+      return option.querySelector("input")!;
+    };
+    expect(trackBox("Drums #1").checked).toBe(true);
+    await act(async () => trackBox("Drums #2").click());
+    const shell = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Allow Shell tools"]',
+    );
+    if (shell === null) throw new Error("Shell group not found");
+    expect(shell.checked).toBe(true);
+    await act(async () => shell.click());
+    await click(container, "Save Session definition");
+
+    const saved = saveDefinition.mock.calls[0]![0] as {
+      editScope: unknown;
+      tools: string[];
+    };
+    expect(saved.editScope).toEqual([
+      { track: { name: "Drums", occurrence: 0 } },
+      { track: { name: "Drums", occurrence: 1 } },
+    ]);
+    expect(saved.tools).not.toContain("*");
+    expect(saved.tools).not.toContain("bash");
+    expect(saved.tools).toContain("ableton_tracks");
+  });
+
   it("keeps capability drafts available when definition saving fails", async () => {
     const saveDefinition = vi
       .fn()
@@ -1529,7 +1598,7 @@ describe("desktop component interactions", () => {
       );
       await Promise.resolve();
     });
-    expect(button(container, "Create agent").disabled).toBe(true);
+    expect(button(container, "Start agent").disabled).toBe(true);
     expect(button(container, "Add event…").disabled).toBe(true);
     await act(async () => {
       container
@@ -1540,7 +1609,7 @@ describe("desktop component interactions", () => {
       await Promise.resolve();
     });
     expect(button(container, "Disable").disabled).toBe(true);
-    await click(container, "Create agent");
+    await click(container, "Start agent");
     await click(container, "Add event…");
     await click(container, "Disable");
 

@@ -4395,6 +4395,8 @@ export function AgentsView({
                   }
                   agent={agent}
                   availableSkills={state.agentCatalog.skills}
+                  liveTracks={state.snapshot?.tracks}
+                  liveSelectedTrackId={state.selectedTrackId}
                   models={modelsState.models}
                   modelsStatus={modelsState.status}
                   definitionUpdated={state.agentCatalog.definitions.some(
@@ -4461,6 +4463,8 @@ export function AgentsView({
                 confirmingReset={false}
                 selected={false}
                 availableSkills={state.agentCatalog.skills}
+                liveTracks={state.snapshot?.tracks}
+                liveSelectedTrackId={state.selectedTrackId}
                 models={modelsState.models}
                 modelsStatus={modelsState.status}
                 definitionUpdated={false}
@@ -4879,21 +4883,169 @@ const TOOL_GROUPS: readonly { label: string; tools: readonly string[] }[] = [
   },
   { label: "Listen", tools: ["ableton_listening"] },
   { label: "Record", tools: ["ableton_recording"] },
+  {
+    label: "Ask & plan",
+    tools: ["ask_user", "exit_plan_mode", "read_plan", "write_plan"],
+  },
+  { label: "Skills", tools: ["skill"] },
+  { label: "Shell", tools: ["bash"] },
 ];
 
-/** Plain-language tool groups; a group is allowed when any of its tools resolve. */
-export function toolGroups(
-  resolvedTools: readonly string[],
-): { label: string; allowed: boolean; tools: string[] }[] {
-  const known = new Set(TOOL_GROUPS.flatMap(({ tools }) => tools));
-  const groups = TOOL_GROUPS.map(({ label, tools }) => {
-    const allowedTools = tools.filter((tool) => resolvedTools.includes(tool));
-    return { label, allowed: allowedTools.length > 0, tools: allowedTools };
-  });
-  const other = resolvedTools.filter((tool) => !known.has(tool));
-  return other.length === 0
-    ? groups
-    : [...groups, { label: "Other", allowed: true, tools: other }];
+/** Tools that "*" never grants; they must be listed by name. */
+const SUB_AGENT_TOOL_GROUP = {
+  label: "Sub-agents",
+  tools: ["task", "read_agent", "write_agent", "list_agents"],
+} as const;
+
+const PICKER_TOOL_GROUPS = [...TOOL_GROUPS, SUB_AGENT_TOOL_GROUP];
+const WILDCARD_TOOLS = TOOL_GROUPS.flatMap(({ tools }) => tools);
+const EXPLICIT_ONLY_TOOLS: ReadonlySet<string> = new Set([
+  ...SUB_AGENT_TOOL_GROUP.tools,
+  "task_complete",
+  "send_inbox",
+  "context_board",
+]);
+
+function toolPatternMatches(pattern: string, tool: string): boolean {
+  if (!pattern.includes("*")) return pattern === tool;
+  if (EXPLICIT_ONLY_TOOLS.has(tool)) return false;
+  const expression = pattern
+    .split("*")
+    .map((part) => part.replace(/[\\^$+?.()|[\]{}]/gu, "\\$&"))
+    .join(".*");
+  return new RegExp(`^${expression}$`, "u").test(tool);
+}
+
+export interface ToolPickerState {
+  /** Patterns the picker can't show as checkboxes (operation ids and the like). */
+  custom: string[];
+  selected: Set<string>;
+  all: boolean;
+}
+
+export function toolPickerState(patterns: readonly string[]): ToolPickerState {
+  const known = PICKER_TOOL_GROUPS.flatMap(({ tools }) => tools);
+  const selected = new Set(
+    known.filter((tool) =>
+      patterns.some((pattern) => toolPatternMatches(pattern, tool)),
+    ),
+  );
+  return {
+    custom: patterns.filter(
+      (pattern) => !known.some((tool) => toolPatternMatches(pattern, tool)),
+    ),
+    selected,
+    all: WILDCARD_TOOLS.every((tool) => selected.has(tool)),
+  };
+}
+
+/** Writes a picker selection back as patterns: "*" when every wildcard tool is on. */
+export function toolPatternsFromSelection(
+  selected: ReadonlySet<string>,
+): string[] {
+  const ordered = PICKER_TOOL_GROUPS.flatMap(({ tools }) => tools).filter(
+    (tool) => selected.has(tool),
+  );
+  return WILDCARD_TOOLS.every((tool) => selected.has(tool))
+    ? ["*", ...ordered.filter((tool) => EXPLICIT_ONLY_TOOLS.has(tool))]
+    : ordered;
+}
+
+function toolLabel(tool: string): string {
+  const words = tool.replace(/^ableton_/u, "").replace(/_/gu, " ");
+  const label = words.charAt(0).toUpperCase() + words.slice(1);
+  return label.replace(/\bmidi\b/giu, "MIDI");
+}
+
+export function ToolPicker({
+  agentTitle,
+  patterns,
+  onChange,
+}: {
+  agentTitle: string;
+  patterns: readonly string[];
+  onChange: (patterns: string[]) => void;
+}): React.JSX.Element {
+  const state = toolPickerState(patterns);
+  const locked = state.custom.length > 0;
+  const update = (tools: readonly string[], on: boolean): void => {
+    const next = new Set(state.selected);
+    for (const tool of tools) {
+      if (on) next.add(tool);
+      else next.delete(tool);
+    }
+    onChange(toolPatternsFromSelection(next));
+  };
+  return (
+    <div className="tool-picker">
+      {locked && (
+        <small className="tool-picker-note">
+          Uses custom tool patterns ({state.custom.join(", ")}). Edit them under
+          Advanced.
+        </small>
+      )}
+      <label className="tool-picker-all">
+        <input
+          type="checkbox"
+          checked={state.all}
+          disabled={locked}
+          onChange={(event) => update(WILDCARD_TOOLS, event.target.checked)}
+        />
+        <strong>All tools</strong>
+        <small>Everything except sub-agents, which you add by hand.</small>
+      </label>
+      <ul className="tool-picker-groups" aria-label={`Tools for ${agentTitle}`}>
+        {PICKER_TOOL_GROUPS.map((group) => {
+          const on = group.tools.filter((tool) => state.selected.has(tool));
+          const checked = on.length === group.tools.length;
+          const partial = on.length > 0 && !checked;
+          return (
+            <li key={group.label}>
+              <details>
+                <summary>
+                  <input
+                    type="checkbox"
+                    aria-label={`Allow ${group.label} tools`}
+                    checked={checked}
+                    disabled={locked}
+                    ref={(input) => {
+                      if (input !== null) input.indeterminate = partial;
+                    }}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) =>
+                      update(group.tools, event.target.checked)
+                    }
+                  />
+                  <span className="tool-picker-group-name">{group.label}</span>
+                  <small className="tool-picker-count">
+                    {on.length} of {group.tools.length}
+                  </small>
+                </summary>
+                <div className="tool-picker-tools">
+                  {group.tools.map((tool) => (
+                    <label key={tool} title={tool}>
+                      <input
+                        type="checkbox"
+                        checked={state.selected.has(tool)}
+                        disabled={locked}
+                        onChange={(event) =>
+                          update([tool], event.target.checked)
+                        }
+                      />
+                      {toolLabel(tool)}
+                    </label>
+                  ))}
+                </div>
+              </details>
+            </li>
+          );
+        })}
+      </ul>
+      {patterns.length === 0 && (
+        <small className="tool-picker-note">Pick at least one tool.</small>
+      )}
+    </div>
+  );
 }
 
 export function ResolvedToolsDisclosure({
@@ -4949,6 +5101,115 @@ function parseTrackScope(
     };
   });
   return tracks.length > 0 ? tracks : ["session"];
+}
+
+type TrackScopeSelector = { track: { name: string; occurrence: number } };
+
+function trackSelectorKey({ track }: TrackScopeSelector): string {
+  return `${track.occurrence}:${track.name}`;
+}
+
+/** Regular Live tracks keyed the way edit scope names them: name plus nth duplicate. */
+export function scopeTrackOptions(
+  tracks: readonly DesktopTrack[],
+): { selector: TrackScopeSelector; track: DesktopTrack }[] {
+  const seen = new Map<string, number>();
+  return tracks
+    .filter(({ kind }) => kind === "midi" || kind === "audio")
+    .map((track) => {
+      const occurrence = seen.get(track.name) ?? 0;
+      seen.set(track.name, occurrence + 1);
+      return { selector: { track: { name: track.name, occurrence } }, track };
+    });
+}
+
+export function TrackScopePicker({
+  agentTitle,
+  tracks,
+  selectors,
+  onChange,
+}: {
+  agentTitle: string;
+  tracks: readonly DesktopTrack[] | undefined;
+  selectors: readonly TrackScopeSelector[];
+  onChange: (selectors: TrackScopeSelector[]) => void;
+}): React.JSX.Element {
+  const options = scopeTrackOptions(tracks ?? []);
+  const selectedKeys = new Set(selectors.map(trackSelectorKey));
+  const optionKeys = new Set(
+    options.map(({ selector }) => trackSelectorKey(selector)),
+  );
+  const missing = selectors.filter(
+    (selector) => !optionKeys.has(trackSelectorKey(selector)),
+  );
+  const toggle = (selector: TrackScopeSelector, on: boolean): void => {
+    const key = trackSelectorKey(selector);
+    onChange(
+      on
+        ? [...selectors, selector]
+        : selectors.filter((entry) => trackSelectorKey(entry) !== key),
+    );
+  };
+  const duplicateNames = new Set(
+    options
+      .filter(({ selector }) => selector.track.occurrence > 0)
+      .map(({ selector }) => selector.track.name),
+  );
+  const label = ({ track }: TrackScopeSelector): string =>
+    duplicateNames.has(track.name) || track.occurrence > 0
+      ? `${track.name} #${track.occurrence + 1}`
+      : track.name;
+  return (
+    <div
+      className="track-scope-picker"
+      role="group"
+      aria-label={`Tracks ${agentTitle} can edit`}
+    >
+      {tracks === undefined && (
+        <small>Connect to Live to pick from your tracks.</small>
+      )}
+      {tracks !== undefined && options.length === 0 && (
+        <small>This set has no audio or MIDI tracks yet.</small>
+      )}
+      {options.map(({ selector, track }) => (
+        <label
+          key={track.id}
+          className="track-scope-option"
+          style={{ "--track-color": track.color } as CSSProperties}
+          title={label(selector)}
+        >
+          <input
+            type="checkbox"
+            checked={selectedKeys.has(trackSelectorKey(selector))}
+            onChange={(event) => toggle(selector, event.target.checked)}
+          />
+          <span className="track-color" aria-hidden="true" />
+          <span className="track-scope-name">{label(selector)}</span>
+        </label>
+      ))}
+      {missing.map((selector) => (
+        <label
+          key={trackSelectorKey(selector)}
+          className="track-scope-option missing"
+          title={`${label(selector)} isn't in the current set`}
+        >
+          <input
+            type="checkbox"
+            checked
+            onChange={() => toggle(selector, false)}
+          />
+          <span className="track-color" aria-hidden="true" />
+          <span className="track-scope-name">
+            {label(selector)}
+            {tracks !== undefined && <small> · not in this set</small>}
+          </span>
+        </label>
+      ))}
+      {selectors.length === 0 && (
+        <small className="tool-picker-note">Pick at least one track.</small>
+      )}
+    </div>
+  );
 }
 
 export function AgentModelEditor({
@@ -5118,6 +5379,8 @@ function ActiveAgentCard({
   scopeActions,
   agent,
   availableSkills,
+  liveTracks,
+  liveSelectedTrackId,
   models,
   modelsStatus,
   definitionUpdated,
@@ -5140,6 +5403,8 @@ function ActiveAgentCard({
   scopeActions?: React.ReactNode;
   agent?: DesktopActiveAgent | undefined;
   availableSkills: DesktopState["agentCatalog"]["skills"];
+  liveTracks?: readonly DesktopTrack[] | undefined;
+  liveSelectedTrackId?: string | undefined;
   models: readonly DesktopAgentModel[];
   modelsStatus: "loading" | "loaded" | "failed";
   definitionUpdated: boolean;
@@ -5186,10 +5451,21 @@ function ActiveAgentCard({
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(baselineRef.current);
   const scopeMode = draft.editScope.includes("session") ? "session" : "tracks";
-  const trackScope = draft.editScope
-    .filter((entry) => entry !== "session")
+  const trackSelectors = draft.editScope.filter(
+    (entry): entry is TrackScopeSelector => entry !== "session",
+  );
+  const trackScope = trackSelectors
     .map((entry) => `${entry.track.name} #${entry.track.occurrence + 1}`)
     .join("\n");
+  const firstScopeTrack = (): TrackScopeSelector => {
+    const options = scopeTrackOptions(liveTracks ?? []);
+    return (
+      options.find(({ track }) => track.id === liveSelectedTrackId)?.selector ??
+      options[0]?.selector ?? {
+        track: { name: "Selected track", occurrence: 0 },
+      }
+    );
+  };
   const model = draft.model ?? "";
   const reasoningEffort = draft.reasoningEffort ?? "";
   const reasoningOptions = reasoningOptionsForModel(model, models);
@@ -5278,10 +5554,10 @@ function ActiveAgentCard({
             onClick={() => void onCreateAnother()}
           >
             {creating
-              ? "Creating…"
+              ? "Starting…"
               : agent === undefined
-                ? "Create agent"
-                : "Create another"}
+                ? "Start agent"
+                : "Start another"}
           </button>
         </div>
       </header>
@@ -5423,33 +5699,35 @@ function ActiveAgentCard({
                 Ask me before it changes Live
               </label>
               <span className="behavior-label">Sub-agent</span>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={draft.delegatable}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      delegatable: event.target.checked,
-                    }))
-                  }
-                />
-                Can be a sub-agent: other agents can hand it tasks
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={draft.hideResultFromParent}
-                  disabled={!draft.delegatable}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      hideResultFromParent: event.target.checked,
-                    }))
-                  }
-                />
-                As a sub-agent, hide its replies from the delegating agent
-              </label>
+              <div className="behavior-stack">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={draft.delegatable}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        delegatable: event.target.checked,
+                      }))
+                    }
+                  />
+                  Can be a sub-agent: other agents can hand it tasks
+                </label>
+                <label className="behavior-sub-option">
+                  <input
+                    type="checkbox"
+                    checked={draft.hideResultFromParent}
+                    disabled={!draft.delegatable}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        hideResultFromParent: event.target.checked,
+                      }))
+                    }
+                  />
+                  As a sub-agent, hide its replies from the delegating agent
+                </label>
+              </div>
               <span className="behavior-label">Color</span>
               <div
                 className="agent-color-picker"
@@ -5523,27 +5801,8 @@ function ActiveAgentCard({
                 }
               />
             </label>
-            <h4 className="section-label">Tools it can use</h4>
-            <div className="tool-chips">
-              {toolGroups(definition.resolvedTools).map((group) => (
-                <span
-                  key={group.label}
-                  className={`tool-chip ${group.allowed ? "allowed" : "blocked"}`}
-                  title={
-                    group.allowed
-                      ? `Allowed: ${group.tools.join(", ")}`
-                      : "Blocked"
-                  }
-                >
-                  {group.label}
-                  <span className="sr-only">
-                    {group.allowed ? " (allowed)" : " (blocked)"}
-                  </span>
-                </span>
-              ))}
-            </div>
             <h4 className="section-label">Can edit</h4>
-            <div>
+            <div className="agent-scope-editor">
               <div
                 className="segmented"
                 role="radiogroup"
@@ -5570,9 +5829,7 @@ function ActiveAgentCard({
                     scopeMode === "tracks" ||
                     setDraft((current) => ({
                       ...current,
-                      editScope: [
-                        { track: { name: "Selected track", occurrence: 0 } },
-                      ],
+                      editScope: [firstScopeTrack()],
                     }))
                   }
                 >
@@ -5580,21 +5837,28 @@ function ActiveAgentCard({
                 </button>
               </div>
               {scopeMode === "tracks" && (
-                <textarea
-                  aria-label={`Track scope for ${title}`}
-                  placeholder={"Drums #1\nBass #1"}
-                  rows={4}
-                  value={trackScope}
-                  onChange={(event) =>
+                <TrackScopePicker
+                  agentTitle={title}
+                  tracks={liveTracks}
+                  selectors={trackSelectors}
+                  onChange={(selectors) =>
                     setDraft((current) => ({
                       ...current,
-                      editScope: parseTrackScope(event.target.value),
+                      editScope: selectors,
                     }))
                   }
                 />
               )}
             </div>
-            <fieldset>
+            <h4 className="section-label">Tools it can use</h4>
+            <ToolPicker
+              agentTitle={title}
+              patterns={draft.tools}
+              onChange={(tools) =>
+                setDraft((current) => ({ ...current, tools }))
+              }
+            />
+            <fieldset className="agent-skill-list">
               <legend>Skills</legend>
               {availableSkills.length === 0 ? (
                 <small>No valid skills are available in the catalog.</small>
@@ -5615,8 +5879,8 @@ function ActiveAgentCard({
                         }))
                       }
                     />
-                    <span>
-                      /{skill.name}
+                    <span className="agent-skill-text">
+                      <span className="agent-skill-name">/{skill.name}</span>
                       <small>{skill.description}</small>
                     </span>
                   </label>
@@ -5624,7 +5888,27 @@ function ActiveAgentCard({
               )}
             </fieldset>
             <details className="advanced-disclosure">
-              <summary>Advanced: tool patterns</summary>
+              <summary>Advanced: tool patterns and track names</summary>
+              {scopeMode === "tracks" && (
+                <label>
+                  Track names{" "}
+                  <small>
+                    One per line; add #2, #3… for tracks that share a name.
+                  </small>
+                  <textarea
+                    aria-label={`Track scope for ${title}`}
+                    placeholder={"Drums #1\nBass #1"}
+                    rows={4}
+                    value={trackScope}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        editScope: parseTrackScope(event.target.value),
+                      }))
+                    }
+                  />
+                </label>
+              )}
               <label>
                 Tool patterns{" "}
                 <small>One per line; wildcards are supported.</small>

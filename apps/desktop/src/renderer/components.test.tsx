@@ -1556,8 +1556,8 @@ describe("desktop components", () => {
     expect(html).toContain("Reset to current definition");
     expect(html).toContain("Deactivate");
     expect(html).toContain("Open");
-    expect(html).toContain("Create another");
-    expect(html).toContain("Create agent");
+    expect(html).toContain("Start another");
+    expect(html).toContain("Start agent");
     expect(html.indexOf("Default")).toBeLessThan(html.indexOf("compose"));
   });
 

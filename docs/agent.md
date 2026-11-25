@@ -185,7 +185,9 @@ resets that agent. Resetting keeps the agent's Wiring connections.
 
 The Agents tab's **New agent** button creates a Session-scope definition from a
 display name, description, and instructions. It starts with every tool and the
-whole set in scope; the user can narrow those afterwards.
+whole set in scope; the user can narrow those afterwards on the Capabilities tab,
+which picks tools by group (or one by one) and edit-scope tracks from the
+current Live set. Raw tool patterns and typed track names stay under Advanced.
 
 ## Agent Skills
 

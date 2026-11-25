@@ -18,7 +18,9 @@ import {
   monitoringFeatureDistance,
 } from "./monitoring-stream.js";
 
-export type MonitoringView = Awaited<ReturnType<ListeningMonitoringPort["read"]>>;
+export type MonitoringView = Awaited<
+  ReturnType<ListeningMonitoringPort["read"]>
+>;
 type ViewEpisode = MonitoringView["episodes"][number]["episode"];
 type MonitoringStatus = MonitoringView["status"];
 
@@ -67,7 +69,9 @@ export interface MonitoringRegistry extends ListeningMonitoringPort {
   /** Current state without waiting. */
   snapshot(): MonitoringView;
   /** Receives every new episode and every status change. */
-  subscribe(listener: (update: MonitoringUpdate | undefined) => void): () => void;
+  subscribe(
+    listener: (update: MonitoringUpdate | undefined) => void,
+  ): () => void;
   shutdown(): Promise<void>;
 }
 
@@ -258,7 +262,8 @@ export function createMonitoringController(
       if (replan) continue;
       for (const track of pass.tracks) {
         const monitor = monitors.get(track.listenerId);
-        if (monitor !== undefined) monitor.trackReference = track.trackReference;
+        if (monitor !== undefined)
+          monitor.trackReference = track.trackReference;
       }
       const barBeats =
         (pass.alignment.meter.numerator * 4) / pass.alignment.meter.denominator;
@@ -328,7 +333,10 @@ export function createMonitoringController(
       );
       if (launched || bars > 0)
         for (const monitor of monitors.values())
-          append(monitor, monitor.observer.interrupt("transport-stopped", null));
+          append(
+            monitor,
+            monitor.observer.interrupt("transport-stopped", null),
+          );
       setStatus("rearming");
     }
   };

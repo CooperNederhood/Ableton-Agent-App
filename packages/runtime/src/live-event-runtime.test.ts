@@ -405,6 +405,7 @@ describe("DefaultLiveEventRuntime", () => {
       kind: "track.pattern_changed",
       classification: "discrete",
       target: { track: { name: "Keys", occurrence: 0 } },
+      initialState: undefined,
     };
     runtime.setConfiguration(
       [pattern],

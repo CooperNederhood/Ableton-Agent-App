@@ -19,6 +19,7 @@ import {
   type ListeningRequest,
 } from "@ableton-agent/application";
 import { withCorrelation } from "@ableton-agent/correlation";
+import { addListenerDevice } from "./listener-device.js";
 import {
   sanitizePersistedText,
   sanitizeTelemetryAttributes,
@@ -2316,6 +2317,8 @@ export function createListeningRuntimeHost(
     monitors: {
       registry: monitoring,
       discover: (context) => inspectListeners(context, undefined),
+      add: (trackReference) =>
+        addListenerDevice(dependencies.ableton, trackReference),
     },
     resolveListeningOperation: (input, context) =>
       stage("source-resolution", context, async (progress) => {

@@ -30,7 +30,10 @@ import {
   type NonBlockingObservabilityRecorder,
   type SanitizedAttributes,
 } from "@ableton-agent/observability";
-import type { LiveIdentity } from "@ableton-agent/protocol";
+import type {
+  LiveIdentity,
+  LoadBrowserItemResult,
+} from "@ableton-agent/protocol";
 import {
   recordSignalTelemetry,
   stableTelemetryId,
@@ -729,6 +732,8 @@ export interface ListeningMonitors {
   discover(
     context: ListeningExecutionContext,
   ): ReturnType<ListeningHostOptions["inspectListeners"]>;
+  /** Loads a Machine Listening device onto a track so it can be armed. */
+  add(trackReference: string): Promise<LoadBrowserItemResult>;
 }
 
 export interface ListeningRuntimeHost {

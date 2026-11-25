@@ -16,7 +16,6 @@ const alignment: ListeningMusicalAlignment = {
   tempoEvidence: "message-rate-monitored-constant",
   provenance: "capture-snapshot/v1",
 };
-const owner = { sessionId: "s", agentId: "a", liveSetId: "l" };
 const context = {
   sessionId: "s",
   agentId: "a",
@@ -41,17 +40,22 @@ function harness() {
     disarm: ReturnType<typeof vi.fn>;
   }[] = [];
   const plans: (number | "playing")[] = [];
+  const planned: string[][] = [];
   const controller = createMonitoringController({
     pollMs: 1,
-    plan: async ({ maxBars }) => {
+    plan: async ({ listenerIds }) => {
+      planned.push([...listenerIds]);
       const next = plans.shift() ?? 0;
       if (next === "playing")
         throw new ListeningFailure("transport_not_stopped", "playing");
       return {
         startBeat: next,
-        endBeat: next + maxBars * 4,
+        endBeat: next + 64,
         alignment,
-        tracks: [{ listenerId: "L1", trackReference: "T1" }],
+        tracks: listenerIds.map((listenerId) => ({
+          listenerId,
+          trackReference: `T-${listenerId}`,
+        })),
       };
     },
     arm: async ({ plan }): Promise<MonitoringPassHandle> => {
@@ -72,71 +76,87 @@ function harness() {
       };
     },
   });
-  return { controller, passes, plans };
+  return { controller, passes, plans, planned };
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 
+const appContext = {
+  ...context,
+  agentId: "app",
+  actorKind: "application" as const,
+};
+
 describe("monitoring controller", () => {
-  it("re-arms from the new stopped playhead after playback stops, then completes", async () => {
+  it("re-arms from the new stopped playhead after playback stops", async () => {
     const { controller, passes, plans } = harness();
     plans.push(8, "playing", 32);
-    const started = await controller.start(
-      { listenerIds: ["L1"], maxBars: 16, maxWindowBars: 8 },
-      owner,
-      context,
-    );
-    expect(started).toMatchObject({ status: "armed", startBeat: 8 });
+    const armed = await controller.arm({ listenerIds: ["L1"] }, context);
+    expect(armed).toMatchObject({ status: "armed", startBeat: 8 });
+    expect(armed.tracks[0]).toMatchObject({
+      trackReference: "T-L1",
+      pending: false,
+    });
 
     passes[0]!.launch.resolve();
     await settle();
-    expect((await controller.get(started.monitoringId, owner)).status).toBe(
-      "monitoring",
-    );
+    expect(controller.snapshot().status).toBe("monitoring");
     passes[0]!.result.reject(new Error("metric_source_transport_stopped"));
     await settle();
 
-    const rearmed = await controller.get(started.monitoringId, owner);
+    const rearmed = await controller.read();
     expect(rearmed).toMatchObject({ status: "armed", startBeat: 32 });
-    expect(rearmed.barsRemaining).toBe(16);
-
-    const waiting = controller.get(started.monitoringId, owner, {
-      afterSequence: started.nextSequence,
-      waitMs: 5_000,
-    });
-    passes[1]!.launch.resolve();
-    passes[1]!.result.resolve([]);
-    const done = await waiting;
-    expect(done).toMatchObject({
-      status: "completed",
-      barsRemaining: 0,
-      nextSequence: 0,
-    });
-    expect(done.episodes.map(({ episode }) => episode.kind)).toEqual([
-      "closed",
-    ]);
-    expect(
-      (
-        await controller.get(started.monitoringId, owner, {
-          afterSequence: done.nextSequence,
-        })
-      ).episodes,
-    ).toEqual([]);
+    expect(rearmed.episodes).toEqual([]);
   });
 
-  it("stop disarms the armed pass and refuses other owners", async () => {
-    const { controller, passes } = harness();
-    const started = await controller.start(
-      { listenerIds: ["L1"], maxBars: 8, maxWindowBars: 8 },
-      owner,
-      context,
-    );
-    await expect(
-      controller.get(started.monitoringId, { ...owner, agentId: "other" }),
-    ).rejects.toThrow(ListeningFailure);
-    const stopped = await controller.stop(started.monitoringId, owner);
+  it("is shared: the app arms, an agent adds a track, and both are reported", async () => {
+    const { controller, passes, planned } = harness();
+    const updates: string[] = [];
+    controller.subscribe((update) => {
+      if (update !== undefined)
+        updates.push(`${update.listenerId}:${update.episode.kind}`);
+    });
+    await controller.arm({ listenerIds: ["L1"] }, appContext);
+    const both = await controller.arm({ listenerIds: ["L2"] }, context);
+    // Not playing yet: the first pass is disarmed and re-planned with both.
     expect(passes[0]!.disarm).toHaveBeenCalled();
-    expect(stopped.status).toBe("stopped");
-    expect(passes).toHaveLength(1);
+    expect(planned.at(-1)).toEqual(["L1", "L2"]);
+    expect(both.status).toBe("armed");
+    expect(both.tracks.map(({ listenerId }) => listenerId)).toEqual([
+      "L1",
+      "L2",
+    ]);
+
+    const off = await controller.disarm(undefined, appContext);
+    expect(off.status).toBe("off");
+    expect(off.tracks).toEqual([]);
+    expect(updates).toEqual(["L1:closed", "L2:closed"]);
+  });
+
+  it("arms a track while playing as pending until the next stop", async () => {
+    const { controller, passes, planned } = harness();
+    await controller.arm({ listenerIds: ["L1"] }, context);
+    passes[0]!.launch.resolve();
+    await settle();
+    const pending = await controller.arm({ listenerIds: ["L2"] }, appContext);
+    expect(passes[0]!.disarm).not.toHaveBeenCalled();
+    expect(
+      pending.tracks.find(({ listenerId }) => listenerId === "L2"),
+    ).toMatchObject({ pending: true });
+    passes[0]!.result.reject(new Error("metric_source_transport_stopped"));
+    await settle();
+    expect(planned.at(-1)).toEqual(["L1", "L2"]);
+    expect(controller.snapshot().tracks.every(({ pending }) => !pending)).toBe(
+      true,
+    );
+  });
+
+  it("waits instead of failing when Live is playing at arm time", async () => {
+    const { controller, plans } = harness();
+    plans.push("playing", "playing");
+    const waiting = await controller.arm({ listenerIds: ["L1"] }, appContext);
+    expect(waiting.status).toBe("waiting");
+    await settle();
+    expect(controller.snapshot().status).toBe("armed");
   });
 });

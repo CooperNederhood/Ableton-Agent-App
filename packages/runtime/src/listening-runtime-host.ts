@@ -1906,13 +1906,13 @@ export function createListeningRuntimeHost(
   >();
   const monitoring = createMonitoringController({
     ...(dependencies.telemetry ? { telemetry: dependencies.telemetry } : {}),
-    plan: ({ listenerIds, maxBars, owner: expectedOwner, context }) =>
+    plan: ({ listenerIds, context }) =>
       stage("monitoring-plan", context, async () => {
         const snapshot = await inspect(
           listenerIds,
           { startBeat: 0, endBeat: 1 },
           context,
-          expectedOwner,
+          await owner(context),
           undefined,
           false,
           false,
@@ -1957,7 +1957,7 @@ export function createListeningRuntimeHost(
         const startBeat = transport.currentBeat;
         const plan: MonitoringPassPlan = {
           startBeat,
-          endBeat: startBeat + Math.min(maxBars, passBars) * barBeats,
+          endBeat: startBeat + passBars * barBeats,
           alignment: listeningMusicalAlignmentSchema.parse({
             version: 1,
             coordinate: "transport-beats",
@@ -2021,14 +2021,11 @@ export function createListeningRuntimeHost(
       }),
   });
 
-  const host = createListeningHost({
-    services,
-    monitoring,
-    ...(dependencies.telemetry ? { telemetry: dependencies.telemetry } : {}),
-    resolveOwner: (context) =>
-      stage("owner-resolution", context, () => owner(context)),
-    inspectListeners: (context, tracks) =>
-      stage("discovery", context, async () => {
+  const inspectListeners: Parameters<
+    typeof createListeningHost
+  >[0]["inspectListeners"] = (context, tracks) =>
+    stage("discovery", context, async () => {
+
         const resolved = await owner(context);
         const inventory = listeners().inspectListeners();
         const candidates = connected(inventory);
@@ -2123,7 +2120,15 @@ export function createListeningRuntimeHost(
           truncated:
             tracks === undefined ? inventory.length > views.length : incomplete,
         };
-      }),
+      });
+
+  const host = createListeningHost({
+    services,
+    monitoring,
+    ...(dependencies.telemetry ? { telemetry: dependencies.telemetry } : {}),
+    resolveOwner: (context) =>
+      stage("owner-resolution", context, () => owner(context)),
+    inspectListeners,
     resolveArrangementRange: (sources, context) =>
       stage("arrangement-range-resolution", context, async (progress) => {
         const resolved = await owner(context);
@@ -2310,6 +2315,10 @@ export function createListeningRuntimeHost(
     },
   });
   const ports: ConcreteListeningRuntimeHost = {
+    monitors: {
+      registry: monitoring,
+      discover: (context) => inspectListeners(context, undefined),
+    },
     resolveListeningOperation: (input, context) =>
       stage("source-resolution", context, async (progress) => {
         progress(

@@ -9,6 +9,8 @@ import {
   type AgentSessionConfiguration,
   type AgentService,
   type CopilotAgentServiceOptions,
+  type ListeningExecutionContext,
+  type ListeningHostOptions,
 } from "@ableton-agent/application";
 import type { AgentReasoningEffort } from "@ableton-agent/agent-config";
 import { AbletonBridgeService } from "@ableton-agent/bridge";
@@ -67,6 +69,7 @@ import {
   type LiveSetSaveRuntimeOptions,
 } from "./live-set-save-runtime.js";
 import { PreparedProjectContextStore } from "./prepared-context.js";
+import type { MonitoringRegistry } from "./monitoring-controller.js";
 import { listeningHistoryResult } from "./listening-history.js";
 
 export const DEFAULT_ABLETON_PORT = 8765;
@@ -720,7 +723,16 @@ export interface AgentSettings {
   artifactAuthoring?: CopilotAgentServiceOptions["artifactAuthoring"];
 }
 
+/** Shared monitors plus discovery of the Listener devices that can become one. */
+export interface ListeningMonitors {
+  readonly registry: MonitoringRegistry;
+  discover(
+    context: ListeningExecutionContext,
+  ): ReturnType<ListeningHostOptions["inspectListeners"]>;
+}
+
 export interface ListeningRuntimeHost {
+  monitors?: ListeningMonitors;
   resolveListeningOperation?: CopilotAgentServiceOptions["resolveListeningOperation"];
   executeListeningOperation?: CopilotAgentServiceOptions["executeListeningOperation"];
   executeContextOperation?: CopilotAgentServiceOptions["executeContextOperation"];

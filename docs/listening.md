@@ -228,24 +228,31 @@ open-ended observer that follows whatever plays on up to 8 tracks, bar by bar,
 and reports when a repeating pattern settles or changes. Nothing is stored in
 the context database.
 
-- `start-monitoring` arms listeners on the chosen tracks while the transport is
-  stopped and returns a `monitoringId`. It does not start playback: the user
-  (or another tool) presses play, or fires a Session clip, whenever they like
-  — but only after `start-monitoring` returns. Playback that starts first makes
-  it fail with `transport_not_stopped`.
-- `get-monitoring` returns the status (`armed`, `monitoring`, `rearming`,
-  `completed`, `failed`, `stopped`) and new episodes since `afterSequence`.
+Monitors are **shared and app-wide**: one set of armed tracks, whether the
+agent armed them with a tool call or the user armed them from the Desktop app
+(Wiring tab or the toolbar's **Arm all**). Every agent wired to a monitor in
+Wiring receives its episodes as Live events, so it does not need to poll.
+
+- `start-monitoring` arms listeners on the chosen tracks (adding to whatever
+  is already armed). It does not start playback: the user (or another tool)
+  presses play, or fires a Session clip, whenever they like. If Live is
+  playing, the status is `waiting` and new tracks are `pending`; they join at
+  the next stop.
+- `get-monitoring` returns the status (`off`, `waiting`, `armed`,
+  `monitoring`, `rearming`, `failed`) and new episodes since `afterSequence`.
   Each response's `nextSequence` is the last delivered episode (-1 before
   any); pass it back unchanged as the next `afterSequence`.
-- `stop-monitoring` disarms and closes the observers.
+- `stop-monitoring` disarms the given `listenerIds`, or every monitor when
+  they are omitted.
 
 Monitoring reuses the existing `arrangement` device mode: each pass arms at the
 current stopped playhead and records mel bands from whatever is audible on the
 track, Session or Arrangement. `packages/runtime/src/monitoring-controller.ts`
 runs the loop:
 
-1. Plan a pass from the stopped playhead (up to 600 seconds, capped by
-   `maxBars`). While Live is playing, it waits and retries.
+1. Plan a pass for every armed track from the stopped playhead (up to 600
+   seconds). While Live is playing, it waits and retries. Arming or disarming
+   a track while a pass is armed but not yet playing re-plans it.
 2. Arm the listeners with a streaming sink
    (`packages/runtime/src/monitoring-stream.ts`), which seals each complete bar
    into a mel-band vector per track.
@@ -260,8 +267,9 @@ runs the loop:
 4. If playback stops or jumps, the pass ends, the observers emit `uncertain`,
    and monitoring re-arms from the new stopped position.
 
-Only one monitoring can run at a time. Starting it while Live is already
-playing is not supported yet. The match threshold
+`createMonitoringController` returns a `MonitoringRegistry`: the tool port plus
+`snapshot()` and `subscribe()`, which the Desktop app uses to show status and
+to route episodes to wired agents. The match threshold
 (`MONITORING_MATCH_THRESHOLD`, 0.25) is calibrated against real Live audio.
 Steady repeats score below about 0.2 and a real change scores about 1.0.
 

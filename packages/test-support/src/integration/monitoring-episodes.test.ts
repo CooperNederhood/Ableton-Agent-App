@@ -17,8 +17,8 @@ function input(
   const view = (from: number) => ({
     action: "get-monitoring",
     monitoring: {
-      monitoringId: "m1",
-      status: "completed",
+      status: "monitoring",
+      nextSequence: episodes.length - 1,
       tracks: [{ trackReference: "op" }, { trackReference: "dr" }],
       episodes: episodes
         .map(([trackReference, episode], sequence) => ({

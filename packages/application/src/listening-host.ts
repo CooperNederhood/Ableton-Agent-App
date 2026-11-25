@@ -55,27 +55,24 @@ type CaptureParams = Extract<
   }
 >;
 
-/** Open-ended per-track pattern monitoring; owns its own arm/re-arm loop. */
+/** Shared, open-ended per-track pattern monitors armed by agents or the app. */
 export interface ListeningMonitoringPort {
-  start(
+  arm(
     request: {
       readonly listenerIds: readonly string[];
-      readonly maxBars: number;
-      readonly maxWindowBars: number;
+      readonly maxWindowBars?: 1 | 2 | 4 | 8 | undefined;
     },
-    owner: ListeningOwner,
     context: ListeningExecutionContext,
   ): Promise<MonitoringView>;
-  get(
-    monitoringId: string,
-    owner: ListeningOwner,
-    options?: {
-      readonly afterSequence?: number | undefined;
-      readonly waitMs?: number | undefined;
-      readonly signal?: AbortSignal | undefined;
-    },
+  read(options?: {
+    readonly afterSequence?: number | undefined;
+    readonly waitMs?: number | undefined;
+    readonly signal?: AbortSignal | undefined;
+  }): Promise<MonitoringView>;
+  disarm(
+    listenerIds: readonly string[] | undefined,
+    context: ListeningExecutionContext,
   ): Promise<MonitoringView>;
-  stop(monitoringId: string, owner: ListeningOwner): Promise<MonitoringView>;
 }
 
 export interface ListeningHostOptions extends Pick<
@@ -557,49 +554,35 @@ export function createListeningHost(options: ListeningHostOptions): Required<
               "monitoring_unavailable",
               "Monitoring is not available in this runtime",
             );
-          const owner = await awaitListeningBoundary(
+          await awaitListeningBoundary(
             options.resolveOwner(context),
             context.signal,
           );
           if (params.action === "start-monitoring") {
-            if (context.actorKind === "application")
-              throw new ListeningFailure(
-                "permission_denied",
-                "Monitoring requires an initiating agent owner",
-              );
             const listenerIds =
               params.listenerIds ?? (await resolveListenerIds(params, context));
             result = {
               action: params.action,
-              monitoring: await options.monitoring.start(
-                {
-                  listenerIds,
-                  maxBars: params.maxBars,
-                  maxWindowBars: params.maxWindowBars,
-                },
-                owner,
+              monitoring: await options.monitoring.arm(
+                { listenerIds, maxWindowBars: params.maxWindowBars },
                 context,
               ),
             };
           } else if (params.action === "get-monitoring") {
             result = {
               action: params.action,
-              monitoring: await options.monitoring.get(
-                params.monitoringId,
-                owner,
-                {
-                  afterSequence: params.afterSequence,
-                  waitMs: params.waitMs,
-                  signal: context.signal,
-                },
-              ),
+              monitoring: await options.monitoring.read({
+                afterSequence: params.afterSequence,
+                waitMs: params.waitMs,
+                signal: context.signal,
+              }),
             };
           } else {
             result = {
               action: params.action,
-              monitoring: await options.monitoring.stop(
-                params.monitoringId,
-                owner,
+              monitoring: await options.monitoring.disarm(
+                params.listenerIds,
+                context,
               ),
             };
           }

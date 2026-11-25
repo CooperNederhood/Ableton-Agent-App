@@ -35,7 +35,7 @@ function monitoringViews(value: unknown, views: Record<string, unknown>[]) {
   }
   const object = record(value);
   if (!object) return;
-  if (typeof object.monitoringId === "string" && Array.isArray(object.episodes))
+  if (typeof object.nextSequence === "number" && Array.isArray(object.episodes))
     views.push(object);
   else for (const item of Object.values(object)) monitoringViews(item, views);
 }

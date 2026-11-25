@@ -35,8 +35,9 @@ bundled FluCoMa externals (`fluid.pitch~`, `fluid.spectralshape~`) and a mel-ban
 analyzer (`listener.mel~`) under `max-patches/audio-listener/dependencies/`.
 Only processed measurements leave the device. Raw audio is never stored.
 
-The listener is placed on a track by the user or a template; the app can't
-insert Max devices through the Live 11 LOM.
+The listener is placed on a track by the user, a template, or the Wiring
+tab's **Add listener**, which loads the installed device from Live's browser
+onto the chosen track.
 
 ## The pieces
 

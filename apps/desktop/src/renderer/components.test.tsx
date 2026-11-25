@@ -3,7 +3,6 @@ import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  AddEventPanel,
   AgentModelEditor,
   ApprovalPanel,
   AgentsView,
@@ -14,7 +13,6 @@ import {
   DiagnosticsView,
   EventCard,
   EventsView,
-  groupEventsByTrack,
   groupOutputsByTrack,
   Inspector,
   ListeningEventsEditor,
@@ -24,8 +22,6 @@ import {
   operationPresentation,
   OutputConnectionCard,
   OutputsView,
-  parameterDraftFromSelection,
-  parameterDraftFromSnapshot,
   ProjectOutline,
   LiveSetTransitionModal,
   ResolvedToolsDisclosure,
@@ -54,6 +50,10 @@ import {
   AssistantMarkdown,
   formatPlanMarkdownForDisplay,
 } from "./AssistantMarkdown";
+import {
+  parameterDraftFromSelection,
+  parameterDraftFromSnapshot,
+} from "./live-event-drafts";
 import { desktopReducer, initialState, type DesktopState } from "./state";
 
 describe("desktop components", () => {
@@ -2818,87 +2818,6 @@ describe("desktop components", () => {
     expect(
       parameterDraftFromSelection({ track: selection.track, parameter: null }),
     ).toBeUndefined();
-
-    const picker = renderToStaticMarkup(
-      <AddEventPanel
-        state={{
-          ...initialState,
-          snapshot,
-          selectedTrackId: snapshot.tracks[0]!.id,
-        }}
-        dispatch={vi.fn()}
-        sessionActive
-        onCreated={vi.fn()}
-      />,
-    );
-    expect(picker).toContain("Selected track: Bass");
-    expect(picker).toContain("Playing clip");
-    expect(picker).toContain("Triggered clip");
-    expect(picker).toContain("Recording state");
-    expect(picker).toContain("Browse all");
-    expect(picker).toContain("Operator");
-    expect(picker).toContain("Filter Freq");
-  });
-
-  it("groups resolved events by snapshot color and isolates stale targets", () => {
-    const eventId = "live-event.00000000-0000-4000-8000-000000000001";
-    const definition = {
-      id: eventId,
-      projectId: "project",
-      name: "Bass clip",
-      enabled: true,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-      kind: "track.playing_clip_changed" as const,
-      classification: "discrete" as const,
-      target: { track: { name: "Bass", occurrence: 0 } },
-    };
-    const trackId = "00000000-0000-4000-8000-000000000010";
-    const snapshot = {
-      liveSetId: "project",
-      liveSetName: "Project",
-      tempo: 120,
-      timeSignature: "4/4",
-      tracks: [
-        {
-          id: trackId,
-          name: "Bass",
-          kind: "midi" as const,
-          color: "#335577",
-          volume: 0.8,
-          pan: 0,
-          muted: false,
-          clips: [],
-          devices: [],
-        },
-      ],
-    };
-    const resolved = {
-      definition,
-      resolution: {
-        status: "resolved" as const,
-        projectId: "project",
-        trackReference: trackId,
-        track: { name: "Bass", color: "#335577" },
-      },
-      history: [],
-      listeners: [],
-    };
-    const stale = {
-      ...resolved,
-      definition: {
-        ...definition,
-        id: "live-event.00000000-0000-4000-8000-000000000002",
-      },
-      resolution: {
-        status: "invalidated" as const,
-        reason: "target-deleted" as const,
-      },
-    };
-
-    const groups = groupEventsByTrack([resolved, stale], snapshot);
-    expect(groups.map(({ label }) => label)).toEqual(["Bass", "Unresolved"]);
-    expect(groups[0]?.color).toBe("#335577");
   });
 
   it("renders event state, listeners, disclosure, and empty/error states", () => {

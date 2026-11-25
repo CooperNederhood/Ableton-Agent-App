@@ -1584,10 +1584,18 @@ describe("desktop component interactions", () => {
       await Promise.resolve();
     });
     expect(button(container, "Create agent").disabled).toBe(true);
-    expect(button(container, "Add event").disabled).toBe(true);
+    expect(button(container, "Add event…").disabled).toBe(true);
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          ".wiring-node.event .wiring-node-main",
+        )
+        ?.click();
+      await Promise.resolve();
+    });
     expect(button(container, "Disable").disabled).toBe(true);
     await click(container, "Create agent");
-    await click(container, "Add event");
+    await click(container, "Add event…");
     await click(container, "Disable");
 
     expect(create).not.toHaveBeenCalled();
@@ -1763,7 +1771,7 @@ describe("desktop component interactions", () => {
       const navigation = [
         ...container.querySelectorAll("#application-views button"),
       ].map((button) => button.textContent);
-      for (const advanced of ["Events", "Browser", "Diagnostics"]) {
+      for (const advanced of ["Browser", "Diagnostics"]) {
         expect(navigation.includes(advanced)).toBe(showAdvancedViews);
       }
       expect(navigation).toEqual(
@@ -1773,8 +1781,8 @@ describe("desktop component interactions", () => {
 
       for (const [view, inMoreMenu] of [
         ["Agents", false],
+        ["Wiring", false],
         ["Outputs", true],
-        ...(showAdvancedViews ? [["Events", true] as const] : []),
         ["Settings", true],
       ] as const) {
         if (inMoreMenu) await click(container, "More");

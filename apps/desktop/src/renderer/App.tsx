@@ -57,7 +57,6 @@ import type {
   RootTraceQuery,
   TelemetryEventPage,
   LiveEventDefinitionDraft,
-  LiveEventSelection,
   PlanSection,
 } from "../contracts";
 import { Icon, type IconName } from "./Icon";
@@ -108,6 +107,12 @@ import {
 } from "./scope-library";
 import { EntityContextPanel } from "./EntityContextPanel";
 import { ListeningPassPanel } from "./ListeningPassPanel";
+import {
+  defaultParameterPolicy,
+  eventKindLabels,
+  latestStateLabel,
+} from "./live-event-drafts";
+import { MonitorArmMenu, WiringView } from "./WiringView";
 import type { DesktopListeningJob } from "../listening-contracts";
 
 type CatalogSkill = DesktopState["agentCatalog"]["skills"][number];
@@ -149,7 +154,6 @@ export interface WorkspaceSidebarWidths {
 }
 
 const ADVANCED_VIEWS: ReadonlySet<WorkspaceView> = new Set([
-  "events",
   "browser",
   "diagnostics",
 ]);
@@ -276,174 +280,6 @@ const browserItems = [
 ] as const;
 
 const unknownOutputTrackColor = "#8a8f98";
-const eventPickerLimit = 128;
-const defaultParameterPolicy = {
-  minimumNormalizedDelta: 0.01,
-  throttleMs: 100,
-} as const;
-const trackEventKinds = [
-  "track.playing_clip_changed",
-  "track.triggered_clip_changed",
-  "track.recording_state_changed",
-] as const;
-
-type TrackEventKind = (typeof trackEventKinds)[number];
-
-const eventKindLabels: Record<LiveEventDefinitionDraft["kind"], string> = {
-  "parameter.value_changed": "Parameter value",
-  "track.playing_clip_changed": "Playing clip",
-  "track.triggered_clip_changed": "Triggered clip",
-  "track.recording_state_changed": "Recording state",
-  "track.pattern_changed": "Pattern",
-};
-
-function namedOccurrence<T extends { name: string }>(
-  items: readonly T[],
-  index: number,
-): number {
-  const name = items[index]?.name;
-  if (name === undefined) return 0;
-  return items.slice(0, index).filter((item) => item.name === name).length;
-}
-
-function trackDraft(
-  track: DesktopTrack,
-  snapshot: DesktopLiveSetSnapshot,
-  kind: TrackEventKind,
-): LiveEventDefinitionDraft {
-  const index = snapshot.tracks.findIndex(({ id }) => id === track.id);
-  return {
-    kind,
-    classification: "discrete",
-    name: `${track.name}: ${eventKindLabels[kind]}`,
-    enabled: true,
-    target: {
-      track: {
-        name: track.name,
-        occurrence: namedOccurrence(snapshot.tracks, index),
-      },
-    },
-  };
-}
-
-export function parameterDraftFromSnapshot(
-  snapshot: DesktopLiveSetSnapshot,
-  trackId: string,
-  deviceId: string,
-  parameterId: string,
-): LiveEventDefinitionDraft | undefined {
-  const trackIndex = snapshot.tracks.findIndex(({ id }) => id === trackId);
-  const track = snapshot.tracks[trackIndex];
-  const deviceIndex =
-    track?.devices.findIndex(({ id }) => id === deviceId) ?? -1;
-  const device = track?.devices[deviceIndex];
-  const parameterIndex =
-    device?.parameters.findIndex(({ id }) => id === parameterId) ?? -1;
-  const parameter = device?.parameters[parameterIndex];
-  if (!track || !device || !parameter) return undefined;
-  return {
-    kind: "parameter.value_changed",
-    classification: "continuous",
-    name: `${track.name}: ${device.name} ${parameter.name}`,
-    enabled: true,
-    target: {
-      track: {
-        name: track.name,
-        occurrence: namedOccurrence(snapshot.tracks, trackIndex),
-      },
-      device: {
-        name: device.name,
-        occurrence: namedOccurrence(track.devices, deviceIndex),
-      },
-      parameter: {
-        name: parameter.name,
-        occurrence: namedOccurrence(device.parameters, parameterIndex),
-      },
-    },
-    observationPolicy: defaultParameterPolicy,
-  };
-}
-
-export function parameterDraftFromSelection(
-  selection: LiveEventSelection,
-  snapshot?: DesktopLiveSetSnapshot,
-): LiveEventDefinitionDraft | undefined {
-  const identity = selection.parameter;
-  if (identity === null || snapshot === undefined) return undefined;
-  return parameterDraftFromSnapshot(
-    snapshot,
-    identity.expectedReference,
-    identity.expectedDeviceReference,
-    identity.expectedParameterReference,
-  );
-}
-
-export interface EventTrackGroup {
-  id: string;
-  label: string;
-  color: string;
-  events: DesktopLiveEventState[];
-}
-
-export function groupEventsByTrack(
-  events: DesktopLiveEventState[],
-  snapshot: DesktopLiveSetSnapshot | undefined,
-): EventTrackGroup[] {
-  const tracks = new Map(
-    (snapshot?.tracks ?? []).map((track, index) => [
-      track.id,
-      { track, index },
-    ]),
-  );
-  const grouped = new Map<string, EventTrackGroup & { index: number }>();
-  const unresolved: DesktopLiveEventState[] = [];
-  const global: DesktopLiveEventState[] = [];
-  for (const event of events) {
-    if (!("track" in event.definition.target)) {
-      global.push(event);
-      continue;
-    }
-    if (event.resolution.status !== "resolved") {
-      unresolved.push(event);
-      continue;
-    }
-    const resolved = tracks.get(event.resolution.trackReference);
-    if (resolved === undefined) {
-      unresolved.push(event);
-      continue;
-    }
-    const existing = grouped.get(resolved.track.id);
-    if (existing) existing.events.push(event);
-    else
-      grouped.set(resolved.track.id, {
-        id: resolved.track.id,
-        label: resolved.track.name,
-        color: resolved.track.color,
-        events: [event],
-        index: resolved.index,
-      });
-  }
-  const result = [...grouped.values()].sort(
-    (left, right) => left.index - right.index,
-  );
-  if (global.length)
-    result.push({
-      id: "global",
-      label: "Global",
-      color: unknownOutputTrackColor,
-      events: global,
-      index: Infinity,
-    });
-  if (unresolved.length)
-    result.push({
-      id: "unresolved",
-      label: "Unresolved",
-      color: "#d69b54",
-      events: unresolved,
-      index: Infinity,
-    });
-  return result;
-}
 
 export interface OutputTrackGroup {
   id: string;
@@ -1245,13 +1081,13 @@ const RAIL_VIEWS: readonly {
   { view: "agents", icon: "agent", label: "Agents" },
   { view: "skills", icon: "skill", label: "Skills" },
   { view: "memory", icon: "memory", label: "Memory" },
+  { view: "events", icon: "wiring", label: "Wiring" },
   { view: "sessions", icon: "sessions", label: "Sessions" },
 ];
 
 const MORE_VIEWS: readonly { view: WorkspaceView; label: string }[] = [
   { view: "outputs", label: "Outputs" },
   { view: "settings", label: "Settings" },
-  { view: "events", label: "Events" },
   { view: "browser", label: "Browser" },
   { view: "diagnostics", label: "Diagnostics" },
 ];
@@ -1364,41 +1200,6 @@ function eventError(
   });
 }
 
-function selectionTrack(
-  selection: LiveEventSelection | undefined,
-  snapshot: DesktopLiveSetSnapshot | undefined,
-): DesktopTrack | undefined {
-  if (!selection?.track || !snapshot) return undefined;
-  return (
-    snapshot.tracks.find(
-      ({ id }) => id === selection.track?.expectedReference,
-    ) ??
-    snapshot.tracks[selection.track.index] ??
-    snapshot.tracks.find(({ name }) => name === selection.track?.expectedName)
-  );
-}
-
-function latestStateLabel(event: DesktopLiveEventState): string {
-  const latest = event.latestState;
-  if (latest === undefined) return "Waiting for initial state";
-  switch (latest.kind) {
-    case "parameter.value_changed":
-      return latest.state.displayValue;
-    case "track.playing_clip_changed":
-    case "track.triggered_clip_changed":
-      return latest.state.state === "session-clip"
-        ? (latest.state.clipName ??
-            `Session clip ${latest.state.slotIndex + 1}`)
-        : latest.state.state;
-    case "track.recording_state_changed":
-      return `${latest.state.recording ? "Recording" : "Not recording"} (${latest.state.source})`;
-    case "track.pattern_changed":
-      return latest.state.episode === "pattern-established"
-        ? `${latest.state.periodBars}-bar loop`
-        : latest.state.episode.replace("-", " ");
-  }
-}
-
 function eventActivityLabel(
   occurrence: DesktopLiveEventState["history"][number],
 ): string {
@@ -1462,14 +1263,8 @@ export function EventsView({
   state: DesktopState;
   dispatch: DesktopDispatch;
 }): React.JSX.Element {
-  const [adding, setAdding] = useState(false);
-  const groups = groupEventsByTrack(state.events.events, state.snapshot);
   const historyMode = state.preferences.eventsViewMode === "history";
   const sessionActive = activeSession(state) !== undefined;
-
-  useEffect(() => {
-    if (!sessionActive) setAdding(false);
-  }, [sessionActive]);
 
   const setMode = (eventsViewMode: "live" | "history"): void => {
     if (eventsViewMode === state.preferences.eventsViewMode) return;
@@ -1500,106 +1295,66 @@ export function EventsView({
     );
   }
 
-  return (
-    <section className="events-view" aria-labelledby="events-heading">
-      <div className="panel-heading">
-        <div>
-          <h2 id="events-heading">Events</h2>
-          <p>
-            Watch bounded Ableton state changes without adding a Max for Live
-            device.
-          </p>
-          <EventsModeTabs mode="live" onChange={setMode} />
-        </div>
-        <button
-          type="button"
-          aria-expanded={adding}
-          aria-controls="add-event-panel"
-          disabled={!sessionActive}
-          onClick={() => setAdding((value) => !value)}
-        >
-          {adding ? "Close" : "Add event"}
-        </button>
-      </div>
-      {!sessionActive && (
-        <div className="notice" role="status">
-          Event controls will be available after the production session is
-          restored.
-        </div>
-      )}
-      {adding && (
-        <AddEventPanel
-          state={state}
-          dispatch={dispatch}
-          sessionActive={sessionActive}
-          onCreated={() => setAdding(false)}
-        />
-      )}
-      {state.eventsLoad.status === "loading" ? (
-        <PresentationState
-          title="Loading Events…"
-          detail="Reading event definitions and current Live state."
-        />
-      ) : state.eventsLoad.status === "failed" ? (
-        <div className="event-load-error" role="alert">
-          <strong>Events could not be loaded</strong>
-          <p>{state.eventsLoad.message}</p>
-          <button
-            type="button"
-            onClick={() =>
-              void loadLiveEvents(dispatch, () => window.desktop.events.list())
-            }
-          >
-            Retry
-          </button>
-        </div>
-      ) : groups.length === 0 ? (
-        <EmptyState
-          title="No Live Events"
-          detail="Add an event to watch a selected parameter or track state."
-        />
-      ) : (
-        <div className="event-track-groups">
-          {groups.map((group) => (
-            <section
-              key={group.id}
-              className="event-track-group"
-              aria-labelledby={`event-track-${group.id}`}
-              style={{ "--event-track-color": group.color } as CSSProperties}
+  if (state.eventsLoad.status !== "loaded") {
+    return (
+      <section className="events-view" aria-labelledby="events-heading">
+        <EventsModeHeading mode="live" onChange={setMode} />
+        {state.eventsLoad.status === "failed" ? (
+          <div className="event-load-error" role="alert">
+            <strong>Events could not be loaded</strong>
+            <p>{state.eventsLoad.message}</p>
+            <button
+              type="button"
+              onClick={() =>
+                void loadLiveEvents(dispatch, () =>
+                  window.desktop.events.list(),
+                )
+              }
             >
-              <header className="event-track-heading">
-                <span className="event-track-swatch" aria-hidden="true" />
-                <div>
-                  <h3 id={`event-track-${group.id}`}>{group.label}</h3>
-                  <span>
-                    {group.events.length}{" "}
-                    {group.events.length === 1 ? "event" : "events"}
-                  </span>
-                </div>
-              </header>
-              <div className="event-grid">
-                {group.events.map((event) => (
-                  <EventCard
-                    key={event.definition.id}
-                    event={event}
-                    activityExpanded={state.expandedEventActivityIds.includes(
-                      event.definition.id,
-                    )}
-                    onToggleActivity={() =>
-                      dispatch({
-                        type: "toggle-event-activity",
-                        eventId: event.definition.id,
-                      })
-                    }
-                    mutationsEnabled={sessionActive}
-                    onError={(error) => eventError(dispatch, error)}
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-      )}
+              Retry
+            </button>
+          </div>
+        ) : (
+          <PresentationState
+            title="Loading Events…"
+            detail="Reading event definitions and current Live state."
+          />
+        )}
+      </section>
+    );
+  }
+
+  return (
+    <section
+      className="events-view wiring-mode"
+      aria-labelledby="events-heading"
+    >
+      <WiringView
+        state={state}
+        dispatch={dispatch}
+        modeTabs={<EventsModeTabs mode="live" onChange={setMode} />}
+        agentColor={(definitionName) =>
+          agentColor(state.agentCatalog.definitions, definitionName)
+        }
+        renderEventDetails={(event) => (
+          <EventCard
+            key={event.definition.id}
+            event={event}
+            activityExpanded={state.expandedEventActivityIds.includes(
+              event.definition.id,
+            )}
+            onToggleActivity={() =>
+              dispatch({
+                type: "toggle-event-activity",
+                eventId: event.definition.id,
+              })
+            }
+            mutationsEnabled={sessionActive}
+            onError={(error) => eventError(dispatch, error)}
+          />
+        )}
+        onError={(error, fallback) => eventError(dispatch, error, fallback)}
+      />
     </section>
   );
 }
@@ -1614,8 +1369,8 @@ function EventsModeHeading({
   return (
     <div className="panel-heading">
       <div>
-        <h2 id="events-heading">Events</h2>
-        <p>Inspect live definitions or detailed local execution history.</p>
+        <h2 id="events-heading">Wiring</h2>
+        <p>Connect what happens in Live to the agents that should hear it.</p>
         <EventsModeTabs mode={mode} onChange={onChange} />
       </div>
     </div>
@@ -1630,7 +1385,7 @@ function EventsModeTabs({
   onChange: (mode: "live" | "history") => void;
 }): React.JSX.Element {
   return (
-    <div className="events-mode-tabs" role="tablist" aria-label="Events mode">
+    <div className="events-mode-tabs" role="tablist" aria-label="Wiring mode">
       {(["live", "history"] as const).map((value) => (
         <button
           key={value}
@@ -1640,7 +1395,7 @@ function EventsModeTabs({
           className={mode === value ? "selected" : ""}
           onClick={() => onChange(value)}
         >
-          {value === "live" ? "Live Events" : "History"}
+          {value === "live" ? "Connections" : "History"}
         </button>
       ))}
     </div>
@@ -2237,238 +1992,6 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
-}
-
-export function AddEventPanel({
-  state,
-  dispatch,
-  sessionActive,
-  onCreated,
-}: {
-  state: DesktopState;
-  dispatch: DesktopDispatch;
-  sessionActive: boolean;
-  onCreated: () => void;
-}): React.JSX.Element {
-  const snapshot = state.snapshot;
-  const appTrack = snapshot?.tracks.find(
-    ({ id }) => id === state.selectedTrackId,
-  );
-  const [selection, setSelection] = useState<LiveEventSelection>();
-  const [selectionError, setSelectionError] = useState<string>();
-  const [creating, setCreating] = useState(false);
-  const [source, setSource] = useState<"parameter" | "track">("parameter");
-  const [trackId, setTrackId] = useState(appTrack?.id ?? "");
-  const tracks = (snapshot?.tracks ?? []).slice(0, eventPickerLimit);
-  const pickerTrack = tracks.find(({ id }) => id === trackId) ?? tracks[0];
-  const [deviceId, setDeviceId] = useState(pickerTrack?.devices[0]?.id ?? "");
-  const device =
-    pickerTrack?.devices.find(({ id }) => id === deviceId) ??
-    pickerTrack?.devices[0];
-  const [parameterId, setParameterId] = useState(
-    device?.parameters[0]?.id ?? "",
-  );
-  const liveTrack = selectionTrack(selection, snapshot);
-  const selectedTrack = appTrack ?? liveTrack;
-  const selectedParameterDraft =
-    selection === undefined
-      ? undefined
-      : parameterDraftFromSelection(selection, snapshot);
-
-  useEffect(() => {
-    if (!sessionActive) return;
-    void window.desktop.events
-      .inspectSelection()
-      .then(setSelection)
-      .catch((error: unknown) =>
-        setSelectionError(
-          error instanceof Error
-            ? error.message
-            : "Live selection could not be inspected",
-        ),
-      );
-  }, [sessionActive]);
-
-  const create = async (draft: LiveEventDefinitionDraft | undefined) => {
-    if (!sessionActive || draft === undefined) return;
-    setCreating(true);
-    try {
-      await window.desktop.events.create(draft);
-      onCreated();
-    } catch (error) {
-      eventError(dispatch, error, "Event could not be created");
-    } finally {
-      setCreating(false);
-    }
-  };
-  const chooseTrack = (id: string): void => {
-    setTrackId(id);
-    const next = tracks.find((track) => track.id === id);
-    setDeviceId(next?.devices[0]?.id ?? "");
-    setParameterId(next?.devices[0]?.parameters[0]?.id ?? "");
-  };
-  const chooseDevice = (id: string): void => {
-    setDeviceId(id);
-    setParameterId(
-      pickerTrack?.devices.find((candidate) => candidate.id === id)
-        ?.parameters[0]?.id ?? "",
-    );
-  };
-
-  return (
-    <section id="add-event-panel" className="add-event-panel">
-      <h3>Quick add</h3>
-      <div className="event-quick-actions">
-        <button
-          type="button"
-          disabled={
-            !sessionActive || creating || selectedParameterDraft === undefined
-          }
-          onClick={() => void create(selectedParameterDraft)}
-        >
-          Watch selected parameter
-        </button>
-        {selectionError ? (
-          <span role="status">{selectionError}</span>
-        ) : selection === undefined ? (
-          <span role="status">Inspecting Live selection…</span>
-        ) : selection.parameter === null ? (
-          <span>No parameter is selected in Live.</span>
-        ) : selectedParameterDraft === undefined ? (
-          <span>
-            Refresh the Live Set snapshot to safely match the selected
-            parameter.
-          </span>
-        ) : null}
-      </div>
-      <div className="selected-track-events">
-        <strong>
-          Selected track: {selectedTrack?.name ?? "No track selected"}
-        </strong>
-        <div className="event-quick-actions">
-          {trackEventKinds.map((kind) => (
-            <button
-              type="button"
-              key={kind}
-              disabled={
-                !sessionActive || creating || !selectedTrack || !snapshot
-              }
-              onClick={() =>
-                void create(trackDraft(selectedTrack!, snapshot!, kind))
-              }
-            >
-              {eventKindLabels[kind]}
-            </button>
-          ))}
-        </div>
-      </div>
-      <details className="event-picker">
-        <summary>Browse all</summary>
-        {!snapshot ? (
-          <p>Refresh the Live Set snapshot to browse tracks and parameters.</p>
-        ) : (
-          <div className="event-picker-fields">
-            <label>
-              Source
-              <select
-                value={source}
-                onChange={(event) =>
-                  setSource(event.target.value as "parameter" | "track")
-                }
-              >
-                <option value="parameter">Parameter</option>
-                <option value="track">Track event</option>
-              </select>
-            </label>
-            <label>
-              Track
-              <select
-                value={pickerTrack?.id ?? ""}
-                onChange={(event) => chooseTrack(event.target.value)}
-              >
-                {tracks.map((track) => (
-                  <option key={track.id} value={track.id}>
-                    {track.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {source === "parameter" ? (
-              <>
-                <label>
-                  Device
-                  <select
-                    value={device?.id ?? ""}
-                    onChange={(event) => chooseDevice(event.target.value)}
-                  >
-                    {(pickerTrack?.devices ?? [])
-                      .slice(0, eventPickerLimit)
-                      .map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                <label>
-                  Parameter
-                  <select
-                    value={parameterId}
-                    onChange={(event) => setParameterId(event.target.value)}
-                  >
-                    {(device?.parameters ?? [])
-                      .slice(0, eventPickerLimit)
-                      .map((parameter) => (
-                        <option key={parameter.id} value={parameter.id}>
-                          {parameter.name} — {parameter.displayValue}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  disabled={
-                    !sessionActive ||
-                    creating ||
-                    !pickerTrack ||
-                    !device ||
-                    !parameterId
-                  }
-                  onClick={() =>
-                    void create(
-                      parameterDraftFromSnapshot(
-                        snapshot,
-                        pickerTrack!.id,
-                        device!.id,
-                        parameterId,
-                      ),
-                    )
-                  }
-                >
-                  Add parameter event
-                </button>
-              </>
-            ) : (
-              <div className="event-quick-actions">
-                {trackEventKinds.map((kind) => (
-                  <button
-                    type="button"
-                    key={kind}
-                    disabled={!sessionActive || creating || !pickerTrack}
-                    onClick={() =>
-                      void create(trackDraft(pickerTrack!, snapshot, kind))
-                    }
-                  >
-                    {eventKindLabels[kind]}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </details>
-    </section>
-  );
 }
 
 export function EventCard({
@@ -3492,6 +3015,11 @@ export function ConnectionHeader({
             : "Waiting for snapshot"}
         </small>
       </div>
+      <MonitorArmMenu
+        state={state}
+        dispatch={dispatch}
+        onError={(error, fallback) => eventError(dispatch, error, fallback)}
+      />
       <div className="header-controls">
         <select
           className="profile-selector scope-chip"

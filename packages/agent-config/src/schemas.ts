@@ -6,7 +6,9 @@ import {
   liveEventInvalidationSchema,
   liveEventOccurrenceSchema,
   MAX_LIVE_EVENT_OCCURRENCE_BYTES,
+  monitoringEpisodeKindSchema,
   parameterInitialStateSchema,
+  patternInitialStateSchema,
   parameterValueStateSchema,
   playingClipInitialStateSchema,
   playingClipStateSchema,
@@ -22,13 +24,14 @@ export {
   liveEventInvalidationSchema,
   liveEventOccurrenceSchema,
   MAX_LIVE_EVENT_OCCURRENCE_BYTES,
+  monitoringEpisodeKindSchema,
   parameterValueStateSchema,
   playingClipStateSchema,
   recordingStateSchema,
   triggeredClipStateSchema,
 };
+export type LiveEventInitialState = z.infer<typeof liveEventInitialStateSchema>;
 export type {
-  LiveEventInitialStatePayload as LiveEventInitialState,
   LiveEventInvalidationPayload as LiveEventInvalidation,
   LiveEventOccurrencePayload as LiveEventOccurrence,
 } from "@ableton-agent/protocol";
@@ -204,6 +207,14 @@ export const liveEventDefinitionSchema = z.discriminatedUnion("kind", [
     resolution: liveEventResolutionSchema.optional(),
     initialState: recordingInitialStateSchema.optional(),
   }),
+  z.object({
+    ...liveEventDefinitionBase,
+    kind: z.literal("track.pattern_changed"),
+    classification: z.literal("discrete"),
+    target: trackEventTargetSchema,
+    resolution: liveEventResolutionSchema.optional(),
+    initialState: patternInitialStateSchema.optional(),
+  }),
 ]);
 export type LiveEventDefinition = z.infer<typeof liveEventDefinitionSchema>;
 
@@ -219,6 +230,8 @@ export const agentEventListenerSchema = z.object({
     .max(MAX_LIVE_EVENT_MESSAGE_PREFIX_LENGTH)
     .optional(),
   preparedContext: preparedContextConfigurationSchema.optional(),
+  /** Monitor episodes that wake this listener; omitted means every change. */
+  when: z.array(monitoringEpisodeKindSchema).min(1).max(5).optional(),
 });
 export type AgentEventListener = z.infer<typeof agentEventListenerSchema>;
 

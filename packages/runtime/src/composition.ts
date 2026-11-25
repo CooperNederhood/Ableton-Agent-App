@@ -1195,6 +1195,9 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       ? {}
       : { telemetry: options.telemetry }),
   });
+  listening?.monitors?.registry.subscribe((update) => {
+    if (update !== undefined) liveEvents.recordMonitorUpdate(update);
+  });
   const liveSetSaves = new DefaultLiveSetSaveRuntime({
     ...(options.liveSetSaves ?? {}),
     bridge: isLiveSetSaveBridge(ableton)

@@ -681,6 +681,15 @@ export const liveEventDefinitionDraftSchema = z.discriminatedUnion("kind", [
       target: desktopTrackEventTargetSchema,
     })
     .strict(),
+  z
+    .object({
+      kind: z.literal("track.pattern_changed"),
+      classification: z.literal("discrete"),
+      name: z.string().trim().min(1).max(160),
+      enabled: z.boolean(),
+      target: desktopTrackEventTargetSchema,
+    })
+    .strict(),
 ]);
 export type LiveEventDefinitionDraft = z.infer<
   typeof liveEventDefinitionDraftSchema

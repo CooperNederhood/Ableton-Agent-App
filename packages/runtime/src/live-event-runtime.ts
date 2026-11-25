@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type {
   LiveEventContextProvider,
   LiveEventDeliveryService,
@@ -37,6 +39,7 @@ import {
   stableTelemetryId,
 } from "@ableton-agent/signal-routing";
 import { noopLogger, type Logger } from "@ableton-agent/shared";
+import type { MonitoringUpdate } from "./monitoring-controller.js";
 import type { PreparedContextCacheStatus } from "./prepared-context.js";
 
 export interface LiveEventBridge {
@@ -110,6 +113,8 @@ export interface LiveEventRuntime extends LiveEventContextProvider {
     listener?: AgentEventListener,
   ): PreparedContextCacheStatus;
   subscribe(listener: (event: LiveEventRuntimeEvent) => void): () => void;
+  /** Delivers a Machine Listening monitor episode to `track.pattern_changed` events on its track. */
+  recordMonitorUpdate(update: MonitoringUpdate): void;
 }
 
 interface MutableState {
@@ -198,7 +203,61 @@ function listenerSignature(
     listener.responseMode,
     listener.messagePrefix ?? null,
     listener.preparedContext ?? null,
+    listener.when ?? null,
   ]);
+}
+
+type PatternState = Extract<
+  LiveEventInitialState,
+  { kind: "track.pattern_changed" }
+>["state"];
+
+function patternState(update: MonitoringUpdate): PatternState {
+  const { episode } = update;
+  switch (episode.kind) {
+    case "pattern-established":
+      return {
+        episode: episode.kind,
+        bar: episode.bar,
+        periodBars: episode.periodBars,
+        patternVersion: episode.patternVersion,
+      };
+    case "fill":
+      return {
+        episode: episode.kind,
+        bar: episode.startBar,
+        patternVersion: episode.patternVersion,
+      };
+    case "pattern-changed":
+      return {
+        episode: episode.kind,
+        bar: episode.bar,
+        patternVersion: episode.previousPatternVersion,
+      };
+    case "uncertain":
+    case "closed":
+      return {
+        episode: episode.kind,
+        bar: episode.bar,
+        reason: episode.reason.slice(0, 256),
+      };
+  }
+}
+
+function patternSummary(trackName: string, state: PatternState): string {
+  const at = state.bar === null ? "" : ` at bar ${state.bar + 1}`;
+  switch (state.episode) {
+    case "pattern-established":
+      return `A ${state.periodBars}-bar pattern settled on '${trackName}'${at}`;
+    case "fill":
+      return `A one-bar fill played on '${trackName}'${at}`;
+    case "pattern-changed":
+      return `The pattern changed on '${trackName}'${at}`;
+    case "uncertain":
+      return `Listening on '${trackName}' was interrupted${at} (${state.reason})`;
+    case "closed":
+      return `Listening on '${trackName}' stopped${at}`;
+  }
 }
 
 export class DefaultLiveEventRuntime
@@ -481,6 +540,10 @@ export class DefaultLiveEventRuntime
         `live-event-subscription:${state.definition.id}`,
       );
       try {
+        if (state.definition.kind === "track.pattern_changed") {
+          await this.#resolveMonitorTarget(state);
+          continue;
+        }
         const params = await this.#resolveParams(state.definition);
         const fingerprint = JSON.stringify(params);
         if (
@@ -640,8 +703,84 @@ export class DefaultLiveEventRuntime
     this.#subscriptionRetryAttempts.delete(eventId);
   }
 
+  async #resolveMonitorTarget(state: MutableState): Promise<void> {
+    const { definition } = state;
+    const snapshot = await this.#bridge.inspectSession();
+    const track = snapshot.tracks.filter(
+      ({ name }) => name === definition.target.track.name,
+    )[definition.target.track.occurrence];
+    if (track === undefined) {
+      throw new Error(`Track '${definition.target.track.name}' was not found`);
+    }
+    if (
+      state.resolution.status === "resolved" &&
+      state.resolution.trackReference === track.reference
+    ) {
+      return;
+    }
+    state.resolution = {
+      status: "resolved",
+      projectId: definition.projectId,
+      trackReference: track.reference,
+      track: {
+        name: track.name,
+        ...(track.color === null ? {} : { color: String(track.color) }),
+      },
+    };
+    this.#emitState(state);
+    recordSignalTelemetry(this.#telemetry, {
+      name: "live-event.subscription.resolved",
+      source: "live-event-runtime",
+      correlationId: definition.id,
+      liveSetId: definition.projectId,
+      liveEventId: definition.id,
+      outcome: "success",
+      attributes: { eventId: definition.id, eventKind: definition.kind },
+    });
+  }
+
+  recordMonitorUpdate(update: MonitoringUpdate): void {
+    if (update.trackReference === null) return;
+    const observedAt = this.#now().toISOString();
+    for (const state of this.#states.values()) {
+      if (
+        state.definition.kind !== "track.pattern_changed" ||
+        !state.definition.enabled ||
+        state.resolution.status !== "resolved" ||
+        state.resolution.trackReference !== update.trackReference
+      ) {
+        continue;
+      }
+      const current = patternState(update);
+      const previous =
+        state.latestState?.kind === "track.pattern_changed"
+          ? state.latestState.state
+          : undefined;
+      const occurrence = liveEventOccurrenceSchema.parse({
+        occurrenceId: randomUUID(),
+        eventId: state.definition.id,
+        sequence: update.sequence,
+        observedAt,
+        target: {
+          trackReference: state.resolution.trackReference,
+          track: state.resolution.track,
+        },
+        summary: patternSummary(state.resolution.track.name, current),
+        kind: "track.pattern_changed",
+        ...(previous === undefined ? {} : { previous }),
+        current,
+      });
+      this.#ingestOccurrence(
+        state,
+        occurrence,
+        occurrence.occurrenceId,
+        observedAt,
+      );
+    }
+  }
+
   async #resolveParams(
-    definition: LiveEventDefinition,
+    definition: Exclude<LiveEventDefinition, { kind: "track.pattern_changed" }>,
   ): Promise<SubscribeEventParams> {
     const snapshot = await this.#bridge.inspectSession();
     const matchingTracks = snapshot.tracks.filter(
@@ -775,6 +914,15 @@ export class DefaultLiveEventRuntime
       return;
     }
     const occurrence = liveEventOccurrenceSchema.parse(event.payload);
+    this.#ingestOccurrence(state, occurrence, traceId, event.receivedAt);
+  }
+
+  #ingestOccurrence(
+    state: MutableState,
+    occurrence: LiveEventOccurrence,
+    traceId: string,
+    receivedAt: string,
+  ): void {
     state.latestState = occurrenceState(occurrence);
     state.history.push(occurrence);
     if (state.history.length > this.#historyLimit) {
@@ -788,9 +936,9 @@ export class DefaultLiveEventRuntime
       liveSetId: state.definition.projectId,
       liveEventId: occurrence.eventId,
       outcome: "success",
-      durationMs: this.#durationSince(event.receivedAt),
+      durationMs: this.#durationSince(receivedAt),
       trace: { traceId, spanId: traceId },
-      occurredAt: event.receivedAt,
+      occurredAt: receivedAt,
       attributes: {
         occurrenceId: occurrence.occurrenceId,
         eventId: occurrence.eventId,
@@ -816,6 +964,22 @@ export class DefaultLiveEventRuntime
     const bindings = this.#listenersByEvent.get(occurrence.eventId) ?? [];
     let activeListeners = 0;
     for (const binding of bindings) {
+      if (
+        occurrence.kind === "track.pattern_changed" &&
+        binding.listener.when !== undefined &&
+        !binding.listener.when.includes(occurrence.current.episode)
+      ) {
+        this.#recordSkip(
+          "listener-episode-filtered",
+          {
+            eventId: occurrence.eventId,
+            listenerId: binding.listener.id,
+            episode: occurrence.current.episode,
+          },
+          traceId,
+        );
+        continue;
+      }
       if (!this.#activeAgentInstanceIds.has(binding.agentInstanceId)) {
         this.#recordSkip(
           "inactive-listener-agent",
@@ -856,7 +1020,7 @@ export class DefaultLiveEventRuntime
       liveSetId: state.definition.projectId,
       liveEventId: occurrence.eventId,
       outcome: "success",
-      durationMs: this.#durationSince(event.receivedAt),
+      durationMs: this.#durationSince(receivedAt),
       trace: {
         traceId,
         spanId: stableTelemetryId(`${traceId}:runtime-listener-fanout`),

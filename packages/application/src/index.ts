@@ -1735,6 +1735,8 @@ function liveEventTypedState(
       return { kind: occurrence.kind, state: occurrence.current };
     case "track.recording_state_changed":
       return { kind: occurrence.kind, state: occurrence.current };
+    case "track.pattern_changed":
+      return { kind: occurrence.kind, state: occurrence.current };
   }
 }
 

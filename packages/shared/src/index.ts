@@ -291,6 +291,21 @@ export type LiveEventTypedState =
         readonly recording: boolean;
         readonly source: "track" | "session-clip" | "arrangement";
       };
+    }
+  | {
+      readonly kind: "track.pattern_changed";
+      readonly state: {
+        readonly episode:
+          | "pattern-established"
+          | "fill"
+          | "pattern-changed"
+          | "uncertain"
+          | "closed";
+        readonly bar: number | null;
+        readonly periodBars?: number | undefined;
+        readonly patternVersion?: number | undefined;
+        readonly reason?: string | undefined;
+      };
     };
 
 export interface LiveEventTriggerView {

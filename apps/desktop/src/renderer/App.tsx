@@ -294,6 +294,7 @@ const eventKindLabels: Record<LiveEventDefinitionDraft["kind"], string> = {
   "track.playing_clip_changed": "Playing clip",
   "track.triggered_clip_changed": "Triggered clip",
   "track.recording_state_changed": "Recording state",
+  "track.pattern_changed": "Pattern",
 };
 
 function namedOccurrence<T extends { name: string }>(
@@ -1391,6 +1392,10 @@ function latestStateLabel(event: DesktopLiveEventState): string {
         : latest.state.state;
     case "track.recording_state_changed":
       return `${latest.state.recording ? "Recording" : "Not recording"} (${latest.state.source})`;
+    case "track.pattern_changed":
+      return latest.state.episode === "pattern-established"
+        ? `${latest.state.periodBars}-bar loop`
+        : latest.state.episode.replace("-", " ");
   }
 }
 

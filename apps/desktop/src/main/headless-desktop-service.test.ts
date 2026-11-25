@@ -205,6 +205,7 @@ class FakeSignalRuntime implements SignalRuntime {
 
 class FakeLiveEventRuntime implements LiveEventRuntime {
   readonly provider = this;
+  recordMonitorUpdate(): void {}
   readonly states = new Map<string, LiveEventRuntimeState>();
   readonly subscribers = new Set<(event: LiveEventRuntimeEvent) => void>();
   configurations: Array<{

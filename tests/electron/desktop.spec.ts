@@ -1531,7 +1531,7 @@ test("launches the built desktop contract securely", async () => {
     await composer.fill("Keep this draft");
     const views = window.getByRole("navigation", { name: "Application views" });
     await views.getByRole("button", { name: "More", exact: true }).click();
-    for (const advanced of ["Events", "Browser", "Diagnostics"]) {
+    for (const advanced of ["Browser", "Diagnostics"]) {
       await expect(
         views.getByRole("menuitem", { name: advanced, exact: true }),
       ).toHaveCount(0);
@@ -1540,8 +1540,10 @@ test("launches the built desktop contract securely", async () => {
     await expect(composer).toHaveCount(0);
     await window.getByRole("checkbox", { name: "Show advanced views" }).check();
     await window.getByRole("button", { name: "Save settings" }).click();
-    await openView(window, "Events");
-    await expect(window.getByRole("heading", { name: "Events" })).toBeVisible();
+    await openView(window, "Browser");
+    await expect(
+      window.getByRole("heading", { name: "Browser & plug-ins" }),
+    ).toBeVisible();
     await views.getByRole("button", { name: "More", exact: true }).click();
     await expect(
       views.getByRole("menuitem", { name: "Diagnostics", exact: true }),
@@ -1553,14 +1555,14 @@ test("launches the built desktop contract securely", async () => {
       window.getByRole("heading", { name: "Agents", exact: true }),
     ).toBeVisible();
     await expect(composer).toHaveCount(0);
-    await window.getByRole("tab", { name: "Connections" }).first().click();
+
+    await openView(window, "Wiring");
     await expect(
-      window.getByRole("group", { name: "Listening Events" }).first(),
+      window.getByRole("heading", { name: "Wiring", exact: true }),
     ).toBeVisible();
+    await expect(composer).toHaveCount(0);
     await expect(
-      window.getByText(
-        "No Live events are available in this production session.",
-      ),
+      window.getByText("No Live Events. Add one to watch a clip or knob."),
     ).toBeVisible();
 
     await openView(window, "Skills");

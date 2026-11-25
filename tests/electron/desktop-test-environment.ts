@@ -117,13 +117,7 @@ export async function writeDesktopTestPreferences(
   return storage;
 }
 
-const menuViews = new Set([
-  "Outputs",
-  "Settings",
-  "Events",
-  "Browser",
-  "Diagnostics",
-]);
+const menuViews = new Set(["Outputs", "Settings", "Browser", "Diagnostics"]);
 
 /** Opens an app view from the navigation rail or its More menu. */
 export async function openView(window: Page, label: string): Promise<void> {

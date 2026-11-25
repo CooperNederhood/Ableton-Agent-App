@@ -51,6 +51,21 @@ const ICONS = {
     </>
   ),
   bolt: <path d="M13 2.5L4.5 14H11l-1 7.5L19.5 10H13z" />,
+  wave: <path d="M2 12h3l2-6 3 12 3-9 2 5 2-2h5" />,
+  knob: (
+    <>
+      <circle cx="12" cy="12" r="8" />
+      <path d="M12 12l4-4" />
+    </>
+  ),
+  wiring: (
+    <>
+      <circle cx="5" cy="7" r="2.2" />
+      <circle cx="5" cy="17" r="2.2" />
+      <circle cx="19" cy="12" r="2.2" />
+      <path d="M7.2 7c5 0 5 5 9.6 5M7.2 17c5 0 5-5 9.6-5" />
+    </>
+  ),
   track: (
     <>
       <path d="M6 3v18M12 3v18M18 3v18" />

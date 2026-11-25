@@ -34,6 +34,9 @@ export interface ProfileManagerActions {
   saveAgentDefinition(
     request: RequestOf<"agents:save-definition">,
   ): Promise<ResponseOf<"agents:save-definition">>;
+  createAgentDefinition(
+    request: RequestOf<"agents:create-definition">,
+  ): Promise<ResponseOf<"agents:create-definition">>;
   readSkill(
     request: RequestOf<"skills:read">,
   ): Promise<ResponseOf<"skills:read">>;
@@ -142,6 +145,8 @@ export function createIpcHandlers(
     "agents:refresh": () => service.refreshAgentCatalog(),
     "agents:save-definition": (request) =>
       profiles.saveAgentDefinition(request),
+    "agents:create-definition": (request) =>
+      profiles.createAgentDefinition(request),
     "skills:read": (request) => profiles.readSkill(request),
     "skills:create": (request) => profiles.createSkill(request),
     "skills:save": (request) => profiles.saveSkill(request),
@@ -355,12 +360,14 @@ export function createIpcHandlers(
       responseMode,
       messagePrefix,
       preparedContext,
+      when,
     }) =>
       service.assignLiveEventListener(agentInstanceId, eventId, {
         enabled,
         responseMode,
         ...(messagePrefix === undefined ? {} : { messagePrefix }),
         ...(preparedContext === undefined ? {} : { preparedContext }),
+        ...(when === undefined ? {} : { when }),
       }),
     "events:unassign-listener": async ({ agentInstanceId, eventId }) => ({
       removed: await service.unassignLiveEventListener(
@@ -375,13 +382,19 @@ export function createIpcHandlers(
       responseMode,
       messagePrefix,
       preparedContext,
+      when,
     }) =>
       service.updateLiveEventListener(agentInstanceId, eventId, {
         ...(enabled === undefined ? {} : { enabled }),
         ...(responseMode === undefined ? {} : { responseMode }),
         ...(messagePrefix === undefined ? {} : { messagePrefix }),
         ...(preparedContext === undefined ? {} : { preparedContext }),
+        ...(when === undefined ? {} : { when }),
       }),
+    "monitors:refresh": () => service.refreshMonitors(),
+    "monitors:arm": ({ listenerIds }) => service.armMonitors(listenerIds),
+    "monitors:disarm": ({ listenerIds }) => service.disarmMonitors(listenerIds),
+    "monitors:add": ({ trackReference }) => service.addMonitor(trackReference),
     "event-history:search": (request) => service.searchEventHistory(request),
     "event-history:agent": (request) => service.readAgentHistory(request),
     "event-history:trace": ({ traceId, cursor, limit, order }) =>

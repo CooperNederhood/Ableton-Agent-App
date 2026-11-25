@@ -1092,6 +1092,9 @@ export async function createDesktopComposition(
     agentCatalog,
     signals: runtime.signals,
     liveEvents: runtime.liveEvents,
+    ...(listeningHost?.monitors === undefined
+      ? {}
+      : { monitors: listeningHost.monitors }),
     ...(options.copilotCliAvailable === undefined
       ? {}
       : { copilotCliAvailable: options.copilotCliAvailable }),

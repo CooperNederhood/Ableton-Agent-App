@@ -751,55 +751,51 @@ small,
 
 .events-mode-tabs {
   display: flex;
-  gap: 6px;
-  margin-top: 12px;
 }
-
+.events-mode-tabs button {
+  min-height: 24px;
+  padding: 2px 10px;
+  border-radius: 0;
+}
+.events-mode-tabs button + button {
+  margin-left: -1px;
+}
+.events-mode-tabs button:first-child {
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+.events-mode-tabs button:last-child {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
 .events-mode-tabs button[aria-selected="true"] {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 22%, var(--surface-list));
 }
 
 .event-history-layout {
-  display: grid;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   gap: 14px;
   min-height: 0;
-  margin-top: 16px;
-}
-
-.history-filters {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  align-items: end;
-  gap: 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
   padding: 12px;
-  background: var(--surface-list);
+  overflow: auto;
 }
 
-.history-filters label {
-  display: grid;
-  gap: 5px;
-  color: var(--text-muted);
-  font-size: 1rem;
-}
-
-.history-health {
-  margin: 0;
-  color: var(--text-muted);
+.history-search {
+  width: 220px;
 }
 
 .history-workspace {
   display: grid;
   grid-template-columns: minmax(240px, 0.8fr) minmax(360px, 1.5fr);
+  flex: 1;
   gap: 14px;
   min-height: 360px;
 }
 
 .history-root-list,
 .trace-inspector {
-  max-height: min(62vh, 760px);
+  min-height: 0;
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1712,14 +1708,12 @@ small,
   font-weight: 700;
 }
 
-.tool-chips,
 .tag-list {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
 }
 
-.tool-chip,
 .tag {
   height: 20px;
   display: inline-flex;
@@ -1733,14 +1727,159 @@ small,
   font-size: 0.9167rem;
 }
 
-.tool-chip.allowed {
-  --tag-color: var(--status-ok);
+.behavior-stack {
+  display: grid;
+  gap: 4px;
 }
 
-.tool-chip.blocked {
-  --tag-color: var(--led-off);
-  color: var(--text-faint);
-  text-decoration: line-through;
+.agent-editor-section .behavior-stack > label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-editor-section .behavior-stack > .behavior-sub-option {
+  padding-left: 20px;
+  color: var(--text-muted);
+}
+
+.agent-editor-section > .tool-picker,
+.agent-editor-section > .agent-scope-editor {
+  grid-column: 1 / -1;
+}
+
+.agent-scope-editor {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.tool-picker {
+  display: grid;
+  gap: 6px;
+  max-width: 640px;
+}
+
+.tool-picker-note {
+  color: var(--status-warn);
+}
+
+.agent-editor-section .tool-picker-all {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.tool-picker-all small {
+  color: var(--text-muted);
+}
+
+.tool-picker-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tool-picker-groups details {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.tool-picker-groups summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 8px;
+  cursor: pointer;
+}
+
+.tool-picker-groups details[open] summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.tool-picker-group-name {
+  flex: 1;
+}
+
+.tool-picker-count {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tool-picker-tools {
+  display: grid;
+  gap: 2px;
+  padding: 4px 8px 6px 28px;
+}
+
+.agent-editor-section .tool-picker-tools label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.track-scope-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 4px;
+  width: 100%;
+  max-width: 640px;
+}
+
+.track-scope-picker > small {
+  grid-column: 1 / -1;
+}
+
+.agent-editor-section .track-scope-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.track-scope-option .track-color {
+  flex: none;
+  height: 14px;
+}
+
+.track-scope-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track-scope-option.missing {
+  color: var(--text-muted);
+  border-style: dashed;
+}
+
+.agent-editor-section .agent-skill-list label {
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.agent-skill-text {
+  display: grid;
+  gap: 1px;
+}
+
+.agent-skill-name {
+  font-weight: 700;
+}
+
+.agent-skill-text small {
+  color: var(--text-muted);
 }
 
 .advanced-disclosure {
@@ -1838,8 +1977,7 @@ small,
 .agent-editor-section > .behavior-grid,
 .agent-editor-section > small,
 .agent-editor-section > .advanced-disclosure,
-.agent-prompt-editor,
-.agent-connections-editor > .listening-events-editor {
+.agent-prompt-editor {
   grid-column: 1 / -1;
 }
 
@@ -1881,44 +2019,6 @@ small,
   white-space: pre-wrap;
   font: inherit;
   color: var(--text-muted);
-}
-
-.agent-listening-summary {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 12px;
-}
-
-.listening-event-row {
-  display: grid;
-  gap: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 10px;
-}
-
-.listening-event-row > label span {
-  display: grid;
-  gap: 3px;
-}
-
-.listening-event-row small {
-  color: var(--text-muted);
-}
-
-.listening-event-settings {
-  display: grid;
-  grid-template-columns: minmax(150px, 0.6fr) minmax(180px, 0.8fr) minmax(
-      240px,
-      1.6fr
-    );
-  gap: 10px;
-  padding-left: 24px;
-}
-
-.agent-editor-section .listening-event-settings label {
-  display: grid;
-  align-items: start;
 }
 
 .agent-editor-section input[type="text"],
@@ -4264,4 +4364,830 @@ kbd {
 .track-card {
   border-left: 4px solid var(--track-color, var(--track-none));
   padding-left: 8px;
+}
+
+/* Wiring: sources (Monitors, Live events) wired to active agents. Node shape
+   tells the type; the track or agent color tells which one. */
+.events-view.wiring-mode {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.wiring-view {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.wiring-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.wiring-bar h2 {
+  margin: 0 4px 0 0;
+  font-size: 1.0833rem;
+}
+.wiring-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.wiring-chip {
+  min-height: 24px;
+  padding: 2px 8px;
+}
+.wiring-chip[aria-pressed="true"] {
+  background: var(--selection);
+}
+.wiring-spacer {
+  flex: 1;
+}
+.wiring-muted {
+  color: var(--text-faint);
+  font-size: 0.9167rem;
+}
+.wiring-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+}
+.wiring-pane {
+  padding: 12px;
+}
+.wiring-bar button[aria-expanded="true"] {
+  background: var(--selection);
+}
+.wiring-body {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  min-height: 0;
+}
+.wiring-canvas {
+  position: relative;
+  min-height: 0;
+  overflow: auto;
+  background:
+    radial-gradient(circle, var(--divider-soft) 1px, transparent 1.2px) 0 0 /
+      16px 16px,
+    var(--surface-list);
+}
+.wiring-canvas.connecting {
+  cursor: crosshair;
+}
+.wiring-stage {
+  position: relative;
+  display: grid;
+  grid-template-columns: 232px 232px;
+  gap: 128px;
+  align-items: start;
+  width: max-content;
+  padding: 12px 24px 72px;
+}
+.wiring-column {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wiring-colhead {
+  margin: 6px 0 0;
+  color: var(--text-faint);
+  font-size: 0.9167rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.wiring-empty {
+  margin: 0;
+  padding: 8px;
+  color: var(--text-muted);
+}
+
+.wiring-wires {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.wiring-wires path.line,
+.wiring-legend path.line {
+  fill: none;
+  stroke: var(--frame-edge);
+  stroke-width: 2;
+}
+.wiring-wires path.line.next,
+.wiring-legend path.line.next {
+  stroke-dasharray: 6 4;
+}
+.wiring-wires path.line.paused {
+  stroke: var(--text-faint);
+  stroke-dasharray: 2 4;
+}
+.wiring-wires path.line.selected {
+  stroke: var(--focus);
+  stroke-width: 3.5;
+}
+.wiring-wires path.line.draft {
+  stroke: var(--text-faint);
+  stroke-dasharray: 2 4;
+}
+.wiring-wires path.hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+.wiring-badge {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 24px;
+  padding: 0 6px;
+  transform: translate(-50%, -50%);
+  font-size: 0.9167rem;
+  white-space: nowrap;
+}
+.wiring-badge.selected {
+  border-color: var(--focus);
+  background: var(--selection);
+}
+.wiring-badge.paused {
+  color: var(--text-faint);
+}
+.wiring-badge svg {
+  width: 11px;
+  height: 11px;
+}
+.wiring-legend {
+  position: sticky;
+  left: 8px;
+  bottom: 8px;
+  display: inline-flex;
+  gap: 14px;
+  align-items: center;
+  margin: 0 0 8px 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  font-size: 0.9167rem;
+}
+.wiring-legend span {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.wiring-legend svg {
+  width: 28px;
+  height: 8px;
+}
+.wiring-hint {
+  position: sticky;
+  left: 8px;
+  bottom: 8px;
+  margin: 0 8px 8px;
+  color: var(--text-faint);
+  font-size: 0.9167rem;
+}
+
+/* Nodes */
+.wiring-node {
+  --node-color: var(--track-none);
+  position: relative;
+  border: 1px solid var(--frame-edge);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  box-shadow: 0 1px 0 rgb(0 0 0 / 15%);
+}
+.wiring-node-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 18px 6px 8px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+.wiring-node-main[aria-pressed="true"] {
+  background: var(--selection);
+}
+.wiring-node.selected {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 1px var(--focus);
+}
+.wiring-node-name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wiring-node-state {
+  font-weight: 600;
+}
+.wiring-node-value {
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wiring-barcap {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-faint);
+  font-size: 0.9167rem;
+}
+.wiring-type {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--divider-soft);
+  background: var(--surface);
+  color: var(--text-faint);
+  font-size: 0.9167rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.wiring-type svg {
+  width: 12px;
+  height: 12px;
+}
+.wiring-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Monitor: a device panel with a strip in the track color */
+.wiring-node.monitor {
+  border-left: 6px solid var(--node-color);
+}
+.wiring-node.monitor.off .wiring-node-main {
+  opacity: 0.6;
+}
+
+/* Live event: a compact one-line arrow tag */
+.wiring-node.event {
+  border-left: 6px solid var(--node-color);
+  border-right: 0;
+  clip-path: polygon(
+    0 0,
+    calc(100% - 10px) 0,
+    100% 50%,
+    calc(100% - 10px) 100%,
+    0 100%
+  );
+}
+.wiring-node.event .wiring-node-main {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 26px 5px 6px;
+}
+.wiring-node.event .wiring-node-name {
+  flex: 1 1 auto;
+  min-width: 3em;
+}
+.wiring-node.event .wiring-node-value {
+  flex: 0 1 auto;
+  max-width: 45%;
+}
+.wiring-node.event .wiring-node-main svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.wiring-node.event.off .wiring-node-main {
+  color: var(--text-faint);
+}
+.wiring-node.event .wiring-port.out {
+  right: 10px;
+}
+
+/* Agent: filled header in the agent's color, heavier frame */
+.wiring-node.agent {
+  border: 2px solid var(--frame-edge);
+}
+.wiring-node.agent .wiring-type {
+  border-bottom: 1px solid var(--frame-edge);
+  background: var(--node-color);
+  color: var(--text);
+}
+.wiring-node.agent .wiring-node-main {
+  padding-left: 14px;
+}
+.wiring-node.agent.target {
+  border-style: dashed;
+}
+.wiring-agent-head {
+  display: flex;
+  min-width: 0;
+}
+.wiring-node.agent .wiring-muted {
+  margin-left: auto;
+}
+.wiring-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--frame-edge);
+  background: var(--node-color);
+  vertical-align: -1px;
+}
+
+/* Ports: 12px dots, grown to a 24px hit area */
+.wiring-port {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  width: 12px;
+  height: 12px;
+  min-height: 0;
+  padding: 0;
+  border: 2px solid var(--frame-edge);
+  border-radius: 50%;
+  background: var(--surface);
+  transform: translateY(-50%);
+  cursor: crosshair;
+}
+.wiring-port::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
+}
+.wiring-port.out {
+  right: -7px;
+}
+.wiring-port.in {
+  left: -7px;
+  pointer-events: none;
+}
+.wiring-port.hot {
+  border-color: var(--focus);
+  background: var(--selection);
+}
+
+/* Arm: is the monitor listening? LED + word, never color alone */
+.wiring-arm {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 20px;
+  margin-left: auto;
+  padding: 1px 6px;
+  color: var(--text-muted);
+  font-size: 0.9167rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.wiring-arm::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+}
+.wiring-arm[aria-pressed="true"] {
+  border-color: var(--frame-edge);
+  color: var(--text);
+}
+.wiring-arm .led {
+  width: 7px;
+  height: 7px;
+}
+.wiring-arm-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.led.warn {
+  border: 1px solid var(--accent-ink);
+  background: var(--accent);
+}
+
+/* Toolbar: Arm all + monitors popover */
+.wiring-arm-menu {
+  position: relative;
+  display: inline-flex;
+}
+.wiring-arm-menu > .wiring-arm-all {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.wiring-arm-menu-toggle {
+  min-width: 24px;
+  padding: 0 4px;
+  border-left: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.wiring-arm-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 280px;
+  padding: 8px;
+  border: 1px solid var(--frame-edge);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+}
+.wiring-arm-popover ul {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  background: var(--surface-list);
+}
+.wiring-arm-popover li {
+  --node-color: var(--track-none);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-left: 6px solid var(--node-color);
+}
+.wiring-arm-popover li + li {
+  border-top: 1px solid var(--divider-soft);
+}
+.wiring-arm-popover p {
+  margin: 0;
+}
+
+/* Inspector */
+.wiring-inspector {
+  min-height: 0;
+  overflow: auto;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+}
+.wiring-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 100%;
+  box-sizing: border-box;
+  padding: 10px;
+}
+.wiring-panel h3 {
+  margin: 0;
+  font-size: 1.0833rem;
+}
+.wiring-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.wiring-panel-head h3 {
+  flex: 1;
+  min-width: 0;
+}
+.wiring-close {
+  min-width: 24px;
+  min-height: 24px;
+  border: 0;
+  background: none;
+  font-size: 1.1667rem;
+}
+.wiring-sub {
+  display: block;
+  margin-bottom: 2px;
+  padding: 0;
+  color: var(--text-faint);
+  font-size: 0.9167rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.wiring-help {
+  margin: 0;
+  color: var(--text-muted);
+}
+.wiring-endpoint {
+  --node-color: var(--track-none);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-left: 6px solid var(--node-color);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+.wiring-endpoint svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.wiring-seg {
+  display: flex;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.wiring-seg button {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 0;
+  border-radius: 0;
+}
+.wiring-seg button + button {
+  border-left: 1px solid var(--border);
+}
+.wiring-seg button[aria-pressed="true"] {
+  background: var(--selection);
+  font-weight: 600;
+}
+.wiring-seg svg {
+  width: 12px;
+  height: 12px;
+}
+.wiring-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.wiring-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+}
+.wiring-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wiring-field textarea {
+  width: 100%;
+  min-height: 96px;
+  box-sizing: border-box;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-hover);
+  font: inherit;
+  resize: vertical;
+}
+.wiring-advanced {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wiring-advanced summary {
+  min-height: 24px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.wiring-advanced[open] > :not(summary) {
+  margin-top: 8px;
+}
+.wiring-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: auto;
+}
+.wiring-link {
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--focus);
+  text-decoration: underline;
+}
+
+/* Lists and track chips */
+.wiring-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-list);
+}
+.wiring-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px;
+  border: 0;
+  border-left: 6px solid var(--c, transparent);
+  border-radius: 0;
+  background: none;
+  text-align: left;
+}
+.wiring-item + .wiring-item {
+  border-top: 1px solid var(--divider-soft);
+}
+.wiring-item[aria-pressed="true"] {
+  background: var(--selection);
+}
+.wiring-item svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.wiring-grow {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.wiring-item-title {
+  font-weight: 600;
+}
+.wiring-item-detail {
+  color: var(--text-muted);
+}
+.wiring-tracks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.wiring-track {
+  min-height: 24px;
+  padding: 2px 8px;
+  border-left: 6px solid var(--c, var(--track-none));
+}
+.wiring-track[aria-pressed="true"] {
+  border-color: var(--focus);
+  border-left-color: var(--c, var(--track-none));
+  background: var(--selection);
+  font-weight: 600;
+}
+.wiring-shortcut {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+.wiring-connect {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.wiring-connect label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-left: 6px solid var(--c, var(--agent-default));
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+/* Knob search */
+.wiring-psearch {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wiring-psearch input[type="search"] {
+  width: 100%;
+  min-height: 26px;
+  box-sizing: border-box;
+  padding: 3px 6px;
+  border: 1px solid var(--frame-edge);
+  border-radius: var(--radius);
+  background: var(--surface-hover);
+  font: inherit;
+}
+.wiring-presults {
+  max-height: 300px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+.wiring-ptrack {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--divider-soft);
+  border-left: 6px solid var(--c, var(--track-none));
+  background: var(--surface);
+  font-weight: 600;
+}
+.wiring-pdev {
+  padding: 3px 6px 1px 12px;
+  color: var(--text-faint);
+  font-size: 0.9167rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.wiring-prow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 24px;
+  padding: 3px 6px 3px 12px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  text-align: left;
+}
+.wiring-prow svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+.wiring-prow[aria-pressed="true"] {
+  background: var(--selection);
+}
+.wiring-mtag {
+  padding: 0 2px;
+  border: 1px solid var(--frame-edge);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 12px;
+}
+.wiring-pn {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wiring-meter {
+  width: 40px;
+  height: 6px;
+  flex: none;
+  border: 1px solid var(--frame-edge);
+  background: var(--surface-list);
+}
+.wiring-meter i {
+  display: block;
+  height: 100%;
+  background: var(--frame-edge);
+}
+.wiring-pvalue {
+  min-width: 48px;
+  color: var(--text-muted);
+  text-align: right;
+  white-space: nowrap;
+}
+.wiring-presults mark {
+  padding: 0;
+  background: var(--selection);
+  color: inherit;
+}
+.wiring-pfoot {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 0.9167rem;
+}
+
+@media (hover: hover) {
+  .wiring-prow:hover,
+  .wiring-item:hover,
+  .wiring-node-main:hover {
+    background: var(--surface-hover);
+  }
+  .wiring-node-main[aria-pressed="true"]:hover,
+  .wiring-item[aria-pressed="true"]:hover,
+  .wiring-prow[aria-pressed="true"]:hover {
+    background: var(--selection);
+  }
+  .wiring-port:hover {
+    border-color: var(--focus);
+  }
 }

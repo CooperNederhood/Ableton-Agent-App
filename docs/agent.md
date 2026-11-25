@@ -117,11 +117,12 @@ editScope:
   - session
 skills:
   - midi-composition
-inputChannels: []
 ```
 
 Version 2 adds a `label`, `model`, `reasoningEffort`, `autoApprove`,
-`delegatable`, `hideResultFromParent` and Live Event listeners (see [live-events.md](live-events.md)). The schema is in
+`delegatable` and `hideResultFromParent`. Definitions don't say which
+events or monitors an agent listens to; that is set per session in the
+**Wiring** view (see [live-events.md](live-events.md)). The schema is in
 `packages/agent-config/src/schemas.ts`.
 
 Key fields:
@@ -180,7 +181,13 @@ Sub-agents run inside the parent's SDK session:
 
 An **active agent** is a running instance of a definition. It keeps a snapshot
 of its definition, so later edits to the YAML only take effect after the user
-resets that agent.
+resets that agent. Resetting keeps the agent's Wiring connections.
+
+The Agents tab's **New agent** button creates a Session-scope definition from a
+display name, description, and instructions. It starts with every tool and the
+whole set in scope; the user can narrow those afterwards on the Capabilities tab,
+which picks tools by group (or one by one) and edit-scope tracks from the
+current Live set. Raw tool patterns and typed track names stay under Advanced.
 
 ## Agent Skills
 

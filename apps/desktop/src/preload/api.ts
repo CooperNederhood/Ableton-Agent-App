@@ -106,6 +106,8 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
           expectedRevision,
           expectedFingerprint,
         }),
+      createDefinition: (definition, expectedRevision) =>
+        invoke("agents:create-definition", { definition, expectedRevision }),
       listActive: () => invoke("agents:active", {}),
       listModels: () => invoke("agents:models", {}),
       getAuthStatus: () => invoke("agents:auth-status", {}),
@@ -363,6 +365,20 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
         transport.on(eventChannel, listener);
         return () => transport.removeListener(eventChannel, listener);
       },
+    },
+    monitors: {
+      refresh: () => invoke("monitors:refresh", {}),
+      arm: (listenerIds) =>
+        invoke(
+          "monitors:arm",
+          listenerIds === undefined ? {} : { listenerIds },
+        ),
+      disarm: (listenerIds) =>
+        invoke(
+          "monitors:disarm",
+          listenerIds === undefined ? {} : { listenerIds },
+        ),
+      add: (trackReference) => invoke("monitors:add", { trackReference }),
     },
     eventHistory: {
       agent: (query = {}) =>

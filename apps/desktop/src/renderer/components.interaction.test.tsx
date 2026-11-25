@@ -105,7 +105,6 @@ function activeAgent(
       resolvedTools: [],
       editScope: ["session"],
       skills: [],
-      inputChannels: [],
     },
     boundTracks: [],
     outputSubscriptions: [],
@@ -151,11 +150,9 @@ function rendererState(active = true): DesktopState {
           resolvedTools: [],
           editScope: ["session"],
           skills: [],
-          inputChannels: [],
           model: "model-a",
           reasoningEffort: "high",
           autoApprove: false,
-          eventListeners: [],
           origin: "bundled",
           inherited: true,
           overrides: [],
@@ -189,6 +186,7 @@ function desktopApi(
       }),
       listModels: vi.fn().mockResolvedValue(models),
       saveDefinition: vi.fn(),
+      createDefinition: vi.fn(),
       readPlan: vi.fn().mockResolvedValue({
         exists: false,
         productionSessionId: sessionId,
@@ -465,6 +463,7 @@ describe("desktop component interactions", () => {
             preferences: { ...reduced.preferences, eventsViewMode: "live" },
           }}
           dispatch={dispatch}
+          onModeChange={vi.fn()}
         />,
       ),
     );
@@ -1078,12 +1077,7 @@ describe("desktop component interactions", () => {
       prompt.setRangeText("Keep this draft", 0, prompt.value.length, "end");
       prompt.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    await clickAria(container, "Connections");
-    expect(
-      container.querySelector(
-        'textarea[aria-label="Input channels for Default"]',
-      ),
-    ).not.toBeNull();
+    await clickAria(container, "General");
     await clickAria(container, "Capabilities");
     expect(
       container.querySelector<HTMLTextAreaElement>(
@@ -1111,11 +1105,9 @@ describe("desktop component interactions", () => {
       resolvedTools: [],
       editScope: ["session"],
       skills: [],
-      inputChannels: [],
       model: null,
       reasoningEffort: null,
       autoApprove: false,
-      eventListeners: [],
       origin: "bundled",
       inherited: true,
       overrides: [],
@@ -1168,7 +1160,7 @@ describe("desktop component interactions", () => {
     expect(
       container.querySelector(".agent-detail:not([hidden]) h3")?.textContent,
     ).toBe("Compose");
-    await click(container, "Create agent");
+    await click(container, "Start agent");
     expect(create).toHaveBeenCalledWith("compose");
     expect(
       container.querySelector(".agent-detail:not([hidden]) h3")?.textContent,
@@ -1177,28 +1169,6 @@ describe("desktop component interactions", () => {
 
   it("saves a complete inactive definition and refreshes Profiles", async () => {
     const state = rendererState();
-    const eventId = "live-event.00000000-0000-4000-8000-000000000011";
-    state.sessions[0]!.liveEvents = [
-      {
-        id: eventId,
-        kind: "track.playing_clip_changed",
-        classification: "discrete",
-        name: "Keys clip",
-        projectId: "project",
-        enabled: true,
-        target: { track: { name: "Keys", occurrence: 0 } },
-        createdAt: new Date(0).toISOString(),
-        updatedAt: new Date(0).toISOString(),
-      },
-    ];
-    state.events.events = [
-      {
-        definition: state.sessions[0]!.liveEvents[0]!,
-        resolution: { status: "unresolved", reason: "missing" },
-        history: [],
-        listeners: [],
-      },
-    ];
     state.agentCatalog.definitions.push({
       version: 2,
       name: "compose",
@@ -1210,11 +1180,9 @@ describe("desktop component interactions", () => {
       resolvedTools: [],
       editScope: ["session"],
       skills: [],
-      inputChannels: [],
       model: null,
       reasoningEffort: null,
       autoApprove: false,
-      eventListeners: [],
       origin: "profile",
       inherited: true,
       overrides: ["bundled"],
@@ -1286,24 +1254,6 @@ describe("desktop component interactions", () => {
     }
     await act(async () => automaticApproval.click());
     await clickAria(container, "Use color #d47fd4 for New Compose");
-    const connectionsTab = visibleDetail.querySelector<HTMLButtonElement>(
-      'button[aria-label="Connections"]',
-    );
-    if (connectionsTab === null) throw new Error("Connections tab not found");
-    await act(async () => connectionsTab.click());
-    const visibleConnections = container.querySelector<HTMLElement>(
-      ".agent-detail:not([hidden])",
-    );
-    if (visibleConnections === null) {
-      throw new Error("Definition connections not found");
-    }
-    const listen = [
-      ...visibleConnections.querySelectorAll<HTMLInputElement>(
-        'input[type="checkbox"]',
-      ),
-    ].find((input) => input.parentElement?.textContent?.includes("Keys clip"));
-    if (listen === undefined) throw new Error("Listening event not found");
-    await act(async () => listen.click());
     const inactiveSave = [
       ...container.querySelectorAll<HTMLButtonElement>(
         ".agent-detail:not([hidden]) .agent-detail-actions button",
@@ -1325,13 +1275,6 @@ describe("desktop component interactions", () => {
         reasoningEffort: "xhigh",
         autoApprove: true,
         color: "#d47fd4",
-        eventListeners: [
-          expect.objectContaining({
-            eventId,
-            enabled: true,
-            responseMode: "next-prompt",
-          }),
-        ],
       }),
       "a".repeat(64),
       "b".repeat(64),
@@ -1346,73 +1289,84 @@ describe("desktop component interactions", () => {
     ).toBe(true);
   });
 
-  it("omits a cleared listener prefix from the saved definition", async () => {
+  it("creates a new agent definition from the New agent draft", async () => {
     const state = rendererState();
-    const eventId = "live-event.00000000-0000-4000-8000-000000000011";
-    const listener = {
-      id: "event-listener.00000000-0000-4000-8000-000000000012",
-      eventId,
-      enabled: true,
-      responseMode: "automatic" as const,
-      messagePrefix: "Old prefix",
-    };
-    state.sessions[0]!.liveEvents = [
-      {
-        id: eventId,
-        kind: "track.playing_clip_changed",
-        classification: "discrete",
-        name: "Keys clip",
-        projectId: "project",
-        enabled: true,
-        target: { track: { name: "Keys", occurrence: 0 } },
-        createdAt: new Date(0).toISOString(),
-        updatedAt: new Date(0).toISOString(),
-      },
-    ];
-    state.events.events = [
-      {
-        definition: state.sessions[0]!.liveEvents[0]!,
-        resolution: { status: "unresolved", reason: "missing" },
-        history: [],
-        listeners: [],
-      },
-    ];
-    state.agentCatalog.definitions[0]!.eventListeners = [listener];
-    const saveDefinition = vi.fn().mockResolvedValue({
-      catalog: {
-        ...state.agentCatalog,
-        revision: "2".repeat(64),
-        definitions: [
-          {
-            ...state.agentCatalog.definitions[0]!,
-            fingerprint: "b".repeat(64),
+    const createDefinition = vi
+      .fn()
+      .mockImplementation((definition: CurrentAgentDefinition) =>
+        Promise.resolve({
+          catalog: {
+            ...state.agentCatalog,
+            revision: "2".repeat(64),
+            definitions: [
+              ...state.agentCatalog.definitions,
+              {
+                ...definition,
+                resolvedTools: [],
+                origin: "session" as const,
+                inherited: false,
+                overrides: [],
+                sourceFile: `${definition.name}.yaml`,
+                fingerprint: "c".repeat(64),
+              },
+            ],
           },
-        ],
-      },
-      profileSnapshot: {},
-    });
+          profileSnapshot: {},
+        }),
+      );
+    const onProfilesChanged = vi.fn();
     Object.defineProperty(window, "desktop", {
       configurable: true,
-      value: desktopApi({ saveDefinition }),
+      value: desktopApi({ createDefinition }),
     });
 
     await act(async () => {
-      root.render(<AgentHarness state={state} />);
+      root.render(
+        <AgentHarness state={state} onProfilesChanged={onProfilesChanged} />,
+      );
       await Promise.resolve();
     });
-    await clickAria(container, "Connections");
-    const prefix = container.querySelector<HTMLTextAreaElement>(
-      ".agent-detail:not([hidden]) .listening-event-settings textarea",
+    const newAgent = [
+      ...container.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((button) => button.textContent?.trim() === "New agent");
+    if (newAgent === undefined) throw new Error("New agent button not found");
+    await act(async () => newAgent.click());
+    const card = container.querySelector<HTMLElement>(
+      'article[aria-label="New agent"]:not([hidden])',
     );
-    if (prefix === null) throw new Error("Listener prefix not found");
-    await replaceText(prefix, "");
-    await click(container, "Save Session definition");
+    if (card === null) throw new Error("New agent draft not shown");
+    const [label] = card.querySelectorAll<HTMLInputElement>("input");
+    const [description] =
+      card.querySelectorAll<HTMLTextAreaElement>("textarea");
+    await replaceText(label!, "Drum Coach");
+    await replaceText(description!, "Helps with drums.");
+    expect(card.textContent).toContain("Saved as drum-coach.yaml");
+    const create = [...card.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "Create in Session",
+    );
+    if (create === undefined) throw new Error("Create button not found");
+    await act(async () => create.click());
 
-    const saved = saveDefinition.mock.calls[0]?.[0] as CurrentAgentDefinition;
-    expect(saved.eventListeners[0]).not.toHaveProperty("messagePrefix");
+    expect(createDefinition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        version: 2,
+        name: "drum-coach",
+        label: "Drum Coach",
+        description: "Helps with drums.",
+        tools: ["*"],
+      }),
+      "a".repeat(64),
+    );
+    expect(onProfilesChanged).toHaveBeenCalledOnce();
+    expect(
+      container.querySelector('article[aria-label="New agent"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector(".agent-navigation-item.active")?.textContent,
+    ).toContain("Drum Coach");
   });
 
-  it("saves editable capability and connection fields from one detail workspace", async () => {
+  it("saves editable capability fields from one detail workspace", async () => {
     const state = rendererState();
     const saveDefinition = vi.fn().mockResolvedValue({
       catalog: {
@@ -1423,7 +1377,6 @@ describe("desktop component interactions", () => {
             ...state.agentCatalog.definitions[0]!,
             systemPrompt: "Arrange carefully.",
             tools: ["session.inspect"],
-            inputChannels: ["midi:keys"],
             origin: "session" as const,
             fingerprint: "b".repeat(64),
           },
@@ -1452,12 +1405,6 @@ describe("desktop component interactions", () => {
     }
     await replaceText(prompt, "Arrange carefully.");
     await replaceText(tools, "session.inspect");
-    await clickAria(container, "Connections");
-    const inputs = container.querySelector<HTMLTextAreaElement>(
-      'textarea[aria-label="Input channels for Default"]',
-    );
-    if (inputs === null) throw new Error("Expected input channel editor");
-    await replaceText(inputs, "midi:keys");
     await click(container, "Save Session definition");
 
     expect(saveDefinition).toHaveBeenCalledWith(
@@ -1466,11 +1413,75 @@ describe("desktop component interactions", () => {
         tools: ["session.inspect"],
         editScope: ["session"],
         skills: [],
-        inputChannels: ["midi:keys"],
       }),
       "a".repeat(64),
       "a".repeat(64),
     );
+  });
+
+  it("picks edit-scope tracks and tool groups from menus", async () => {
+    const state = rendererState();
+    const track = (id: string, name: string) => ({
+      id,
+      name,
+      kind: "midi" as const,
+      color: "#79c2ff",
+      volume: 0.8,
+      pan: 0,
+      muted: false,
+      clips: [],
+      devices: [],
+    });
+    state.snapshot = {
+      liveSetId: "project-1",
+      liveSetName: "Test Set",
+      tempo: 120,
+      timeSignature: "4/4",
+      tracks: [track("t1", "Drums"), track("t2", "Bass"), track("t3", "Drums")],
+    };
+    const saveDefinition = vi.fn().mockResolvedValue({
+      catalog: state.agentCatalog,
+      profileSnapshot: {},
+    });
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: desktopApi({ saveDefinition }),
+    });
+
+    await act(async () => {
+      root.render(<AgentHarness state={state} />);
+      await Promise.resolve();
+    });
+    await clickAria(container, "Capabilities");
+    await click(container, "Selected tracks");
+    const trackBox = (name: string): HTMLInputElement => {
+      const option = [
+        ...container.querySelectorAll<HTMLLabelElement>(".track-scope-option"),
+      ].find((label) => label.textContent?.trim() === name);
+      if (option === undefined) throw new Error(`Track '${name}' not found`);
+      return option.querySelector("input")!;
+    };
+    expect(trackBox("Drums #1").checked).toBe(true);
+    await act(async () => trackBox("Drums #2").click());
+    const shell = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Allow Shell tools"]',
+    );
+    if (shell === null) throw new Error("Shell group not found");
+    expect(shell.checked).toBe(true);
+    await act(async () => shell.click());
+    await click(container, "Save Session definition");
+
+    const saved = saveDefinition.mock.calls[0]![0] as {
+      editScope: unknown;
+      tools: string[];
+    };
+    expect(saved.editScope).toEqual([
+      { track: { name: "Drums", occurrence: 0 } },
+      { track: { name: "Drums", occurrence: 1 } },
+    ]);
+    expect(saved.tools).not.toContain("*");
+    expect(saved.tools).not.toContain("bash");
+    expect(saved.tools).toContain("ableton_tracks");
   });
 
   it("keeps capability drafts available when definition saving fails", async () => {
@@ -1553,6 +1564,7 @@ describe("desktop component interactions", () => {
     });
     const state = rendererState(false);
     state.events = {
+      monitors: { available: false, status: "off" as const, listeners: [] },
       events: [
         {
           definition: {
@@ -1582,11 +1594,19 @@ describe("desktop component interactions", () => {
       );
       await Promise.resolve();
     });
-    expect(button(container, "Create agent").disabled).toBe(true);
-    expect(button(container, "Add event").disabled).toBe(true);
+    expect(button(container, "Start agent").disabled).toBe(true);
+    expect(button(container, "Add event…").disabled).toBe(true);
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          ".wiring-node.event .wiring-node-main",
+        )
+        ?.click();
+      await Promise.resolve();
+    });
     expect(button(container, "Disable").disabled).toBe(true);
-    await click(container, "Create agent");
-    await click(container, "Add event");
+    await click(container, "Start agent");
+    await click(container, "Add event…");
     await click(container, "Disable");
 
     expect(create).not.toHaveBeenCalled();
@@ -1762,7 +1782,7 @@ describe("desktop component interactions", () => {
       const navigation = [
         ...container.querySelectorAll("#application-views button"),
       ].map((button) => button.textContent);
-      for (const advanced of ["Events", "Browser", "Diagnostics"]) {
+      for (const advanced of ["Browser", "Diagnostics"]) {
         expect(navigation.includes(advanced)).toBe(showAdvancedViews);
       }
       expect(navigation).toEqual(
@@ -1772,8 +1792,8 @@ describe("desktop component interactions", () => {
 
       for (const [view, inMoreMenu] of [
         ["Agents", false],
+        ["Wiring", false],
         ["Outputs", true],
-        ...(showAdvancedViews ? [["Events", true] as const] : []),
         ["Settings", true],
       ] as const) {
         if (inMoreMenu) await click(container, "More");

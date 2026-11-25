@@ -9,6 +9,8 @@ import {
   type AgentSessionConfiguration,
   type AgentService,
   type CopilotAgentServiceOptions,
+  type ListeningExecutionContext,
+  type ListeningHostOptions,
 } from "@ableton-agent/application";
 import type { AgentReasoningEffort } from "@ableton-agent/agent-config";
 import { AbletonBridgeService } from "@ableton-agent/bridge";
@@ -28,7 +30,10 @@ import {
   type NonBlockingObservabilityRecorder,
   type SanitizedAttributes,
 } from "@ableton-agent/observability";
-import type { LiveIdentity } from "@ableton-agent/protocol";
+import type {
+  LiveIdentity,
+  LoadBrowserItemResult,
+} from "@ableton-agent/protocol";
 import {
   recordSignalTelemetry,
   stableTelemetryId,
@@ -67,6 +72,7 @@ import {
   type LiveSetSaveRuntimeOptions,
 } from "./live-set-save-runtime.js";
 import { PreparedProjectContextStore } from "./prepared-context.js";
+import type { MonitoringRegistry } from "./monitoring-controller.js";
 import { listeningHistoryResult } from "./listening-history.js";
 
 export const DEFAULT_ABLETON_PORT = 8765;
@@ -720,7 +726,18 @@ export interface AgentSettings {
   artifactAuthoring?: CopilotAgentServiceOptions["artifactAuthoring"];
 }
 
+/** Shared monitors plus discovery of the Listener devices that can become one. */
+export interface ListeningMonitors {
+  readonly registry: MonitoringRegistry;
+  discover(
+    context: ListeningExecutionContext,
+  ): ReturnType<ListeningHostOptions["inspectListeners"]>;
+  /** Loads a Machine Listening device onto a track so it can be armed. */
+  add(trackReference: string): Promise<LoadBrowserItemResult>;
+}
+
 export interface ListeningRuntimeHost {
+  monitors?: ListeningMonitors;
   resolveListeningOperation?: CopilotAgentServiceOptions["resolveListeningOperation"];
   executeListeningOperation?: CopilotAgentServiceOptions["executeListeningOperation"];
   executeContextOperation?: CopilotAgentServiceOptions["executeContextOperation"];
@@ -1182,6 +1199,9 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     ...(options.telemetry === undefined
       ? {}
       : { telemetry: options.telemetry }),
+  });
+  listening?.monitors?.registry.subscribe((update) => {
+    if (update !== undefined) liveEvents.recordMonitorUpdate(update);
   });
   const liveSetSaves = new DefaultLiveSetSaveRuntime({
     ...(options.liveSetSaves ?? {}),

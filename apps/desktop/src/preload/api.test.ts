@@ -353,6 +353,7 @@ describe("preload API", () => {
       "operations",
       "outputs",
       "events",
+      "monitors",
       "eventHistory",
     ]);
     expect("invoke" in api).toBe(false);
@@ -470,13 +471,11 @@ describe("preload API", () => {
       tools: ["*"],
       editScope: ["session"] as "session"[],
       skills: [],
-      inputChannels: [],
       model: null,
       reasoningEffort: null,
       autoApprove: false,
       delegatable: false,
       hideResultFromParent: false,
-      eventListeners: [],
     };
     const profileSnapshot = {
       revision,
@@ -487,6 +486,10 @@ describe("preload API", () => {
     };
     const transport = transportFor({
       "agents:save-definition": {
+        catalog: { revision, definitions: [], skills: [], diagnostics: [] },
+        profileSnapshot,
+      },
+      "agents:create-definition": {
         catalog: { revision, definitions: [], skills: [], diagnostics: [] },
         profileSnapshot,
       },
@@ -502,6 +505,12 @@ describe("preload API", () => {
         expectedRevision: revision,
         expectedFingerprint: fingerprint,
       },
+    );
+
+    await api.agents.createDefinition(definition, revision);
+    expect(vi.mocked(transport).invoke).toHaveBeenLastCalledWith(
+      "agents:create-definition",
+      { definition, expectedRevision: revision },
     );
   });
 
@@ -719,6 +728,7 @@ describe("preload API", () => {
     const transport = transportFor({
       "events:list": {
         activeSessionId: "session-1",
+        monitors: { available: false, status: "off", listeners: [] },
         events: [
           {
             definition,
@@ -815,7 +825,6 @@ describe("preload API", () => {
           resolvedTools: [],
           editScope: ["session"],
           skills: [],
-          inputChannels: [],
         },
         boundTracks: [],
         outputSubscriptions: [],
@@ -910,7 +919,6 @@ describe("preload API", () => {
         resolvedTools: [],
         editScope: ["session"],
         skills: [],
-        inputChannels: [],
       },
       boundTracks: [],
       outputSubscriptions: [],

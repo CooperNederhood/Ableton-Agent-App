@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { MonitoringUpdate } from "./monitoring-controller.js";
 import type {
   AgentEventListener,
   LiveEventDefinition,
@@ -394,6 +395,91 @@ function binding(
 describe("DefaultLiveEventRuntime", () => {
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("routes monitor episodes to pattern events on that track, filtered by when", async () => {
+    const bridge = new FakeBridge();
+    const runtime = new DefaultLiveEventRuntime({ bridge });
+    const pattern: LiveEventDefinition = {
+      ...definition(),
+      kind: "track.pattern_changed",
+      classification: "discrete",
+      target: { track: { name: "Keys", occurrence: 0 } },
+      initialState: undefined,
+    };
+    runtime.setConfiguration(
+      [pattern],
+      [
+        binding("agent-all", listener(listenerOne, eventOne, "next-prompt")),
+        binding("agent-changes", {
+          ...listener(listenerTwo, eventOne, "next-prompt"),
+          when: ["pattern-changed"],
+        }),
+      ],
+    );
+    runtime.setActiveAgentInstances(["agent-all", "agent-changes"]);
+    await runtime.start();
+    await vi.waitFor(() =>
+      expect(runtime.getState(eventOne)?.resolution.status).toBe("resolved"),
+    );
+    expect(bridge.subscribed).toHaveLength(0);
+
+    const update = (
+      sequence: number,
+      episode: MonitoringUpdate["episode"],
+      track = trackReference,
+    ): MonitoringUpdate => ({
+      sequence,
+      listenerId: "L1",
+      trackReference: track,
+      episode,
+      track: {} as MonitoringUpdate["track"],
+    });
+    runtime.recordMonitorUpdate(
+      update(0, {
+        kind: "pattern-established",
+        bar: 3,
+        songBeat: 12,
+        periodBars: 4,
+        patternVersion: 1,
+        maxDistance: 0.1,
+      }),
+    );
+    runtime.recordMonitorUpdate(
+      update(1, {
+        kind: "pattern-changed",
+        bar: 11,
+        songBeat: 44,
+        previousPatternVersion: 1,
+        distances: [0.5],
+      }),
+    );
+    runtime.recordMonitorUpdate(
+      update(
+        2,
+        { kind: "closed", bar: 12, reason: "stopped" },
+        "00000000-0000-4000-8000-000000000099",
+      ),
+    );
+
+    expect(runtime.getState(eventOne)?.latestState).toEqual({
+      kind: "track.pattern_changed",
+      state: { episode: "pattern-changed", bar: 11, patternVersion: 1 },
+    });
+    expect(
+      (await runtime.getPendingLiveEventContexts("agent-all")).map(
+        ({ occurrence: item }) => item.summary,
+      ),
+    ).toEqual([
+      "A 4-bar pattern settled on 'Keys' at bar 3",
+      "The pattern changed on 'Keys' at bar 11",
+    ]);
+    expect(
+      (await runtime.getPendingLiveEventContexts("agent-changes")).map(
+        ({ occurrence: item }) => item.sequence,
+      ),
+    ).toEqual([1]);
+    await runtime.stop();
   });
 
   it("recovers a subscription after a retryable inspection timeout", async () => {

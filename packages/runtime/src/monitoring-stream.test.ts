@@ -9,6 +9,7 @@ import {
 import {
   createMonitoringStreamSink,
   monitoringFeatureDistance,
+  monitoringPassBars,
   type MonitoringBarReport,
 } from "./monitoring-stream.js";
 
@@ -75,6 +76,21 @@ async function run(options: { silentBar?: number } = {}) {
 }
 
 describe("monitoring stream sink", () => {
+  it("accepts a full-length pass at a common tempo", async () => {
+    // 600 s at 120 BPM is 300 bars, over the 2000-cell feature grid.
+    const bars = monitoringPassBars(120, 4);
+    const fixture = await createSyntheticMetricRecordStreamFixture({
+      seconds: bars * 2 + 0.25,
+      requestedMetrics: ["mel-bands"],
+    });
+    const sink = createMonitoringStreamSink({
+      alignment: { ...alignment, barOriginBeat: 0.5 },
+      observer: () => undefined,
+      onBar: () => undefined,
+    });
+    await expect(sink.begin(fixture.descriptor)).resolves.toBeUndefined();
+  });
+
   it("seals bars as records arrive and detects the pattern change", async () => {
     const reports = await run();
     expect(reports.map((report) => report.bar)).toEqual([

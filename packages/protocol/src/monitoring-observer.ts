@@ -8,7 +8,11 @@ export type MonitoringObserverState =
   "armed" | "acquiring" | "tracking" | "deviating" | "uncertain" | "closed";
 
 export type MonitoringUncertainReason =
-  "transport-stopped" | "transport-jump" | "tempo-changed" | "gap";
+  | "transport-stopped"
+  | "transport-jump"
+  | "tempo-changed"
+  | "gap"
+  | "pass-limit";
 
 export type MonitoringEpisode =
   | {

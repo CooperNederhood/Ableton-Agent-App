@@ -104,7 +104,6 @@ describe("agent catalog loading", () => {
         "  - session",
         "skills:",
         "  - midi",
-        "inputChannels: []",
       ].join("\n"),
     );
 
@@ -285,7 +284,6 @@ describe("agent catalog loading", () => {
             "tools: [clips.create_midi]",
             "editScope: [session]",
             "skills: [midi]",
-            "inputChannels: []",
           ].join("\n"),
         );
       }

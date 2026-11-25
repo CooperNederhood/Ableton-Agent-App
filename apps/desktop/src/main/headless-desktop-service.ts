@@ -42,6 +42,7 @@ import {
   type LiveSetSaveActionContext,
   type LiveEventRuntime,
   type LiveEventRuntimeEvent,
+  type ListeningMonitors,
   type SignalRuntime,
   type SignalRuntimeEvent,
 } from "@ableton-agent/runtime";
@@ -87,6 +88,7 @@ import {
   desktopCopilotAuthStatusSchema,
   desktopLiveSetIdentitySchema,
   connectionStatusSchema,
+  type DesktopMonitorsState,
   MAX_AGENT_TRIGGER_HISTORY,
   preferencesSchema,
   type ApprovalDecision,
@@ -261,6 +263,8 @@ export interface HeadlessDesktopServiceOptions {
     Partial<Pick<AgentCatalogService, "runtimeSkills">>;
   signals?: SignalRuntime;
   liveEvents?: LiveEventRuntime;
+  /** Shared Machine Listening monitors the GUI and agents arm and disarm. */
+  monitors?: ListeningMonitors;
   /**
    * Composition-time findings (e.g. a missing bridge token) surfaced through
    * diagnostics, because they happen before any renderer can receive events.
@@ -359,6 +363,12 @@ export class HeadlessDesktopService implements DesktopService {
   #unsubscribeApprovals: (() => void) | undefined;
   #unsubscribeSignals: (() => void) | undefined;
   #unsubscribeLiveEvents: (() => void) | undefined;
+  #unsubscribeMonitors: (() => void) | undefined;
+  /** Last discovered Machine Listening devices; refreshed on request. */
+  #monitorListeners: Awaited<
+    ReturnType<ListeningMonitors["discover"]>
+  >["listeners"] = [];
+  #monitorError: string | undefined;
   #sessions: DesktopSession[] = [];
   readonly #listeningJobs = new Map<string, DesktopListeningJob>();
   readonly #retiredListeningPasses = new Set<string>();
@@ -462,6 +472,9 @@ export class HeadlessDesktopService implements DesktopService {
     );
     this.#unsubscribeLiveEvents = this.#liveEvents?.subscribe((event) =>
       this.#onLiveEventRuntimeEvent(event),
+    );
+    this.#unsubscribeMonitors = this.options.monitors?.registry.subscribe(() =>
+      this.#emitLiveEvents(),
     );
     const catalog =
       (await this.options.agentCatalog?.refresh()) ??
@@ -620,6 +633,8 @@ export class HeadlessDesktopService implements DesktopService {
     this.#unsubscribeSignals = undefined;
     this.#unsubscribeLiveEvents?.();
     this.#unsubscribeLiveEvents = undefined;
+    this.#unsubscribeMonitors?.();
+    this.#unsubscribeMonitors = undefined;
     this.#turn = undefined;
     this.#automaticStreamMessageIds.clear();
     this.#activeAppSessionId = undefined;
@@ -1334,6 +1349,8 @@ export class HeadlessDesktopService implements DesktopService {
             current.sdkSessionId,
             current.id,
           ),
+          eventListeners: current.eventListeners,
+          outputSubscriptions: current.outputSubscriptions,
           forkedHistory: current.forkedHistory ?? [],
         });
         await this.#application.reconfigureManagedAgent(
@@ -3961,7 +3978,6 @@ export class HeadlessDesktopService implements DesktopService {
           resolved_operations: instance.config.resolvedOperations ?? [],
           edit_scope: instance.config.editScope,
           skills: instance.config.skills,
-          input_channels: instance.config.inputChannels,
         },
       });
     } catch (error) {
@@ -4957,27 +4973,14 @@ export class HeadlessDesktopService implements DesktopService {
           : { resolvedOperations: definition.resolvedOperations }),
         editScope: definition.editScope,
         skills: definition.skills,
-        inputChannels: definition.inputChannels,
       },
       ...(sdkSessionId === undefined ? {} : { sdkSessionId }),
       lifecycle: "ready",
       mode: "interactive",
       boundTracks: [],
       modified: false,
-      eventListeners: (definition.eventListeners ?? []).map((listener) => ({
-        ...listener,
-        id: createAgentEventListenerId(randomUUID()),
-      })),
-      outputSubscriptions: [...new Set(definition.inputChannels)].map(
-        (producerId) => ({
-          assignmentId: createAgentInstanceAssignmentId(instanceId, producerId),
-          producerId,
-          enabled: true,
-          deliveryMode: "next-prompt",
-          usageInstruction: DEFAULT_SIGNAL_USAGE_INSTRUCTION,
-          processingPolicyIds: ["latest-window"],
-        }),
-      ),
+      eventListeners: [],
+      outputSubscriptions: [],
     };
   }
 
@@ -5669,6 +5672,175 @@ export class HeadlessDesktopService implements DesktopService {
     return this.#eventsState();
   }
 
+  public async refreshMonitors(): Promise<DesktopMonitorsState> {
+    this.#assertAccepting();
+    const monitors = this.#requireMonitors();
+    try {
+      const found = await monitors.discover(this.#monitorContext());
+      this.#monitorListeners = found.listeners;
+      this.#monitorError = undefined;
+    } catch (error) {
+      this.#monitorError =
+        error instanceof Error ? error.message : String(error);
+    }
+    this.#emitLiveEvents();
+    return this.#monitorsState();
+  }
+
+  public async armMonitors(
+    listenerIds?: string[],
+  ): Promise<DesktopMonitorsState> {
+    this.#assertAccepting();
+    const monitors = this.#requireMonitors();
+    if (listenerIds === undefined) await this.refreshMonitors();
+    const ids =
+      listenerIds ??
+      this.#monitorListeners
+        .filter(({ ready }) => ready)
+        .map(({ listenerId }) => listenerId)
+        .slice(0, 8);
+    if (ids.length === 0) {
+      throw new Error(
+        "No Machine Listening device is ready. Add one to a track, then try again.",
+      );
+    }
+    await monitors.registry.arm({ listenerIds: ids }, this.#monitorContext());
+    this.#emitLiveEvents();
+    return this.#monitorsState();
+  }
+
+  public async disarmMonitors(
+    listenerIds?: string[],
+  ): Promise<DesktopMonitorsState> {
+    this.#assertAccepting();
+    await this.#requireMonitors().registry.disarm(
+      listenerIds,
+      this.#monitorContext(),
+    );
+    this.#emitLiveEvents();
+    return this.#monitorsState();
+  }
+
+  public async addMonitor(
+    trackReference: string,
+  ): Promise<DesktopMonitorsState> {
+    this.#assertAccepting();
+    const monitors = this.#requireMonitors();
+    const traceId = randomUUID();
+    const startedAt = performance.now();
+    const record = (
+      name: string,
+      attributes: Record<string, string>,
+      outcome?: "success" | "failure",
+    ) => {
+      void this.#eventJournal
+        ?.enqueue({
+          version: 2,
+          id: randomUUID(),
+          occurredAt: new Date().toISOString(),
+          name,
+          category: "application",
+          source: "desktop-monitors",
+          level: outcome === "failure" ? "error" : "info",
+          ...(outcome === undefined
+            ? {}
+            : {
+                outcome,
+                durationMs: Math.round(performance.now() - startedAt),
+              }),
+          correlationId: traceId,
+          trace: { traceId, spanId: randomUUID() },
+          attributes: { trackReference, ...attributes },
+        })
+        .catch((error: unknown) => {
+          this.options.onError?.("Monitor event write failed", {
+            operation: name,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+    };
+    record("monitor.add_started", {});
+    try {
+      await monitors.add(trackReference);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      record("monitor.add_failed", { detail }, "failure");
+      throw error;
+    }
+    record("monitor.add_completed", {}, "success");
+    return this.refreshMonitors();
+  }
+
+  #requireMonitors(): ListeningMonitors {
+    if (this.options.monitors === undefined) {
+      throw new Error("Machine Listening is not available in this build");
+    }
+    return this.options.monitors;
+  }
+
+  #monitorContext() {
+    const sessionId = this.#activeAppSessionId;
+    if (sessionId === undefined) throw new Error("Open a Live Set first");
+    return {
+      sessionId,
+      agentId: "app",
+      actorKind: "application" as const,
+      trace: {
+        traceId: randomUUID(),
+        correlationId: randomUUID(),
+        causationId: randomUUID(),
+      },
+    };
+  }
+
+  #monitorsState(): DesktopMonitorsState {
+    const registry = this.options.monitors?.registry;
+    const view = registry?.snapshot();
+    const tracks = new Map(
+      (view?.tracks ?? []).map((track) => [track.listenerId, track]),
+    );
+    const discovered = new Set(
+      this.#monitorListeners.map(({ listenerId }) => listenerId),
+    );
+    const listeners = [
+      ...this.#monitorListeners.map((listener) => ({
+        listenerId: listener.listenerId,
+        trackReference: listener.trackReference,
+        displayName: listener.displayName,
+        ready: listener.ready,
+      })),
+      ...(view?.tracks ?? [])
+        .filter(
+          ({ listenerId, trackReference }) =>
+            !discovered.has(listenerId) && trackReference !== null,
+        )
+        .map(({ listenerId, trackReference }) => ({
+          listenerId,
+          trackReference: trackReference as string,
+          displayName: "",
+          ready: true,
+        })),
+    ];
+    return {
+      available: registry !== undefined,
+      status: view?.status ?? "off",
+      listeners: listeners.map((listener) => {
+        const track = tracks.get(listener.listenerId);
+        return {
+          ...listener,
+          armed: track !== undefined,
+          pending: track?.pending ?? false,
+          state: track?.state ?? null,
+          periodBars: track?.periodBars ?? null,
+          lastBar: track?.lastBar ?? null,
+        };
+      }),
+      ...(this.#monitorError === undefined
+        ? {}
+        : { error: this.#monitorError }),
+    };
+  }
+
   public async inspectLiveEventSelection(): Promise<InspectEventSelectionResult> {
     this.#assertAccepting();
     if (this.#liveEvents === undefined) {
@@ -5774,7 +5946,7 @@ export class HeadlessDesktopService implements DesktopService {
     eventId: string,
     settings: Pick<
       AgentEventListener,
-      "enabled" | "responseMode" | "messagePrefix" | "preparedContext"
+      "enabled" | "responseMode" | "messagePrefix" | "preparedContext" | "when"
     >,
   ): Promise<DesktopAgentEventListener> {
     this.#assertAccepting();
@@ -5800,6 +5972,7 @@ export class HeadlessDesktopService implements DesktopService {
         ...(settings.preparedContext === undefined
           ? {}
           : { preparedContext: settings.preparedContext }),
+        ...(settings.when === undefined ? {} : { when: settings.when }),
       };
       await this.#commitLiveEventSession({
         ...session,
@@ -5859,6 +6032,7 @@ export class HeadlessDesktopService implements DesktopService {
       Pick<AgentEventListener, "enabled" | "responseMode"> & {
         messagePrefix: string | null;
         preparedContext: AgentEventListener["preparedContext"];
+        when: NonNullable<AgentEventListener["when"]> | null;
       }
     >,
   ): Promise<DesktopAgentEventListener> {
@@ -5890,9 +6064,13 @@ export class HeadlessDesktopService implements DesktopService {
         ...(settings.preparedContext === undefined
           ? {}
           : { preparedContext: settings.preparedContext }),
+        ...(settings.when === undefined || settings.when === null
+          ? {}
+          : { when: settings.when }),
       };
       const listener = { ...updatedListener };
       if (settings.messagePrefix === null) delete listener.messagePrefix;
+      if (settings.when === null) delete listener.when;
       await this.#commitLiveEventSession({
         ...session,
         activeAgents: session.activeAgents.map((agent) =>
@@ -6009,7 +6187,9 @@ export class HeadlessDesktopService implements DesktopService {
 
   #eventsState(): DesktopEventsState {
     const session = this.#activeSession();
-    if (session === undefined) return { events: [] };
+    if (session === undefined) {
+      return { events: [], monitors: this.#monitorsState() };
+    }
     const runtimeStates = new Map(
       (this.#liveEvents?.listStates() ?? []).map((state) => [
         state.definition.id,
@@ -6018,6 +6198,7 @@ export class HeadlessDesktopService implements DesktopService {
     );
     return {
       activeSessionId: session.id,
+      monitors: this.#monitorsState(),
       events: session.liveEvents.map((definition) => {
         const runtime = runtimeStates.get(definition.id);
         return {

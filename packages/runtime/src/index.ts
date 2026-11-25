@@ -20,6 +20,7 @@ export {
   type AgentSettings,
   type ListeningRuntimeDependencies,
   type ListeningRuntimeHost,
+  type ListeningMonitors,
 } from "./composition.js";
 export {
   DefaultSignalRuntime,
@@ -66,6 +67,12 @@ export {
   metricListeningDeadlines,
   type MetricListeningDeadlineOptions,
 } from "./metric-listening-deadlines.js";
+export {
+  createMonitoringController,
+  type MonitoringRegistry,
+  type MonitoringUpdate,
+  type MonitoringView,
+} from "./monitoring-controller.js";
 export {
   createListeningRuntimeHost,
   type ListeningRuntimeHostOptions,

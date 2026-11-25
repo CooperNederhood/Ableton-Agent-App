@@ -40,6 +40,22 @@ export const recordingStateSchema = z.object({
   recording: z.boolean(),
   source: z.enum(["track", "session-clip", "arrangement"]),
 });
+export const monitoringEpisodeKindSchema = z.enum([
+  "pattern-established",
+  "fill",
+  "pattern-changed",
+  "uncertain",
+  "closed",
+]);
+export type MonitoringEpisodeKind = z.infer<typeof monitoringEpisodeKindSchema>;
+/** What a Machine Listening monitor last reported for its track. */
+export const patternStateSchema = z.object({
+  episode: monitoringEpisodeKindSchema,
+  bar: z.number().int().nullable(),
+  periodBars: z.number().int().positive().optional(),
+  patternVersion: z.number().int().positive().optional(),
+  reason: z.string().max(256).optional(),
+});
 export const parameterInitialStateSchema = z.object({
   kind: z.literal("parameter.value_changed"),
   state: parameterValueStateSchema,
@@ -56,11 +72,16 @@ export const recordingInitialStateSchema = z.object({
   kind: z.literal("track.recording_state_changed"),
   state: recordingStateSchema,
 });
+export const patternInitialStateSchema = z.object({
+  kind: z.literal("track.pattern_changed"),
+  state: patternStateSchema,
+});
 export const liveEventInitialStateSchema = z.discriminatedUnion("kind", [
   parameterInitialStateSchema,
   playingClipInitialStateSchema,
   triggeredClipInitialStateSchema,
   recordingInitialStateSchema,
+  patternInitialStateSchema,
 ]);
 const liveEventOccurrenceBase = {
   occurrenceId: z.string().uuid(),
@@ -101,6 +122,12 @@ export const liveEventOccurrenceSchema = z
       kind: z.literal("track.recording_state_changed"),
       previous: recordingStateSchema.optional(),
       current: recordingStateSchema,
+    }),
+    z.object({
+      ...liveEventOccurrenceBase,
+      kind: z.literal("track.pattern_changed"),
+      previous: patternStateSchema.optional(),
+      current: patternStateSchema,
     }),
   ])
   .refine(

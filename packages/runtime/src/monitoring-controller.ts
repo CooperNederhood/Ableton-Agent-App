@@ -1,9 +1,7 @@
 import { randomUUID } from "node:crypto";
-import {
-  ListeningFailure,
-  type ListeningExecutionContext,
-  type ListeningMonitoringPort,
-  type ListeningOwner,
+import type {
+  ListeningExecutionContext,
+  ListeningMonitoringPort,
 } from "@ableton-agent/application";
 import type { NonBlockingObservabilityRecorder } from "@ableton-agent/observability";
 import {
@@ -20,8 +18,11 @@ import {
   monitoringFeatureDistance,
 } from "./monitoring-stream.js";
 
-type MonitoringView = Awaited<ReturnType<ListeningMonitoringPort["get"]>>;
+export type MonitoringView = Awaited<
+  ReturnType<ListeningMonitoringPort["read"]>
+>;
 type ViewEpisode = MonitoringView["episodes"][number]["episode"];
+type MonitoringStatus = MonitoringView["status"];
 
 export interface MonitoringPassPlan {
   readonly startBeat: number;
@@ -39,25 +40,44 @@ export interface MonitoringPassHandle {
   disarm(): Promise<void>;
 }
 
+/** One new episode on one monitored track, pushed to subscribers as it seals. */
+export interface MonitoringUpdate {
+  readonly sequence: number;
+  readonly listenerId: string;
+  readonly trackReference: string | null;
+  readonly episode: ViewEpisode;
+  readonly track: MonitoringView["tracks"][number];
+}
+
 export interface MonitoringControllerDependencies {
-  /** Inspect a stopped transport and plan one pass of at most maxBars from the playhead. */
+  /**
+   * Inspect a stopped transport and plan one pass from the playhead. With
+   * maxBars, the pass ends after that many full bars instead of being
+   * cancelled mid-capture.
+   */
   plan(input: {
     readonly listenerIds: readonly string[];
-    readonly maxBars: number;
-    readonly owner: ListeningOwner;
+    readonly maxBars?: number;
     readonly context: ListeningExecutionContext;
   }): Promise<MonitoringPassPlan>;
   arm(input: {
     readonly plan: MonitoringPassPlan;
     readonly passId: string;
     readonly sink: MetricRecordStagedSink;
-    readonly owner: ListeningOwner;
     readonly context: ListeningExecutionContext;
   }): Promise<MonitoringPassHandle>;
   readonly telemetry?: Pick<NonBlockingObservabilityRecorder, "enqueue">;
   readonly pollMs?: number;
-  /** Consecutive passes that never launched before monitoring gives up. */
-  readonly maxIdlePasses?: number;
+}
+
+export interface MonitoringRegistry extends ListeningMonitoringPort {
+  /** Current state without waiting. */
+  snapshot(): MonitoringView;
+  /** Receives every new episode and every status change. */
+  subscribe(
+    listener: (update: MonitoringUpdate | undefined) => void,
+  ): () => void;
+  shutdown(): Promise<void>;
 }
 
 const WAITING_FOR_STOP = new Set([
@@ -65,32 +85,18 @@ const WAITING_FOR_STOP = new Set([
   "transport_not_stopped",
   "listener_not_idle",
 ]);
-const ACTIVE = new Set(["armed", "monitoring", "rearming"]);
 const WAIT_STEP_MS = 100;
 const MAX_EPISODES = 1024;
 const PAGE_EPISODES = 256;
 
-interface Monitoring {
-  readonly id: string;
-  readonly owner: ListeningOwner;
-  readonly context: ListeningExecutionContext;
-  readonly maxBars: number;
-  readonly observers: Map<string, MonitoringObserver<ListeningFeature>>;
-  readonly trackReferences: Map<string, string>;
-  readonly abort: AbortController;
-  readonly episodes: {
-    sequence: number;
-    trackReference: string;
-    episode: ViewEpisode;
-  }[];
-  status: MonitoringView["status"];
-  startBeat: number;
-  barsRemaining: number;
-  nextSequence: number;
-  handle?: MonitoringPassHandle;
-  error?: string;
-  loop?: Promise<void>;
-  onArmed?: () => void;
+interface Monitor {
+  readonly listenerId: string;
+  readonly observer: MonitoringObserver<ListeningFeature>;
+  trackReference: string | null;
+  /** Armed while a pass was already playing; joins at the next stop. */
+  pending: boolean;
+  /** Bars left before the monitor closes itself; null follows until stopped. */
+  barsRemaining: number | null;
 }
 
 function finite(value: number): number | null {
@@ -121,16 +127,35 @@ function messageOf(cause: unknown): string {
   return (cause instanceof Error ? cause.message : String(cause)).slice(0, 512);
 }
 
-/** One open-ended monitoring at a time; re-arms after stops until maxBars or stop. */
+/**
+ * Shared monitors for the whole app. Agents and the GUI arm or disarm tracks;
+ * one loop arms a pass for every armed track and re-arms after each stop.
+ */
 export function createMonitoringController(
   dependencies: MonitoringControllerDependencies,
-): ListeningMonitoringPort & { shutdown(): Promise<void> } {
-  const all = new Map<string, Monitoring>();
+): MonitoringRegistry {
   const pollMs = dependencies.pollMs ?? 500;
-  const maxIdlePasses = dependencies.maxIdlePasses ?? 5;
+  const monitors = new Map<string, Monitor>();
+  const episodes: {
+    sequence: number;
+    listenerId: string;
+    trackReference: string | null;
+    episode: ViewEpisode;
+  }[] = [];
+  const subscribers = new Set<(update: MonitoringUpdate | undefined) => void>();
+  let status: MonitoringStatus = "off";
+  let startBeat: number | null = null;
+  let nextSequence = 0;
+  let error: string | undefined;
+  let context: ListeningExecutionContext | undefined;
+  let abort: AbortController | undefined;
+  let loop: Promise<void> | undefined;
+  let handle: MonitoringPassHandle | undefined;
+  let launched = false;
+  let replan = false;
+  let settled: (() => void)[] = [];
 
   const record = (
-    monitoring: Monitoring,
     name: string,
     attributes: Record<string, unknown>,
     outcome?: "success" | "failure" | "cancelled",
@@ -138,51 +163,82 @@ export function createMonitoringController(
     recordSignalTelemetry(dependencies.telemetry, {
       name: `listening.monitoring.${name}`,
       source: "monitoring-controller",
-      sessionId: monitoring.owner.sessionId,
-      activeAgentId: monitoring.owner.agentId,
-      liveSetId: monitoring.owner.liveSetId,
-      correlationId: monitoring.context.trace.correlationId,
-      causationId: monitoring.context.trace.causationId,
-      trace: {
-        traceId: monitoring.context.trace.traceId,
-        spanId: randomUUID(),
-      },
+      ...(context === undefined
+        ? {}
+        : {
+            sessionId: context.sessionId,
+            activeAgentId: context.agentId,
+            correlationId: context.trace.correlationId,
+            causationId: context.trace.causationId,
+            trace: { traceId: context.trace.traceId, spanId: randomUUID() },
+          }),
       ...(outcome === undefined ? {} : { outcome }),
       ...(outcome === "failure" ? { level: "error" as const } : {}),
-      attributes: { monitoringId: monitoring.id, ...attributes },
+      attributes,
     });
 
-  const append = (
-    monitoring: Monitoring,
-    listenerId: string,
-    episodes: readonly MonitoringEpisode[],
-  ) => {
-    const trackReference = monitoring.trackReferences.get(listenerId)!;
-    for (const episode of episodes) {
+  const trackView = (monitor: Monitor) => {
+    const snapshot = monitor.observer.snapshot();
+    return {
+      trackReference: monitor.trackReference,
+      listenerId: monitor.listenerId,
+      pending: monitor.pending,
+      barsRemaining: monitor.barsRemaining,
+      state: snapshot.state,
+      periodBars: snapshot.periodBars,
+      patternVersion: snapshot.patternVersion,
+      lastBar: snapshot.lastBar,
+      lastDistance:
+        snapshot.lastDistance === null ? null : finite(snapshot.lastDistance),
+    };
+  };
+
+  const notify = (update?: MonitoringUpdate) => {
+    for (const subscriber of subscribers) {
+      try {
+        subscriber(update);
+      } catch (cause) {
+        record("subscriber-failed", { error: messageOf(cause) }, "failure");
+      }
+    }
+  };
+
+  const setStatus = (next: MonitoringStatus) => {
+    if (status === next) return;
+    status = next;
+    if (next !== "rearming") {
+      const waiters = settled;
+      settled = [];
+      for (const resolve of waiters) resolve();
+    }
+    notify();
+  };
+
+  const append = (monitor: Monitor, items: readonly MonitoringEpisode[]) => {
+    for (const episode of items) {
       const item = {
-        sequence: monitoring.nextSequence++,
-        trackReference,
+        sequence: nextSequence++,
+        listenerId: monitor.listenerId,
+        trackReference: monitor.trackReference,
         episode: viewEpisode(episode),
       };
-      monitoring.episodes.push(item);
-      record(monitoring, "episode", { listenerId, ...item });
+      episodes.push(item);
+      record("episode", item);
+      notify({ ...item, track: trackView(monitor) });
     }
-    if (monitoring.episodes.length > MAX_EPISODES)
-      monitoring.episodes.splice(0, monitoring.episodes.length - MAX_EPISODES);
+    if (episodes.length > MAX_EPISODES)
+      episodes.splice(0, episodes.length - MAX_EPISODES);
   };
 
-  const interruptAll = (
-    monitoring: Monitoring,
-    reason: "transport-stopped",
-  ) => {
-    for (const [listenerId, observer] of monitoring.observers)
-      append(monitoring, listenerId, observer.interrupt(reason, null));
+  const close = (monitor: Monitor, reason: string) => {
+    if (monitor.observer.snapshot().state !== "closed")
+      append(monitor, monitor.observer.close(reason));
   };
 
-  const closeAll = (monitoring: Monitoring, reason: string) => {
-    for (const [listenerId, observer] of monitoring.observers)
-      if (observer.snapshot().state !== "closed")
-        append(monitoring, listenerId, observer.close(reason));
+  const complete = (monitor: Monitor) => {
+    close(monitor, "completed");
+    monitors.delete(monitor.listenerId);
+    record("completed", { listenerId: monitor.listenerId });
   };
 
   const sleep = (ms: number, signal: AbortSignal) =>
@@ -198,280 +254,270 @@ export function createMonitoringController(
       );
     });
 
-  const run = async (monitoring: Monitoring, first: MonitoringPassPlan) => {
-    const signal = monitoring.abort.signal;
-    const context = { ...monitoring.context, signal };
-    let plan: MonitoringPassPlan | undefined = first;
-    let idlePasses = 0;
-    while (!signal.aborted && monitoring.barsRemaining > 0) {
-      if (plan === undefined) {
-        try {
-          plan = await dependencies.plan({
-            listenerIds: [...monitoring.observers.keys()],
-            maxBars: monitoring.barsRemaining,
-            owner: monitoring.owner,
-            context,
-          });
-        } catch (cause) {
-          if (signal.aborted) break;
-          if (!WAITING_FOR_STOP.has(codeOf(cause))) throw cause;
-          await sleep(pollMs, signal);
-          continue;
-        }
+  const run = async (signal: AbortSignal) => {
+    while (!signal.aborted && monitors.size > 0) {
+      const passContext = { ...context!, signal };
+      for (const monitor of monitors.values()) monitor.pending = false;
+      replan = false;
+      let pass: MonitoringPassPlan;
+      try {
+        const budgets = [...monitors.values()].map(
+          ({ barsRemaining }) => barsRemaining,
+        );
+        pass = await dependencies.plan({
+          listenerIds: [...monitors.keys()],
+          ...(budgets.includes(null)
+            ? {}
+            : { maxBars: Math.max(...(budgets as number[])) }),
+          context: passContext,
+        });
+      } catch (cause) {
+        if (signal.aborted) break;
+        if (!WAITING_FOR_STOP.has(codeOf(cause))) throw cause;
+        setStatus("waiting");
+        await sleep(pollMs, signal);
+        continue;
       }
-      const pass = plan;
-      plan = undefined;
+      if (signal.aborted) break;
+      if (replan) continue;
+      for (const track of pass.tracks) {
+        const monitor = monitors.get(track.listenerId);
+        if (monitor !== undefined)
+          monitor.trackReference = track.trackReference;
+      }
       const barBeats =
         (pass.alignment.meter.numerator * 4) / pass.alignment.meter.denominator;
       const sealed = new Map<string, number>();
       const sink = createMonitoringStreamSink({
         alignment: pass.alignment,
-        observer: (listenerId) => monitoring.observers.get(listenerId)!,
+        observer: (listenerId) => monitors.get(listenerId)?.observer,
         onBar: (report) => {
           sealed.set(
             report.listenerId,
             (sealed.get(report.listenerId) ?? 0) + 1,
           );
-          append(monitoring, report.listenerId, report.episodes);
+          const monitor = monitors.get(report.listenerId);
+          if (monitor === undefined) return;
+          append(monitor, report.episodes);
+          if (monitor.barsRemaining !== null && --monitor.barsRemaining === 0)
+            complete(monitor);
         },
       });
       const passId = randomUUID();
-      monitoring.startBeat = pass.startBeat;
-      monitoring.handle = await dependencies.arm({
+      startBeat = pass.startBeat;
+      launched = false;
+      handle = await dependencies.arm({
         plan: pass,
         passId,
         sink,
-        owner: monitoring.owner,
-        context,
+        context: passContext,
       });
-      monitoring.status = "armed";
-      monitoring.onArmed?.();
-      record(monitoring, "armed", {
+      record("armed", {
         passId,
         startBeat: pass.startBeat,
         endBeat: pass.endBeat,
-        barsRemaining: monitoring.barsRemaining,
+        listenerIds: pass.tracks.map(({ listenerId }) => listenerId),
       });
-      let launched = false;
-      void monitoring.handle.nativeLaunch.then(
+      if (replan) {
+        // Tracks changed while this pass was being armed.
+        await handle.disarm().catch(() => {});
+      } else {
+        setStatus("armed");
+      }
+      void handle.nativeLaunch.then(
         () => {
           launched = true;
-          if (monitoring.status === "armed") monitoring.status = "monitoring";
+          if (status === "armed") setStatus("monitoring");
         },
         () => {},
       );
       let failure: unknown;
       try {
-        await monitoring.handle.result;
+        await handle.result;
       } catch (cause) {
         failure = cause;
       }
-      delete monitoring.handle;
-      const bars = Math.max(0, ...sealed.values());
-      const passBars = Math.round((pass.endBeat - pass.startBeat) / barBeats);
-      monitoring.barsRemaining = Math.max(
-        0,
-        monitoring.barsRemaining - (failure === undefined ? passBars : bars),
-      );
+      handle = undefined;
       if (signal.aborted) break;
+      const bars = Math.max(0, ...sealed.values());
+      const plannedBars = Math.round(
+        (pass.endBeat - pass.startBeat) / barBeats,
+      );
       record(
-        monitoring,
         "pass-ended",
         {
           passId,
           launched,
           barsSealed: bars,
-          barsRemaining: monitoring.barsRemaining,
+          passBars: plannedBars,
+          replan,
           ...(failure === undefined
             ? {}
             : { code: codeOf(failure), error: messageOf(failure) }),
         },
-        failure === undefined ? "success" : "failure",
+        failure === undefined || replan ? "success" : "failure",
       );
-      if (monitoring.barsRemaining === 0) break;
-      idlePasses = launched || bars > 0 ? 0 : idlePasses + 1;
-      if (idlePasses >= maxIdlePasses)
-        throw new ListeningFailure(
-          "monitoring_idle",
-          `Playback did not start during ${idlePasses} consecutive armed passes`,
-        );
-      monitoring.status = "rearming";
-      if (launched || bars > 0) interruptAll(monitoring, "transport-stopped");
+      // A pass that filled its plan ended on its own, not because Live stopped.
+      const reason =
+        failure === undefined && bars >= plannedBars
+          ? "pass-limit"
+          : "transport-stopped";
+      if (launched || bars > 0)
+        for (const monitor of monitors.values())
+          append(monitor, monitor.observer.interrupt(reason, null));
+      setStatus("rearming");
     }
   };
 
-  const owned = (monitoringId: string, owner: ListeningOwner) => {
-    const monitoring = all.get(monitoringId);
-    if (
-      monitoring === undefined ||
-      monitoring.owner.sessionId !== owner.sessionId ||
-      monitoring.owner.agentId !== owner.agentId
-    )
-      throw new ListeningFailure(
-        "permission_denied",
-        "No monitoring belongs to the invoking App session and agent",
-      );
-    return monitoring;
+  const start = () => {
+    error = undefined;
+    abort = new AbortController();
+    const signal = abort.signal;
+    setStatus("rearming");
+    const current = run(signal).then(
+      () => {
+        if (signal.aborted) return;
+        startBeat = null;
+        setStatus("off");
+      },
+      (cause: unknown) => {
+        if (signal.aborted) return;
+        error = messageOf(cause);
+        for (const monitor of monitors.values()) close(monitor, "failed");
+        monitors.clear();
+        startBeat = null;
+        record("failed", { code: codeOf(cause), error }, "failure");
+        setStatus("failed");
+      },
+    );
+    loop = current;
   };
 
-  const view = (monitoring: Monitoring, afterSequence = -1): MonitoringView => {
-    const episodes = monitoring.episodes
+  /** Resolves once the loop leaves "rearming" (armed, waiting, off or failed). */
+  const untilSettled = () =>
+    status === "rearming"
+      ? new Promise<void>((resolve) => settled.push(resolve))
+      : Promise.resolve();
+
+  const stopLoop = async () => {
+    abort?.abort();
+    await handle?.disarm().catch(() => {});
+    await loop;
+    abort = undefined;
+    loop = undefined;
+    handle = undefined;
+    startBeat = null;
+  };
+
+  const view = (afterSequence = -1): MonitoringView => {
+    const page = episodes
       .filter((item) => item.sequence > afterSequence)
       .slice(0, PAGE_EPISODES);
     return {
-      monitoringId: monitoring.id,
-      status: monitoring.status,
-      startBeat: monitoring.startBeat,
-      maxBars: monitoring.maxBars,
-      barsRemaining: monitoring.barsRemaining,
-      tracks: [...monitoring.observers].map(([listenerId, observer]) => {
-        const snapshot = observer.snapshot();
-        return {
-          trackReference: monitoring.trackReferences.get(listenerId)!,
-          listenerId,
-          state: snapshot.state,
-          periodBars: snapshot.periodBars,
-          patternVersion: snapshot.patternVersion,
-          lastBar: snapshot.lastBar,
-          lastDistance:
-            snapshot.lastDistance === null
-              ? null
-              : finite(snapshot.lastDistance),
-        };
-      }),
-      episodes: structuredClone(episodes),
+      status,
+      startBeat,
+      tracks: [...monitors.values()].map(trackView),
+      episodes: structuredClone(page),
       // The cursor to pass back as afterSequence: the last delivered episode.
-      nextSequence:
-        episodes.length === 0 ? afterSequence : episodes.at(-1)!.sequence,
-      ...(monitoring.error === undefined ? {} : { error: monitoring.error }),
+      nextSequence: page.length === 0 ? afterSequence : page.at(-1)!.sequence,
+      ...(error === undefined ? {} : { error }),
     };
   };
 
-  const finish = async (monitoring: Monitoring) => {
-    await monitoring.handle?.disarm().catch(() => {});
-    await monitoring.loop;
-  };
-
   return {
-    async start(request, owner, context) {
-      const active = [...all.values()].find((item) =>
-        ["armed", "monitoring", "rearming"].includes(item.status),
-      );
-      if (active !== undefined)
-        throw new ListeningFailure(
-          "monitoring_active",
-          `Monitoring ${active.id} is still active; stop it first`,
-        );
-      const first = await dependencies.plan({
-        listenerIds: request.listenerIds,
-        maxBars: request.maxBars,
-        owner,
-        context,
-      });
-      const monitoring: Monitoring = {
-        id: randomUUID(),
-        owner: { ...owner },
-        context: {
-          sessionId: context.sessionId,
-          agentId: context.agentId,
-          trace: context.trace,
-          ...(context.actorKind ? { actorKind: context.actorKind } : {}),
-        },
-        maxBars: request.maxBars,
-        observers: new Map(
-          request.listenerIds.map((listenerId) => [
-            listenerId,
-            new MonitoringObserver<ListeningFeature>({
-              distance: monitoringFeatureDistance,
-              maxWindowBars: request.maxWindowBars,
-              matchThreshold: MONITORING_MATCH_THRESHOLD,
-            }),
-          ]),
-        ),
-        trackReferences: new Map(
-          first.tracks.map((track) => [track.listenerId, track.trackReference]),
-        ),
-        abort: new AbortController(),
-        episodes: [],
-        status: "rearming",
-        startBeat: first.startBeat,
-        barsRemaining: request.maxBars,
-        nextSequence: 0,
+    async arm(request, armingContext) {
+      context = {
+        sessionId: armingContext.sessionId,
+        agentId: armingContext.agentId,
+        trace: armingContext.trace,
+        ...(armingContext.actorKind
+          ? { actorKind: armingContext.actorKind }
+          : {}),
       };
-      all.set(monitoring.id, monitoring);
-      record(monitoring, "started", {
+      const added = request.listenerIds.filter((id) => !monitors.has(id));
+      const playing = handle !== undefined && launched;
+      for (const listenerId of added)
+        monitors.set(listenerId, {
+          listenerId,
+          trackReference: null,
+          pending: playing,
+          barsRemaining: request.maxBars ?? null,
+          observer: new MonitoringObserver<ListeningFeature>({
+            distance: monitoringFeatureDistance,
+            maxWindowBars: request.maxWindowBars ?? 8,
+            matchThreshold: MONITORING_MATCH_THRESHOLD,
+          }),
+        });
+      record("arm-requested", {
         listenerIds: request.listenerIds,
-        maxBars: request.maxBars,
-        maxWindowBars: request.maxWindowBars,
-        startBeat: first.startBeat,
+        added,
+        playing,
+        actorKind: armingContext.actorKind ?? "agent",
       });
-      const armed = new Promise<void>((resolve) => {
-        monitoring.onArmed = resolve;
-      });
-      monitoring.loop = run(monitoring, first).then(
-        () => {
-          if (monitoring.status === "stopped") return;
-          monitoring.status = "completed";
-          closeAll(monitoring, "max-bars");
-          record(monitoring, "completed", { barsRemaining: 0 }, "success");
-        },
-        (cause: unknown) => {
-          if (monitoring.status === "stopped") return;
-          monitoring.status = "failed";
-          monitoring.error = messageOf(cause);
-          closeAll(monitoring, "failed");
-          record(
-            monitoring,
-            "failed",
-            { code: codeOf(cause), error: monitoring.error },
-            "failure",
-          );
-        },
-      );
-      void monitoring.loop.finally(() => monitoring.onArmed?.());
-      await armed;
-      return view(monitoring);
+      if (added.length === 0) return view();
+      if (loop === undefined || status === "failed" || status === "off") {
+        start();
+      } else if (handle !== undefined && !launched) {
+        // Not playing yet: re-plan now so the new tracks join this pass.
+        replan = true;
+        setStatus("rearming");
+        await handle.disarm().catch(() => {});
+      } else if (!playing) {
+        replan = true;
+      }
+      if (!playing) await untilSettled();
+      return view();
     },
-    async get(monitoringId, owner, { afterSequence, waitMs = 0, signal } = {}) {
-      const monitoring = owned(monitoringId, owner);
+    async read({ afterSequence, waitMs = 0, signal } = {}) {
       const deadline = Date.now() + waitMs;
       while (
         Date.now() < deadline &&
         signal?.aborted !== true &&
-        ACTIVE.has(monitoring.status) &&
-        !monitoring.episodes.some(
-          ({ sequence }) => sequence > (afterSequence ?? -1),
-        )
+        monitors.size > 0 &&
+        !episodes.some(({ sequence }) => sequence > (afterSequence ?? -1))
       )
         await new Promise((resolve) =>
           setTimeout(resolve, Math.min(WAIT_STEP_MS, deadline - Date.now())),
         );
-      return view(monitoring, afterSequence);
+      return view(afterSequence);
     },
-    async stop(monitoringId, owner) {
-      const monitoring = owned(monitoringId, owner);
-      if (ACTIVE.has(monitoring.status)) {
-        monitoring.status = "stopped";
-        monitoring.abort.abort();
-        await finish(monitoring);
-        closeAll(monitoring, "stopped");
-        record(
-          monitoring,
-          "stopped",
-          {
-            barsRemaining: monitoring.barsRemaining,
-          },
-          "cancelled",
-        );
+    async disarm(listenerIds, disarmingContext) {
+      const removed = (listenerIds ?? [...monitors.keys()]).filter((id) =>
+        monitors.has(id),
+      );
+      record("disarm-requested", {
+        listenerIds: listenerIds ?? null,
+        removed,
+        actorKind: disarmingContext.actorKind ?? "agent",
+      });
+      for (const listenerId of removed) {
+        close(monitors.get(listenerId)!, "stopped");
+        monitors.delete(listenerId);
       }
-      return view(monitoring);
+      if (monitors.size === 0) {
+        if (loop !== undefined) {
+          await stopLoop();
+          record("stopped", { removed }, "cancelled");
+        }
+        setStatus("off");
+      } else if (removed.length > 0 && handle !== undefined && !launched) {
+        replan = true;
+        setStatus("rearming");
+        await handle.disarm().catch(() => {});
+        await untilSettled();
+      }
+      return view();
+    },
+    snapshot: () => view(),
+    subscribe(listener) {
+      subscribers.add(listener);
+      return () => subscribers.delete(listener);
     },
     async shutdown() {
-      for (const monitoring of all.values()) {
-        if (ACTIVE.has(monitoring.status)) monitoring.status = "stopped";
-        monitoring.abort.abort();
-        await finish(monitoring);
-      }
+      await stopLoop();
+      monitors.clear();
+      status = "off";
+      subscribers.clear();
     },
   };
 }

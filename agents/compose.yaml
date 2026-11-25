@@ -12,9 +12,7 @@ editScope:
   - session
 skills:
   - midi-composition
-inputChannels: []
 model: null
 reasoningEffort: null
 autoApprove: false
 delegatable: true
-eventListeners: []

@@ -31,7 +31,6 @@ describe("agent configuration schemas", () => {
       tools: ["*"],
       editScope: ["session"],
       skills: [],
-      inputChannels: [],
     });
     expect(parsed).toMatchObject({
       version: 2,
@@ -42,12 +41,10 @@ describe("agent configuration schemas", () => {
       reasoningEffort: null,
       autoApprove: false,
       delegatable: false,
-      eventListeners: [],
     });
   });
 
   it("accepts bounded version-two definition-owned defaults", () => {
-    const eventId = createLiveEventId("00000000-0000-4000-8000-000000000001");
     const parsed = agentDefinitionSchema.parse({
       version: 2,
       name: "mix",
@@ -57,20 +54,9 @@ describe("agent configuration schemas", () => {
       tools: ["ableton_*"],
       editScope: ["session"],
       skills: [],
-      inputChannels: [],
       model: "model-a",
       reasoningEffort: "high",
       autoApprove: true,
-      eventListeners: [
-        {
-          id: createAgentEventListenerId(
-            "00000000-0000-4000-8000-000000000002",
-          ),
-          eventId,
-          enabled: true,
-          responseMode: "automatic",
-        },
-      ],
     });
 
     expect(parsed).toMatchObject({
@@ -79,7 +65,6 @@ describe("agent configuration schemas", () => {
       reasoningEffort: "high",
       autoApprove: true,
       delegatable: false,
-      eventListeners: [{ eventId }],
     });
     expect(
       agentDefinitionSchema.parse({ ...parsed, delegatable: true }).delegatable,
@@ -105,18 +90,8 @@ describe("agent configuration schemas", () => {
     ).toBe(false);
   });
 
-  it("uses the canonical component limit for producer channel ids", () => {
+  it("uses the canonical component limit for output subscriptions", () => {
     const producerId = "p".repeat(MAX_AGENT_ASSIGNMENT_COMPONENT_LENGTH);
-    const definition = {
-      version: 1,
-      name: "default",
-      description: "General-purpose agent.",
-      systemPrompt: "Help with the current Live Set.",
-      tools: ["*"],
-      editScope: ["session"],
-      skills: [],
-      inputChannels: [producerId],
-    };
     const subscription = {
       assignmentId: "assignment",
       producerId,
@@ -126,14 +101,7 @@ describe("agent configuration schemas", () => {
       processingPolicyIds: [],
     };
 
-    expect(agentDefinitionSchema.safeParse(definition).success).toBe(true);
     expect(outputSubscriptionSchema.safeParse(subscription).success).toBe(true);
-    expect(
-      agentDefinitionSchema.safeParse({
-        ...definition,
-        inputChannels: [`${producerId}x`],
-      }).success,
-    ).toBe(false);
     expect(
       outputSubscriptionSchema.safeParse({
         ...subscription,
@@ -170,7 +138,6 @@ describe("agent configuration schemas", () => {
         resolvedTools: [],
         editScope: ["session"],
         skills: [],
-        inputChannels: [],
       },
       boundTracks: [],
       outputSubscriptions: [],

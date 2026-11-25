@@ -26,10 +26,8 @@ tools:
 editScope:
   - session
 skills: []
-inputChannels: []
 model: null
 reasoningEffort: null
 autoApprove: false
 delegatable: true
 hideResultFromParent: true
-eventListeners: []

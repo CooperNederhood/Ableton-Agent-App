@@ -46,7 +46,6 @@ describe("desktop agent catalog", () => {
           "editScope:",
           "  - session",
           "skills: []",
-          "inputChannels: []",
         ].join("\n"),
       );
     await writeDefinition("First description.");
@@ -119,7 +118,6 @@ describe("desktop agent catalog", () => {
         "editScope:",
         "  - session",
         "skills: []",
-        "inputChannels: []",
       ].join("\n"),
     );
     const service = new AgentCatalogService({
@@ -157,7 +155,6 @@ describe("desktop agent catalog", () => {
       "tools: [session.inspect]",
       "editScope: [session]",
       "skills: []",
-      "inputChannels: []",
     ];
     await writeFile(
       join(agentsDirectory, "default.yaml"),

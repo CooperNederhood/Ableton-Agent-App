@@ -163,9 +163,11 @@ const validHistoryRange = (query: {
   to?: string | undefined;
 }): boolean =>
   query.from === undefined || query.to === undefined || query.from <= query.to;
-const telemetryQuerySchema = z
+const rootTraceQuerySchema = z
   .object({
     ...telemetryFilterShape,
+    search: z.string().trim().min(1).max(128).optional(),
+    excludeRootNames: telemetryStringListSchema.optional(),
     cursor: z.string().min(1).max(256).optional(),
     limit: z.number().int().min(1).max(500).default(100),
     order: z.enum(["asc", "desc"]).default("desc"),
@@ -681,6 +683,15 @@ export const liveEventDefinitionDraftSchema = z.discriminatedUnion("kind", [
       target: desktopTrackEventTargetSchema,
     })
     .strict(),
+  z
+    .object({
+      kind: z.literal("track.pattern_changed"),
+      classification: z.literal("discrete"),
+      name: z.string().trim().min(1).max(160),
+      enabled: z.boolean(),
+      target: desktopTrackEventTargetSchema,
+    })
+    .strict(),
 ]);
 export type LiveEventDefinitionDraft = z.infer<
   typeof liveEventDefinitionDraftSchema
@@ -716,8 +727,47 @@ export const desktopLiveEventStateSchema = z.object({
 });
 export type DesktopLiveEventState = z.infer<typeof desktopLiveEventStateSchema>;
 
+export const desktopMonitorSchema = z.object({
+  listenerId: z.string().min(1),
+  trackReference: z.string().min(1),
+  displayName: z.string().max(128),
+  ready: z.boolean(),
+  armed: z.boolean(),
+  /** Armed during playback; starts listening at the next stop and play. */
+  pending: z.boolean(),
+  state: z
+    .enum([
+      "armed",
+      "acquiring",
+      "tracking",
+      "deviating",
+      "uncertain",
+      "closed",
+    ])
+    .nullable(),
+  periodBars: z.number().int().positive().nullable(),
+  lastBar: z.number().int().nullable(),
+});
+export type DesktopMonitor = z.infer<typeof desktopMonitorSchema>;
+
+export const desktopMonitorsStateSchema = z.object({
+  available: z.boolean(),
+  status: z.enum([
+    "off",
+    "waiting",
+    "armed",
+    "monitoring",
+    "rearming",
+    "failed",
+  ]),
+  listeners: z.array(desktopMonitorSchema).max(256),
+  error: z.string().max(1024).optional(),
+});
+export type DesktopMonitorsState = z.infer<typeof desktopMonitorsStateSchema>;
+
 export const desktopEventsStateSchema = z.object({
   events: z.array(desktopLiveEventStateSchema),
+  monitors: desktopMonitorsStateSchema,
   activeSessionId: z.string().min(1).optional(),
 });
 export type DesktopEventsState = z.infer<typeof desktopEventsStateSchema>;
@@ -1411,14 +1461,12 @@ export const desktopAgentDefinitionSchema = z.object({
     z.union([z.literal("session"), desktopTrackScopeSelectorSchema]),
   ),
   skills: z.array(z.string().min(1)),
-  inputChannels: z.array(z.string().min(1)),
   model: z.string().trim().min(1).max(256).nullable().optional(),
   reasoningEffort: agentReasoningEffortSchema.nullable().optional(),
   autoApprove: z.boolean().optional(),
   delegatable: z.boolean().optional(),
   hideResultFromParent: z.boolean().optional(),
   color: z.string().regex(/^#[0-9a-f]{6}$/u),
-  eventListeners: z.array(agentEventListenerSchema).optional(),
   origin: z
     .enum(["bundled", "system", "profile", "project", "session"])
     .optional(),
@@ -2040,6 +2088,20 @@ export const ipcSchemas = {
       })
       .strict(),
   },
+  "agents:create-definition": {
+    request: z
+      .object({
+        definition: agentDefinitionSchema,
+        expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    response: z
+      .object({
+        catalog: desktopAgentCatalogSchema,
+        profileSnapshot: desktopProfileManagerSnapshotSchema,
+      })
+      .strict(),
+  },
   "skills:read": {
     request: z.object({ name: skillNameSchema }).strict(),
     response: desktopSkillDocumentSchema,
@@ -2569,6 +2631,7 @@ export const ipcSchemas = {
         responseMode: agentEventListenerSchema.shape.responseMode,
         messagePrefix: agentEventListenerSchema.shape.messagePrefix,
         preparedContext: agentEventListenerSchema.shape.preparedContext,
+        when: agentEventListenerSchema.shape.when,
       })
       .strict(),
     response: desktopAgentEventListenerSchema,
@@ -2594,20 +2657,48 @@ export const ipcSchemas = {
           .optional(),
         preparedContext:
           agentEventListenerSchema.shape.preparedContext.optional(),
+        when: z
+          .union([agentEventListenerSchema.shape.when.unwrap(), z.null()])
+          .optional(),
       })
       .strict()
       .refine(
-        ({ enabled, responseMode, messagePrefix, preparedContext }) =>
+        ({ enabled, responseMode, messagePrefix, preparedContext, when }) =>
           enabled !== undefined ||
           responseMode !== undefined ||
           messagePrefix !== undefined ||
-          preparedContext !== undefined,
+          preparedContext !== undefined ||
+          when !== undefined,
         "At least one listener setting must be provided",
       ),
     response: desktopAgentEventListenerSchema,
   },
+  "monitors:refresh": {
+    request: z.object({}).strict(),
+    response: desktopMonitorsStateSchema,
+  },
+  "monitors:arm": {
+    request: z
+      .object({
+        listenerIds: z.array(z.string().min(1)).min(1).max(8).optional(),
+      })
+      .strict(),
+    response: desktopMonitorsStateSchema,
+  },
+  "monitors:disarm": {
+    request: z
+      .object({
+        listenerIds: z.array(z.string().min(1)).min(1).max(8).optional(),
+      })
+      .strict(),
+    response: desktopMonitorsStateSchema,
+  },
+  "monitors:add": {
+    request: z.object({ trackReference: z.string().min(1) }).strict(),
+    response: desktopMonitorsStateSchema,
+  },
   "event-history:search": {
-    request: telemetryQuerySchema,
+    request: rootTraceQuerySchema,
     response: rootTracePageSchema,
   },
   "event-history:agent": {
@@ -2697,6 +2788,13 @@ export interface DesktopApi {
       definition: z.infer<typeof agentDefinitionSchema>,
       expectedRevision: string,
       expectedFingerprint: string,
+    ): Promise<{
+      catalog: DesktopAgentCatalog;
+      profileSnapshot: DesktopProfileManagerSnapshot;
+    }>;
+    createDefinition(
+      definition: z.infer<typeof agentDefinitionSchema>,
+      expectedRevision: string,
     ): Promise<{
       catalog: DesktopAgentCatalog;
       profileSnapshot: DesktopProfileManagerSnapshot;
@@ -2944,7 +3042,11 @@ export interface DesktopApi {
       eventId: string,
       settings: Pick<
         AgentEventListener,
-        "enabled" | "responseMode" | "messagePrefix" | "preparedContext"
+        | "enabled"
+        | "responseMode"
+        | "messagePrefix"
+        | "preparedContext"
+        | "when"
       >,
     ): Promise<DesktopAgentEventListener>;
     unassignListener(
@@ -2958,10 +3060,17 @@ export interface DesktopApi {
         Pick<AgentEventListener, "enabled" | "responseMode"> & {
           messagePrefix: string | null;
           preparedContext: AgentEventListener["preparedContext"];
+          when: NonNullable<AgentEventListener["when"]> | null;
         }
       >,
     ): Promise<DesktopAgentEventListener>;
     subscribe(handler: (event: DesktopAppEvent) => void): () => void;
+  };
+  monitors: {
+    refresh(): Promise<DesktopMonitorsState>;
+    arm(listenerIds?: string[]): Promise<DesktopMonitorsState>;
+    disarm(listenerIds?: string[]): Promise<DesktopMonitorsState>;
+    add(trackReference: string): Promise<DesktopMonitorsState>;
   };
   eventHistory: {
     agent(query?: AgentHistoryQuery): Promise<AgentHistoryPage>;

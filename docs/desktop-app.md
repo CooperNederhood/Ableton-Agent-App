@@ -79,11 +79,12 @@ resumes a saved session (`main/lifecycle.ts`).
 
 A narrow icon rail on the left switches screens (list in `renderer/App.tsx`).
 Each item is an icon with a short label: Workspace, Agents, Skills, Memory,
-Sessions, and Profile at the bottom. **More** holds Outputs and Settings,
-plus **Events**, **Browser**, and **Diagnostics** when **Show advanced views**
-is on in Settings. An in-app link can still open an advanced view. The top bar
-shows the Live connection LED, the Set name and tempo, the profile, and the
-agent picker.
+Wiring, Sessions, and Profile at the bottom. **More** holds Outputs and
+Settings, plus **Browser** and **Diagnostics** when **Show advanced views** is
+on in Settings. An in-app link can still open an advanced view. The top bar
+shows the Live connection LED, the Set name and tempo, **Arm all** for the
+Machine Listening monitors (its ▾ arms or disarms one track), the profile, and
+the agent picker.
 
 | Screen          | What you do there                                                                                                          |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------- |
@@ -92,7 +93,7 @@ agent picker.
 | **Skills**      | Read and edit `SKILL.md` skills, see which agents use one, and insert it into chat. Skills also work as slash commands.   |
 | **Memory**      | Read memory topics as tiles, move them between scopes, delete them, or start an `/update-memory` edit in chat.             |
 | **Outputs**     | Route MIDI/audio observations from Max for Live devices to agents; see listening passes and stored listening context.     |
-| **Events**      | Define Live Events (watch a parameter, or a track's clip/recording changes). A **History** toggle opens the event journal. |
+| **Wiring**      | Wire sources (Machine Listening monitors and Live Events) to active agents, arm monitors, add listeners and events. **History** opens the event journal. |
 | **Browser**     | Look through Live's browser and installed plug-ins.                                                                        |
 | **Profile**     | A scope ladder counts agents, skills and memory per scope (click a count to open that list), above the full file manager. |
 | **Diagnostics** | Check the bridge, Remote Script compatibility, Copilot auth; copy a summary or export a support bundle.                    |
@@ -142,7 +143,7 @@ A few Workspace details worth knowing:
   small chat-only window (320×360).
 
 [live-events.md](live-events.md), [listening.md](listening.md) and
-[observability.md](observability.md) cover Events, Outputs and History in depth.
+[observability.md](observability.md) cover Wiring, Outputs and History in depth.
 
 ### Memory and skill review
 

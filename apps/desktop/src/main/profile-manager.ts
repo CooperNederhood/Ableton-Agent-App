@@ -381,13 +381,27 @@ export class DesktopProfileManager implements ProfileManagerActions {
     });
   }
 
-  public async saveAgentDefinition({
-    definition,
-    expectedRevision,
-    expectedFingerprint,
-  }: Parameters<ProfileManagerActions["saveAgentDefinition"]>[0]) {
+  public saveAgentDefinition(
+    request: Parameters<ProfileManagerActions["saveAgentDefinition"]>[0],
+  ): ReturnType<ProfileManagerActions["saveAgentDefinition"]> {
+    return this.#publishAgentDefinition(request, false);
+  }
+
+  public createAgentDefinition(
+    request: Parameters<ProfileManagerActions["createAgentDefinition"]>[0],
+  ): ReturnType<ProfileManagerActions["createAgentDefinition"]> {
+    return this.#publishAgentDefinition(request, true);
+  }
+
+  async #publishAgentDefinition(
+    request:
+      | Parameters<ProfileManagerActions["saveAgentDefinition"]>[0]
+      | Parameters<ProfileManagerActions["createAgentDefinition"]>[0],
+    creating: boolean,
+  ): ReturnType<ProfileManagerActions["saveAgentDefinition"]> {
+    const { definition, expectedRevision } = request;
     return this.#artifactOperation(
-      "save-definition",
+      creating ? "create-definition" : "save-definition",
       "agent",
       definition.name,
       async () => {
@@ -424,15 +438,6 @@ export class DesktopProfileManager implements ProfileManagerActions {
             );
           }
           snapshot = await this.get(activeProfile);
-        }
-        const eventIds = new Set(session.liveEvents.map(({ id }) => id));
-        const unknownEventIds = definition.eventListeners
-          .map(({ eventId }) => eventId)
-          .filter((eventId) => !eventIds.has(eventId));
-        if (unknownEventIds.length > 0) {
-          throw new Error(
-            `Agent event listeners reference unknown events: ${[...new Set(unknownEventIds)].join(", ")}`,
-          );
         }
         const sessionOwnership = {
           liveSetId: session.liveSetId,
@@ -471,15 +476,27 @@ export class DesktopProfileManager implements ProfileManagerActions {
         const current = (await load()).agents.find(
           ({ definition: candidate }) => candidate.name === definition.name,
         );
-        if (current === undefined) {
-          throw new Error(
-            `Agent definition '${definition.name}' does not exist`,
-          );
-        }
-        if (current.fingerprint !== expectedFingerprint) {
-          throw new ProfileOperationCancelledError(
-            "Agent definition changed; refresh before trying again",
-          );
+        if (creating) {
+          if (current !== undefined) {
+            throw new Error(
+              `Agent definition '${definition.name}' already exists`,
+            );
+          }
+        } else {
+          if (current === undefined) {
+            throw new Error(
+              `Agent definition '${definition.name}' does not exist`,
+            );
+          }
+          const expectedFingerprint =
+            "expectedFingerprint" in request
+              ? request.expectedFingerprint
+              : undefined;
+          if (current.fingerprint !== expectedFingerprint) {
+            throw new ProfileOperationCancelledError(
+              "Agent definition changed; refresh before trying again",
+            );
+          }
         }
         try {
           await this.#assertSnapshotUnchanged(snapshot);

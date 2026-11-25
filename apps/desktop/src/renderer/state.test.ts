@@ -29,7 +29,6 @@ function stateWithAgents(): DesktopState {
       resolvedTools: [],
       editScope: ["session" as const],
       skills: [],
-      inputChannels: [],
     },
     boundTracks: [],
     outputSubscriptions: [],
@@ -1365,7 +1364,11 @@ describe("desktop reducer", () => {
   });
 
   it("reduces renderer-safe Live event snapshots", () => {
-    const events = { activeSessionId: "session-1", events: [] };
+    const events = {
+      activeSessionId: "session-1",
+      events: [],
+      monitors: { available: false, status: "off" as const, listeners: [] },
+    };
     const activeState = { ...initialState, activeSessionId: "session-1" };
     const state = desktopReducer(activeState, {
       type: "event",
@@ -1379,7 +1382,15 @@ describe("desktop reducer", () => {
         type: "event",
         event: {
           type: "events.changed",
-          events: { activeSessionId: "session-2", events: [] },
+          events: {
+            activeSessionId: "session-2",
+            events: [],
+            monitors: {
+              available: false,
+              status: "off" as const,
+              listeners: [],
+            },
+          },
         },
       }),
     ).toBe(activeState);

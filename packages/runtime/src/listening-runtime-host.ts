@@ -19,6 +19,7 @@ import {
   type ListeningRequest,
 } from "@ableton-agent/application";
 import { withCorrelation } from "@ableton-agent/correlation";
+import { addListenerDevice } from "./listener-device.js";
 import {
   sanitizePersistedText,
   sanitizeTelemetryAttributes,
@@ -66,6 +67,7 @@ import {
   createMonitoringController,
   type MonitoringPassPlan,
 } from "./monitoring-controller.js";
+import { monitoringPassBars } from "./monitoring-stream.js";
 import type {
   ListeningRuntimeDependencies,
   ListeningRuntimeHost,
@@ -1906,13 +1908,13 @@ export function createListeningRuntimeHost(
   >();
   const monitoring = createMonitoringController({
     ...(dependencies.telemetry ? { telemetry: dependencies.telemetry } : {}),
-    plan: ({ listenerIds, maxBars, owner: expectedOwner, context }) =>
+    plan: ({ listenerIds, maxBars, context }) =>
       stage("monitoring-plan", context, async () => {
         const snapshot = await inspect(
           listenerIds,
           { startBeat: 0, endBeat: 1 },
           context,
-          expectedOwner,
+          await owner(context),
           undefined,
           false,
           false,
@@ -1949,15 +1951,17 @@ export function createListeningRuntimeHost(
           ]);
         const meter = transport.timeSignature;
         const barBeats = (meter.numerator * 4) / meter.denominator;
-        const passBars = Math.floor(
-          (MAX_CONTINUOUS_METRIC_LISTENING_SECONDS * transport.tempo) /
-            60 /
-            barBeats,
-        );
+        const passBars = monitoringPassBars(transport.tempo, barBeats);
         const startBeat = transport.currentBeat;
+        const firstBar = Math.ceil(startBeat / barBeats) * barBeats;
         const plan: MonitoringPassPlan = {
           startBeat,
-          endBeat: startBeat + Math.min(maxBars, passBars) * barBeats,
+          endBeat: Math.min(
+            startBeat + passBars * barBeats,
+            maxBars === undefined
+              ? Number.POSITIVE_INFINITY
+              : firstBar + maxBars * barBeats,
+          ),
           alignment: listeningMusicalAlignmentSchema.parse({
             version: 1,
             coordinate: "transport-beats",
@@ -2021,109 +2025,119 @@ export function createListeningRuntimeHost(
       }),
   });
 
+  type InspectListeners = Parameters<
+    typeof createListeningHost
+  >[0]["inspectListeners"];
+  const listListeners = (
+    context: Parameters<InspectListeners>[0],
+    tracks: Parameters<InspectListeners>[1],
+    limit: number,
+  ): ReturnType<InspectListeners> =>
+    stage("discovery", context, async () => {
+      const resolved = await owner(context);
+      const inventory = listeners().inspectListeners();
+      const candidates = connected(inventory);
+      const views = [];
+      let incomplete = false;
+      for (const candidate of tracks === undefined
+        ? candidates.slice(0, limit)
+        : candidates) {
+        let trackReference = "unresolved";
+        let deviceReference = "unresolved";
+        let binding:
+          | InspectListeningContextResult["listeners"][number]["binding"]
+          | undefined;
+        const limitations: string[] = [];
+        try {
+          const snapshot = await inspect(
+            [candidate.producerId],
+            { startBeat: 0, endBeat: 1 },
+            context,
+            resolved,
+            undefined,
+            true,
+          );
+          binding = snapshot.inspection.listeners[0]!.binding;
+          trackReference = binding.track.expectedReference;
+          deviceReference = binding.expectedDeviceReference;
+        } catch (cause) {
+          context.signal?.throwIfAborted();
+          incomplete = true;
+          limitations.push(
+            sanitizePersistedText(
+              cause instanceof Error ? cause.message : "unresolved",
+            ).slice(0, 128),
+          );
+        }
+        if (tracks !== undefined) {
+          if (binding === undefined) continue;
+          const selected = tracks.filter(
+            (track) => track.expectedReference === trackReference,
+          );
+          if (selected.length === 0) continue;
+          if (
+            selected.some((track) => !isDeepStrictEqual(track, binding.track))
+          )
+            deny(
+              "stale_listening_source",
+              "Selected track identity, name, or position changed",
+            );
+        }
+        if (
+          inventory.find((item) => item.connectionId === candidate.connectionId)
+            ?.phase !== "idle"
+        )
+          limitations.push("listener_not_idle");
+        if (!candidate.nativeStatus.supportedModes.includes("session"))
+          limitations.push("session_mode_unsupported");
+        // Producer self-report is never independent commissioning evidence.
+        limitations.push(
+          "native_per_pass_validation_required",
+          "source_onset_unverified",
+          "approximate_descriptive_only",
+          "absolute_timing_accuracy_unknown",
+          "constant_tempo_assumed_not_independently_verified",
+          "tempo_automation_unsupported",
+        );
+        if (candidate.nativeStatus.supportedModes.includes("session"))
+          limitations.push(
+            "session_first_iteration_midi_or_warped_audio_only",
+            "message_rate_source_monitoring_not_sample_accurate_continuity",
+            "unknown_follow_actions_not_verified_disabled",
+          );
+        views.push({
+          listenerId: candidate.producerId,
+          instanceId: candidate.instanceId,
+          trackReference,
+          deviceReference,
+          displayName: sanitizePersistedText(
+            inventory.find(
+              (item) => item.producer.producerId === candidate.producerId,
+            )!.producer.displayName,
+          ).slice(0, 128),
+          capabilities: [...candidate.capabilities],
+          ready: false,
+          limitations: [...new Set(limitations)],
+        });
+      }
+      return {
+        action: "inspect-listeners",
+        listeners: views,
+        truncated:
+          tracks === undefined ? inventory.length > views.length : incomplete,
+      };
+    });
+  // Eight bounds the requested capture, not discovery of eligible devices on selected tracks.
+  const inspectListeners: InspectListeners = (context, tracks) =>
+    listListeners(context, tracks, 8);
+
   const host = createListeningHost({
     services,
     monitoring,
     ...(dependencies.telemetry ? { telemetry: dependencies.telemetry } : {}),
     resolveOwner: (context) =>
       stage("owner-resolution", context, () => owner(context)),
-    inspectListeners: (context, tracks) =>
-      stage("discovery", context, async () => {
-        const resolved = await owner(context);
-        const inventory = listeners().inspectListeners();
-        const candidates = connected(inventory);
-        const views = [];
-        let incomplete = false;
-        // Eight bounds the requested capture, not discovery of eligible devices on selected tracks.
-        for (const candidate of tracks === undefined
-          ? candidates.slice(0, 8)
-          : candidates) {
-          let trackReference = "unresolved";
-          let deviceReference = "unresolved";
-          let binding:
-            | InspectListeningContextResult["listeners"][number]["binding"]
-            | undefined;
-          const limitations: string[] = [];
-          try {
-            const snapshot = await inspect(
-              [candidate.producerId],
-              { startBeat: 0, endBeat: 1 },
-              context,
-              resolved,
-              undefined,
-              true,
-            );
-            binding = snapshot.inspection.listeners[0]!.binding;
-            trackReference = binding.track.expectedReference;
-            deviceReference = binding.expectedDeviceReference;
-          } catch (cause) {
-            context.signal?.throwIfAborted();
-            incomplete = true;
-            limitations.push(
-              sanitizePersistedText(
-                cause instanceof Error ? cause.message : "unresolved",
-              ).slice(0, 128),
-            );
-          }
-          if (tracks !== undefined) {
-            if (binding === undefined) continue;
-            const selected = tracks.filter(
-              (track) => track.expectedReference === trackReference,
-            );
-            if (selected.length === 0) continue;
-            if (
-              selected.some((track) => !isDeepStrictEqual(track, binding.track))
-            )
-              deny(
-                "stale_listening_source",
-                "Selected track identity, name, or position changed",
-              );
-          }
-          if (
-            inventory.find(
-              (item) => item.connectionId === candidate.connectionId,
-            )?.phase !== "idle"
-          )
-            limitations.push("listener_not_idle");
-          if (!candidate.nativeStatus.supportedModes.includes("session"))
-            limitations.push("session_mode_unsupported");
-          // Producer self-report is never independent commissioning evidence.
-          limitations.push(
-            "native_per_pass_validation_required",
-            "source_onset_unverified",
-            "approximate_descriptive_only",
-            "absolute_timing_accuracy_unknown",
-            "constant_tempo_assumed_not_independently_verified",
-            "tempo_automation_unsupported",
-          );
-          if (candidate.nativeStatus.supportedModes.includes("session"))
-            limitations.push(
-              "session_first_iteration_midi_or_warped_audio_only",
-              "message_rate_source_monitoring_not_sample_accurate_continuity",
-              "unknown_follow_actions_not_verified_disabled",
-            );
-          views.push({
-            listenerId: candidate.producerId,
-            instanceId: candidate.instanceId,
-            trackReference,
-            deviceReference,
-            displayName: sanitizePersistedText(
-              inventory.find(
-                (item) => item.producer.producerId === candidate.producerId,
-              )!.producer.displayName,
-            ).slice(0, 128),
-            capabilities: [...candidate.capabilities],
-            ready: false,
-            limitations: [...new Set(limitations)],
-          });
-        }
-        return {
-          action: "inspect-listeners",
-          listeners: views,
-          truncated:
-            tracks === undefined ? inventory.length > views.length : incomplete,
-        };
-      }),
+    inspectListeners,
     resolveArrangementRange: (sources, context) =>
       stage("arrangement-range-resolution", context, async (progress) => {
         const resolved = await owner(context);
@@ -2310,6 +2324,27 @@ export function createListeningRuntimeHost(
     },
   });
   const ports: ConcreteListeningRuntimeHost = {
+    monitors: {
+      registry: monitoring,
+      // The agent's ready flag means "validated per capture"; the GUI only
+      // needs to know the device sits on a track it can arm.
+      discover: async (context) => {
+        const found = await listListeners(
+          context,
+          undefined,
+          Number.POSITIVE_INFINITY,
+        );
+        return {
+          ...found,
+          listeners: found.listeners.map((listener) => ({
+            ...listener,
+            ready: listener.trackReference !== "unresolved",
+          })),
+        };
+      },
+      add: (trackReference) =>
+        addListenerDevice(dependencies.ableton, trackReference),
+    },
     resolveListeningOperation: (input, context) =>
       stage("source-resolution", context, async (progress) => {
         progress(

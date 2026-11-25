@@ -455,6 +455,41 @@ describe("local observability journal", () => {
     });
   });
 
+  it("searches root traces by substring and hides traces by root name", async () => {
+    const journal = await openJournal({ batchSize: 5, batchDelayMs: 5_000 });
+    const traces = [id(900), id(901), id(902)] as const;
+    await Promise.all([
+      journal.enqueue(event(1, { traceId: traces[0] })),
+      journal.enqueue(event(2, { traceId: traces[0], source: "desktop.ui" })),
+      journal.enqueue(event(4, { traceId: traces[1] })),
+      journal.enqueue(event(3, { traceId: traces[1] })),
+      journal.enqueue(event(6, { traceId: traces[2] })),
+    ]);
+
+    const hidden = await journal.readRootTraces({
+      order: "asc",
+      excludeRootNames: ["bridge.connected"],
+    });
+    expect(hidden.items.map((trace) => trace.rootTraceId)).toEqual([traces[0]]);
+    expect(hidden.page.totalItems).toBe(1);
+
+    const bySource = await journal.readRootTraces({ search: "DESKTOP" });
+    expect(bySource.items.map((trace) => trace.rootTraceId)).toEqual([
+      traces[0],
+    ]);
+    const byName = await journal.readRootTraces({
+      order: "asc",
+      search: "tool.comp",
+    });
+    expect(byName.items.map((trace) => trace.rootTraceId)).toEqual([
+      traces[0],
+      traces[1],
+    ]);
+    expect((await journal.readRootTraces({ search: "%" })).items).toHaveLength(
+      0,
+    );
+  });
+
   it("reads complete traces and stores versioned configuration snapshots", async () => {
     const journal = await openJournal({ batchSize: 5, batchDelayMs: 5_000 });
     const traceId = id(900);

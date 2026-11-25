@@ -34,7 +34,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function harness() {
+function harness(passBeats = 64) {
   const passes: {
     plan: MonitoringPassPlan;
     result: ReturnType<typeof deferred<unknown>>;
@@ -55,7 +55,7 @@ function harness() {
         throw new ListeningFailure("transport_not_stopped", "playing");
       return {
         startBeat: next,
-        endBeat: next + 64,
+        endBeat: next + passBeats,
         alignment,
         tracks: listenerIds.map((listenerId) => ({
           listenerId,
@@ -141,6 +141,29 @@ describe("monitoring controller", () => {
       reason: "completed",
     });
     expect(disarm).not.toHaveBeenCalled();
+  });
+
+  it("reports a pass that filled while playing as pass-limit, not a stop", async () => {
+    const { controller, passes } = harness(8);
+    const fixture = await createSyntheticMetricRecordStreamFixture({
+      seconds: 12,
+      requestedMetrics: ["mel-bands"],
+    });
+    await controller.arm(
+      { listenerIds: [fixture.descriptor.ownership.listenerId] },
+      context,
+    );
+    const { sink, launch, result } = passes[0]!;
+    launch.resolve();
+    await sink.begin(fixture.descriptor);
+    for await (const chunk of fixture.chunks()) await sink.append(chunk);
+    result.resolve(undefined);
+    await settle();
+
+    const reasons = (await controller.read()).episodes.flatMap(({ episode }) =>
+      episode.kind === "uncertain" ? [episode.reason] : [],
+    );
+    expect(reasons).toEqual(["pass-limit"]);
   });
 
   it("is shared: the app arms, an agent adds a track, and both are reported", async () => {

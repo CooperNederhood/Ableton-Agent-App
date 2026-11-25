@@ -471,8 +471,8 @@ describe("DefaultLiveEventRuntime", () => {
         ({ occurrence: item }) => item.summary,
       ),
     ).toEqual([
-      "A 4-bar pattern settled on 'Keys' at bar 4",
-      "The pattern changed on 'Keys' at bar 12",
+      "A 4-bar pattern settled on 'Keys' at bar 3",
+      "The pattern changed on 'Keys' at bar 11",
     ]);
     expect(
       (await runtime.getPendingLiveEventContexts("agent-changes")).map(

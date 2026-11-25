@@ -2025,18 +2025,22 @@ export function createListeningRuntimeHost(
       }),
   });
 
-  const inspectListeners: Parameters<
+  type InspectListeners = Parameters<
     typeof createListeningHost
-  >[0]["inspectListeners"] = (context, tracks) =>
+  >[0]["inspectListeners"];
+  const listListeners = (
+    context: Parameters<InspectListeners>[0],
+    tracks: Parameters<InspectListeners>[1],
+    limit: number,
+  ): ReturnType<InspectListeners> =>
     stage("discovery", context, async () => {
       const resolved = await owner(context);
       const inventory = listeners().inspectListeners();
       const candidates = connected(inventory);
       const views = [];
       let incomplete = false;
-      // Eight bounds the requested capture, not discovery of eligible devices on selected tracks.
       for (const candidate of tracks === undefined
-        ? candidates.slice(0, 8)
+        ? candidates.slice(0, limit)
         : candidates) {
         let trackReference = "unresolved";
         let deviceReference = "unresolved";
@@ -2123,6 +2127,9 @@ export function createListeningRuntimeHost(
           tracks === undefined ? inventory.length > views.length : incomplete,
       };
     });
+  // Eight bounds the requested capture, not discovery of eligible devices on selected tracks.
+  const inspectListeners: InspectListeners = (context, tracks) =>
+    listListeners(context, tracks, 8);
 
   const host = createListeningHost({
     services,
@@ -2319,7 +2326,22 @@ export function createListeningRuntimeHost(
   const ports: ConcreteListeningRuntimeHost = {
     monitors: {
       registry: monitoring,
-      discover: (context) => inspectListeners(context, undefined),
+      // The agent's ready flag means "validated per capture"; the GUI only
+      // needs to know the device sits on a track it can arm.
+      discover: async (context) => {
+        const found = await listListeners(
+          context,
+          undefined,
+          Number.POSITIVE_INFINITY,
+        );
+        return {
+          ...found,
+          listeners: found.listeners.map((listener) => ({
+            ...listener,
+            ready: listener.trackReference !== "unresolved",
+          })),
+        };
+      },
       add: (trackReference) =>
         addListenerDevice(dependencies.ableton, trackReference),
     },

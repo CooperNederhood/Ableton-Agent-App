@@ -340,13 +340,16 @@ export function createMonitoringController(
       handle = undefined;
       if (signal.aborted) break;
       const bars = Math.max(0, ...sealed.values());
+      const plannedBars = Math.round(
+        (pass.endBeat - pass.startBeat) / barBeats,
+      );
       record(
         "pass-ended",
         {
           passId,
           launched,
           barsSealed: bars,
-          passBars: Math.round((pass.endBeat - pass.startBeat) / barBeats),
+          passBars: plannedBars,
           replan,
           ...(failure === undefined
             ? {}
@@ -354,12 +357,14 @@ export function createMonitoringController(
         },
         failure === undefined || replan ? "success" : "failure",
       );
+      // A pass that filled its plan ended on its own, not because Live stopped.
+      const reason =
+        failure === undefined && bars >= plannedBars
+          ? "pass-limit"
+          : "transport-stopped";
       if (launched || bars > 0)
         for (const monitor of monitors.values())
-          append(
-            monitor,
-            monitor.observer.interrupt("transport-stopped", null),
-          );
+          append(monitor, monitor.observer.interrupt(reason, null));
       setStatus("rearming");
     }
   };

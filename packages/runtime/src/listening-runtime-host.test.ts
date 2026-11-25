@@ -844,6 +844,12 @@ describe("production v5 Arrangement listening host with synthetic native peer", 
       });
       expect(event.durationMs).toBeGreaterThanOrEqual(0);
     }
+    // The app's arm controls only need the device to sit on a resolved track.
+    expect(
+      (await f.host.monitors!.discover(context)).listeners.map(
+        ({ ready }) => ready,
+      ),
+    ).toEqual([true]);
     const job = await f.run();
     expect(job.stage, JSON.stringify({ job, log: f.log })).toBe("completed");
     const observed = metricRecordStreamContextReferenceSchema.parse(

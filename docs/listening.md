@@ -270,7 +270,9 @@ runs the loop:
    its place in the loop. This lets slow drift in how bars line up with the
    analysis frames go unflagged, while a sudden change still stands out.
 4. If playback stops or jumps, the pass ends, the observers emit `uncertain`,
-   and monitoring re-arms from the new stopped position.
+   and monitoring re-arms from the new stopped position. A pass that fills
+   its planned bars while Live keeps playing emits `uncertain` with reason
+   `pass-limit` and re-arms after the next stop.
 
 `createMonitoringController` returns a `MonitoringRegistry`: the tool port plus
 `snapshot()` and `subscribe()`, which the Desktop app uses to show status and

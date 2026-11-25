@@ -245,7 +245,7 @@ function patternState(update: MonitoringUpdate): PatternState {
 }
 
 function patternSummary(trackName: string, state: PatternState): string {
-  const at = state.bar === null ? "" : ` at bar ${state.bar + 1}`;
+  const at = state.bar === null ? "" : ` at bar ${state.bar}`;
   switch (state.episode) {
     case "pattern-established":
       return `A ${state.periodBars}-bar pattern settled on '${trackName}'${at}`;
@@ -703,8 +703,7 @@ export class DefaultLiveEventRuntime
     this.#subscriptionRetryAttempts.delete(eventId);
   }
 
-  async #resolveMonitorTarget(state: MutableState): Promise<void> {
-    const { definition } = state;
+  async #findTrack(definition: LiveEventDefinition) {
     const snapshot = await this.#bridge.inspectSession();
     const track = snapshot.tracks.filter(
       ({ name }) => name === definition.target.track.name,
@@ -712,6 +711,13 @@ export class DefaultLiveEventRuntime
     if (track === undefined) {
       throw new Error(`Track '${definition.target.track.name}' was not found`);
     }
+    return track;
+  }
+
+  async #resolveMonitorTarget(state: MutableState): Promise<void> {
+    const { definition } = state;
+    const track = await this.#findTrack(definition);
+    this.#clearSubscriptionRetry(definition.id);
     if (
       state.resolution.status === "resolved" &&
       state.resolution.trackReference === track.reference
@@ -782,14 +788,7 @@ export class DefaultLiveEventRuntime
   async #resolveParams(
     definition: Exclude<LiveEventDefinition, { kind: "track.pattern_changed" }>,
   ): Promise<SubscribeEventParams> {
-    const snapshot = await this.#bridge.inspectSession();
-    const matchingTracks = snapshot.tracks.filter(
-      ({ name }) => name === definition.target.track.name,
-    );
-    const track = matchingTracks[definition.target.track.occurrence];
-    if (track === undefined) {
-      throw new Error(`Track '${definition.target.track.name}' was not found`);
-    }
+    const track = await this.#findTrack(definition);
     const base = {
       eventId: definition.id,
       liveSetId: definition.projectId,

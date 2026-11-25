@@ -1437,11 +1437,7 @@ describe("desktop component interactions", () => {
       liveSetName: "Test Set",
       tempo: 120,
       timeSignature: "4/4",
-      tracks: [
-        track("t1", "Drums"),
-        track("t2", "Bass"),
-        track("t3", "Drums"),
-      ],
+      tracks: [track("t1", "Drums"), track("t2", "Bass"), track("t3", "Drums")],
     };
     const saveDefinition = vi.fn().mockResolvedValue({
       catalog: state.agentCatalog,

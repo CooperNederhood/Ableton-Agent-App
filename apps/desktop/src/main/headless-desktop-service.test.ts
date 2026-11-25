@@ -616,6 +616,7 @@ describe("desktop persistence stores", () => {
         productionPlan: [],
         outputAssignments: [],
         liveEvents: [],
+        armedMonitorTracks: [],
       },
     ];
 
@@ -679,6 +680,7 @@ describe("desktop persistence stores", () => {
       productionPlan: [],
       outputAssignments: [],
       liveEvents: [],
+      armedMonitorTracks: [],
     });
     await store.save([session]);
     const source = resolveNestedSessionStorage(storage, {
@@ -728,6 +730,7 @@ describe("desktop persistence stores", () => {
       productionPlan: [],
       outputAssignments: [],
       liveEvents: [],
+      armedMonitorTracks: [],
     });
     await store.save([session]);
     const source = resolveNestedSessionStorage(storage, {
@@ -773,6 +776,7 @@ describe("desktop persistence stores", () => {
       productionPlan: [],
       outputAssignments: [],
       liveEvents: [],
+      armedMonitorTracks: [],
     });
     await store.save([session]);
     await mkdir(join(storage.liveProjectsRegistryPath, ".."), {
@@ -821,6 +825,7 @@ describe("desktop persistence stores", () => {
           productionPlan: [],
           outputAssignments: [],
           liveEvents: [],
+          armedMonitorTracks: [],
         },
       ]),
       "utf8",
@@ -6304,6 +6309,85 @@ describe("desktop adapter over the shared application", () => {
     const before = discoveries;
     signals.emit({ type: "connections.changed", connections: connected });
     expect(discoveries).toBe(before);
+    await service.stop();
+  });
+
+  it("remembers armed monitor tracks and re-arms them when devices reconnect", async () => {
+    const signals = new FakeSignalRuntime();
+    let armed: string[] = [];
+    const armCalls: string[][] = [];
+    const monitors = {
+      registry: {
+        arm: async (request: { listenerIds: readonly string[] }) => {
+          armCalls.push([...request.listenerIds]);
+          armed = [...new Set([...armed, ...request.listenerIds])];
+          return monitors.registry.snapshot();
+        },
+        read: async () => monitors.registry.snapshot(),
+        disarm: async () => {
+          armed = [];
+          return monitors.registry.snapshot();
+        },
+        snapshot: () => ({
+          status: armed.length > 0 ? ("armed" as const) : ("off" as const),
+          tracks: armed.map((listenerId) => ({
+            listenerId,
+            trackReference: `${listenerId}-track`,
+            pending: false,
+            state: "armed" as const,
+            periodBars: null,
+            patternVersion: 0,
+            lastBar: null,
+            lastDistance: null,
+          })),
+          episodes: [],
+          nextSequence: 0,
+        }),
+        subscribe: () => () => undefined,
+        shutdown: async () => {},
+      },
+      discover: async () => ({
+        action: "inspect-listeners" as const,
+        listeners: ["keys", "bass"].map((listenerId) => ({
+          listenerId,
+          instanceId: `${listenerId}-instance`,
+          trackReference: `${listenerId}-track`,
+          deviceReference: `${listenerId}-device`,
+          displayName: "Machine Listening",
+          capabilities: [],
+          ready: true,
+          limitations: [],
+        })),
+        truncated: false,
+      }),
+      add: async () => ({}),
+    };
+    const { service, sessionStore } = await harness(
+      {},
+      { signals, monitors: monitors as never },
+    );
+    await service.start();
+    await service.refreshMonitors();
+    await service.armMonitors(["keys"]);
+    const sessionId = (await service.getSessions())[0]!.id;
+    const saved = async () =>
+      (await sessionStore.load()).find(({ id }) => id === sessionId)!
+        .armedMonitorTracks;
+    expect(await saved()).toEqual(["keys-track"]);
+
+    // As after a restart: the registry is empty until the device reconnects.
+    armed = [];
+    armCalls.length = 0;
+    signals.emit({
+      type: "connections.changed",
+      connections: [
+        { ...signals.connections[0]!, connectionId: "reconnected" },
+      ],
+    });
+    await vi.waitFor(() => expect(armCalls).toEqual([["keys"]]));
+
+    await service.disarmMonitors();
+    expect(await saved()).toEqual([]);
     await service.stop();
   });
 

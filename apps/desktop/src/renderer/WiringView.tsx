@@ -695,6 +695,15 @@ export function WiringView({
           />
         )}
         <span className="wiring-spacer" />
+        {state.connection.state === "connected" &&
+          !state.connection.saved && (
+            <span
+              className="wiring-muted"
+              title="Wiring is kept with a saved Live Set. Untitled sets start fresh."
+            >
+              Save your Live Set to keep this Wiring
+            </span>
+          )}
         {inactiveDefinitions.length > 0 && (
           <span className="wiring-muted tabular">
             {inactiveDefinitions.length} inactive{" "}

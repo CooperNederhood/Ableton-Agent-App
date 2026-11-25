@@ -836,6 +836,7 @@ describe("desktop IPC contracts", () => {
       sessionSchema.safeParse({
         ...session,
         liveEvents: [],
+        armedMonitorTracks: [],
       }).success,
     ).toBe(false);
   });

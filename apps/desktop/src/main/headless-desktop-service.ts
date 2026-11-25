@@ -57,6 +57,7 @@ import {
 import {
   createAgentInstanceAssignmentId,
   stableTelemetryId,
+  type OutputConnection,
 } from "@ableton-agent/signal-routing";
 import {
   createNonBlockingObservabilityRecorder,
@@ -364,6 +365,7 @@ export class HeadlessDesktopService implements DesktopService {
   #unsubscribeSignals: (() => void) | undefined;
   #unsubscribeLiveEvents: (() => void) | undefined;
   #unsubscribeMonitors: (() => void) | undefined;
+  #monitorConnectionKey = "";
   /** Last discovered Machine Listening devices; refreshed on request. */
   #monitorListeners: Awaited<
     ReturnType<ListeningMonitors["discover"]>
@@ -5771,6 +5773,30 @@ export class HeadlessDesktopService implements DesktopService {
     return this.refreshMonitors();
   }
 
+  // Listener devices connect after Live loads them, often after the add
+  // request's own discovery has run; heartbeats also publish, so only a
+  // changed set of connected devices triggers rediscovery.
+  #refreshMonitorsOnConnectionChange(
+    connections: readonly OutputConnection[],
+  ): void {
+    const key = connections
+      .filter(({ status }) => status === "connected")
+      .map(({ connectionId }) => connectionId)
+      .sort()
+      .join(",");
+    if (key === this.#monitorConnectionKey) return;
+    this.#monitorConnectionKey = key;
+    if (
+      this.options.monitors === undefined ||
+      !this.#acceptingActions ||
+      this.#activeAppSessionId === undefined
+    )
+      return;
+    void this.refreshMonitors().catch((error: unknown) =>
+      this.#report("Machine Listening devices could not be refreshed", error),
+    );
+  }
+
   #requireMonitors(): ListeningMonitors {
     if (this.options.monitors === undefined) {
       throw new Error("Machine Listening is not available in this build");
@@ -6114,6 +6140,9 @@ export class HeadlessDesktopService implements DesktopService {
         message: event.message,
       });
       return;
+    }
+    if (event.type === "connections.changed") {
+      this.#refreshMonitorsOnConnectionChange(event.connections);
     }
     if (event.type === "latest-window.changed") {
       if (event.context === undefined) {

@@ -197,9 +197,13 @@ class FakeSignalRuntime implements SignalRuntime {
   removeAssignment(assignmentId: string) {
     return this.assignments.delete(assignmentId);
   }
+  readonly subscribers = new Set<(event: SignalRuntimeEvent) => void>();
   subscribe(listener: (event: SignalRuntimeEvent) => void) {
-    void listener;
-    return () => undefined;
+    this.subscribers.add(listener);
+    return () => this.subscribers.delete(listener);
+  }
+  emit(event: SignalRuntimeEvent) {
+    for (const listener of this.subscribers) listener(event);
   }
 }
 
@@ -6227,6 +6231,80 @@ describe("desktop adapter over the shared application", () => {
           event.events.monitors.listeners.some(({ armed }) => armed),
       ),
     ).toBe(true);
+  });
+
+  it("rediscovers listeners when a device connects after it was added", async () => {
+    const signals = new FakeSignalRuntime();
+    let found: string[] = [];
+    let discoveries = 0;
+    const monitors = {
+      registry: {
+        arm: async () => {
+          throw new Error("unused");
+        },
+        read: async () => {
+          throw new Error("unused");
+        },
+        disarm: async () => {
+          throw new Error("unused");
+        },
+        snapshot: () => ({
+          status: "off" as const,
+          tracks: [],
+          episodes: [],
+          nextSequence: 0,
+        }),
+        subscribe: () => () => undefined,
+        shutdown: async () => {},
+      },
+      discover: async () => {
+        discoveries += 1;
+        return {
+          action: "inspect-listeners" as const,
+          listeners: found.map((listenerId) => ({
+            listenerId,
+            instanceId: `${listenerId}-instance`,
+            trackReference: `${listenerId}-track`,
+            deviceReference: `${listenerId}-device`,
+            displayName: "Machine Listening",
+            capabilities: [],
+            ready: true,
+            limitations: [],
+          })),
+          truncated: false,
+        };
+      },
+      add: async () => ({}),
+    };
+    const { service, events } = await harness(
+      {},
+      { signals, monitors: monitors as never },
+    );
+    await service.start();
+    expect((await service.addMonitor("drums-track")).listeners).toEqual([]);
+    events.length = 0;
+
+    found = ["drums"];
+    const connected = [
+      ...signals.connections,
+      { ...signals.connections[0]!, connectionId: "connection-2" },
+    ];
+    signals.emit({ type: "connections.changed", connections: connected });
+    await vi.waitFor(() =>
+      expect(
+        events.some(
+          (event) =>
+            event.type === "events.changed" &&
+            event.events.monitors.listeners.some(
+              ({ listenerId }) => listenerId === "drums",
+            ),
+        ),
+      ).toBe(true),
+    );
+    const before = discoveries;
+    signals.emit({ type: "connections.changed", connections: connected });
+    expect(discoveries).toBe(before);
+    await service.stop();
   });
 
   it("manages Live events and explicitly attributed listeners across agents", async () => {

@@ -1514,14 +1514,11 @@ export function EventHistoryView({
 
   useEffect(() => {
     if (!historyMode) return;
-    void Promise.all([
-      window.desktop.eventHistory.configurations({ limit: 100, order: "desc" }),
-      window.desktop.eventHistory.health(),
-    ])
-      .then(([page, health]) => {
-        dispatch({ type: "event-history-configurations-loaded", page });
-        dispatch({ type: "event-history-health-loaded", health });
-      })
+    void window.desktop.eventHistory
+      .configurations({ limit: 100, order: "desc" })
+      .then((page) =>
+        dispatch({ type: "event-history-configurations-loaded", page }),
+      )
       .catch((error: unknown) =>
         eventError(dispatch, error, "History metadata could not be loaded"),
       );
@@ -1628,10 +1625,10 @@ export function EventHistoryView({
           Hide background polling
         </label>
         <span className="wiring-spacer" />
-        {state.eventHistory.health && (
+        {state.eventHistory.totalItems !== undefined && (
           <span className="wiring-muted tabular">
-            {state.eventHistory.health.persistedEvents} events ·{" "}
-            {formatBytes(state.eventHistory.health.databaseBytes)}
+            {state.eventHistory.totalItems}{" "}
+            {state.eventHistory.totalItems === 1 ? "occurrence" : "occurrences"}
           </span>
         )}
       </WiringBar>
@@ -1953,12 +1950,6 @@ function EventTraceInspector({
       )}
     </aside>
   );
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
 export function EventCard({

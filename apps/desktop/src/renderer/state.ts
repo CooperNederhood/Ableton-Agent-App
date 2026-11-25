@@ -20,7 +20,6 @@ import type {
   DesktopLiveSetSnapshot,
   DesktopSession,
   ConfigurationSnapshotPage,
-  JournalHealth,
   LiveEventTrigger,
   PendingLiveSetTransition,
   OperationView,
@@ -148,7 +147,7 @@ export interface DesktopState {
     traceNextCursor?: string | undefined;
     traceTotalEvents?: number | undefined;
     configurations: ConfigurationSnapshotPage["items"];
-    health?: JournalHealth | undefined;
+    totalItems?: number | undefined;
   };
   collapsedOutputProducerIds: string[];
   expandedEventActivityIds: string[];
@@ -273,7 +272,6 @@ export type DesktopAction =
       type: "event-history-configurations-loaded";
       page: ConfigurationSnapshotPage;
     }
-  | { type: "event-history-health-loaded"; health: JournalHealth }
   | { type: "project-refresh-started" }
   | { type: "project-refresh-succeeded" }
   | { type: "project-refresh-failed"; message: string }
@@ -497,6 +495,7 @@ export function desktopReducer(
               )
             : action.page.items,
           nextCursor: action.page.nextCursor,
+          totalItems: action.page.page.totalItems,
           message: undefined,
         },
       };
@@ -541,11 +540,6 @@ export function desktopReducer(
           ...state.eventHistory,
           configurations: action.page.items,
         },
-      };
-    case "event-history-health-loaded":
-      return {
-        ...state,
-        eventHistory: { ...state.eventHistory, health: action.health },
       };
     case "project-refresh-started":
       return { ...state, projectRefresh: { status: "refreshing" } };

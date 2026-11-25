@@ -16,7 +16,7 @@ These two features look similar but are separate:
 | ---------------- | -------------------------------------------------------- | ------------------------------------------------------------------ |
 | Source           | LOM listeners in the Python Remote Script                | MIDI or audio streams sent by Max for Live producer devices        |
 | What arrives     | A semantic change: "value went from 0.4 to 0.7", "clip 3 started" | Observations: MIDI notes, audio measurements                       |
-| Desktop view     | **Events**                                               | **Outputs**                                                        |
+| Desktop view     | **Wiring**                                               | **Outputs**                                                        |
 | Code             | `packages/runtime/src/live-event-runtime.ts`             | `packages/signal-routing`, `packages/runtime/src/signal-runtime.ts` |
 
 They share the same ideas, though: one source can feed many agents, and each
@@ -24,7 +24,7 @@ agent decides how it wants to be told.
 
 ## Event kinds
 
-There are four kinds today:
+There are five kinds today:
 
 | Kind                            | Class      | Fires when                                                          |
 | ------------------------------- | ---------- | ------------------------------------------------------------------- |
@@ -32,6 +32,10 @@ There are four kinds today:
 | `track.playing_clip_changed`    | discrete   | A track switches Session clip, starts Arrangement playback, or stops. |
 | `track.triggered_clip_changed`  | discrete   | A track queues a clip launch (or a stop).                           |
 | `track.recording_state_changed` | discrete   | A track or its clip starts or stops recording.                      |
+| `track.pattern_changed`         | discrete   | A Machine Listening monitor finds, changes or loses a pattern.      |
+
+The first four come from LOM listeners in the Remote Script. Pattern events
+come from the app's monitoring loop instead ([Listening](listening.md)).
 
 **Continuous** sources can fire many times a second, so only the latest value
 matters. **Discrete** sources are transitions, so every one is kept in order.
@@ -170,21 +174,36 @@ and the application runs it with `enqueueLiveEventTurn` in
   without inspecting Live first. The cache refreshes in the background when
   the Set changes.
 
-## The Events view
+## The Wiring view
 
-The Desktop **Events** tab (`apps/desktop/src/renderer/App.tsx`) has two
-modes:
+The Desktop **Wiring** tab (`apps/desktop/src/renderer/WiringView.tsx`) is a
+node graph. Sources sit on the left, active agents on the right, and a wire is
+one `AgentEventListener`.
 
-- **Live Events**: event cards grouped by track, showing current state,
-  whether the event is resolved, and which agents listen.
-  **Add event** offers quick actions ("Watch selected parameter", or a track
-  event for the selected track). It also has a **Browse all** picker that uses
-  the current Live Set snapshot.
-- **History**: a search of the local event journal. You can follow an
+- **Sources** come in two shapes so they are easy to tell apart. A
+  **monitor** card (wave icon, ARMED/OFF toggle, track colour strip) is a
+  Machine Listening device; it is a `track.pattern_changed` event underneath.
+  A **Live event** tag (bolt or knob icon) is any other event kind.
+- **Agents** are cards with their colour as a header. Configured but inactive
+  agents are hidden; **Add agent…** starts one.
+- **Wires** are solid for automatic ("Start a turn now") and dashed for next
+  prompt ("With my next message"). Drag from a source's port to an agent to
+  connect. Clicking a wire's badge opens it in the inspector: mode, which
+  changes to tell it about (monitors), the appended prompt (the listener's
+  `messagePrefix`), and prepared context under **Advanced**.
+- **Add listener…** loads the Machine Listening device from the User Library
+  onto the end of a track's chain (`packages/runtime/src/listener-device.ts`). **Add event…** watches a clip change or a
+  knob. The knob search matches every word against track, device and
+  parameter names, groups results by track and device, can show rack macros
+  only, and hides unnamed macros and on/off switches until asked.
+- **Arm all** (also in the top bar) arms every monitor; each monitor card has
+  its own toggle. Agents can still arm monitors with tool calls; both paths
+  share one set of armed tracks ([Listening](listening.md)).
+- **History** searches the local event journal. You can follow an
   occurrence's trace through fan-out and delivery to each agent.
 
-Agents choose events in the **Listening Events** section of the agent editor,
-with a response mode and optional prefix for each event.
+The **Listening Events** section of the agent editor edits the same
+listeners from the agent's side.
 
 Every step (subscribe, occurrence, fan-out, queue, settle, delivery) is
 recorded as an observability event with the occurrence ID as its trace. See
@@ -228,4 +247,5 @@ details, see [Listening](listening.md).
 | Automatic turns                          | `packages/application/src/index.ts` (`enqueueLiveEventTurn`) |
 | Prepared context cache                   | `packages/runtime/src/prepared-context.ts`              |
 | Output routing                           | `packages/signal-routing/src/router.ts`, `contracts.ts` |
-| Events and Outputs UI                    | `apps/desktop/src/renderer/App.tsx`                     |
+| Wiring UI                                | `apps/desktop/src/renderer/WiringView.tsx`              |
+| Outputs UI                               | `apps/desktop/src/renderer/App.tsx`                     |

@@ -60,6 +60,7 @@ import type {
   DesktopLifecycleState,
   DesktopAgentEventListener,
   DesktopEventsState,
+  DesktopMonitorsState,
   EventTracePage,
   ConfigurationSnapshotPage,
   ConfigurationSnapshotQuery,
@@ -266,7 +267,7 @@ export interface DesktopService {
     eventId: string,
     settings: Pick<
       AgentEventListener,
-      "enabled" | "responseMode" | "messagePrefix" | "preparedContext"
+      "enabled" | "responseMode" | "messagePrefix" | "preparedContext" | "when"
     >,
   ): Promise<DesktopAgentEventListener>;
   unassignLiveEventListener(
@@ -280,9 +281,14 @@ export interface DesktopService {
       Pick<AgentEventListener, "enabled" | "responseMode"> & {
         messagePrefix: string | null;
         preparedContext: AgentEventListener["preparedContext"];
+        when: NonNullable<AgentEventListener["when"]> | null;
       }
     >,
   ): Promise<DesktopAgentEventListener>;
+  refreshMonitors(): Promise<DesktopMonitorsState>;
+  armMonitors(listenerIds?: string[]): Promise<DesktopMonitorsState>;
+  disarmMonitors(listenerIds?: string[]): Promise<DesktopMonitorsState>;
+  addMonitor(trackReference: string): Promise<DesktopMonitorsState>;
   searchEventHistory(query?: RootTraceQuery): Promise<RootTracePage>;
   readAgentHistory(query?: AgentHistoryQuery): Promise<AgentHistoryPage>;
   getEventTrace(

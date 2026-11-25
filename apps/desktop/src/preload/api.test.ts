@@ -353,6 +353,7 @@ describe("preload API", () => {
       "operations",
       "outputs",
       "events",
+      "monitors",
       "eventHistory",
     ]);
     expect("invoke" in api).toBe(false);
@@ -719,6 +720,7 @@ describe("preload API", () => {
     const transport = transportFor({
       "events:list": {
         activeSessionId: "session-1",
+        monitors: { available: false, status: "off", listeners: [] },
         events: [
           {
             definition,

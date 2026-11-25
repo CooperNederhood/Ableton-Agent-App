@@ -725,8 +725,47 @@ export const desktopLiveEventStateSchema = z.object({
 });
 export type DesktopLiveEventState = z.infer<typeof desktopLiveEventStateSchema>;
 
+export const desktopMonitorSchema = z.object({
+  listenerId: z.string().min(1),
+  trackReference: z.string().min(1),
+  displayName: z.string().max(128),
+  ready: z.boolean(),
+  armed: z.boolean(),
+  /** Armed during playback; starts listening at the next stop and play. */
+  pending: z.boolean(),
+  state: z
+    .enum([
+      "armed",
+      "acquiring",
+      "tracking",
+      "deviating",
+      "uncertain",
+      "closed",
+    ])
+    .nullable(),
+  periodBars: z.number().int().positive().nullable(),
+  lastBar: z.number().int().nullable(),
+});
+export type DesktopMonitor = z.infer<typeof desktopMonitorSchema>;
+
+export const desktopMonitorsStateSchema = z.object({
+  available: z.boolean(),
+  status: z.enum([
+    "off",
+    "waiting",
+    "armed",
+    "monitoring",
+    "rearming",
+    "failed",
+  ]),
+  listeners: z.array(desktopMonitorSchema).max(256),
+  error: z.string().max(1024).optional(),
+});
+export type DesktopMonitorsState = z.infer<typeof desktopMonitorsStateSchema>;
+
 export const desktopEventsStateSchema = z.object({
   events: z.array(desktopLiveEventStateSchema),
+  monitors: desktopMonitorsStateSchema,
   activeSessionId: z.string().min(1).optional(),
 });
 export type DesktopEventsState = z.infer<typeof desktopEventsStateSchema>;
@@ -2578,6 +2617,7 @@ export const ipcSchemas = {
         responseMode: agentEventListenerSchema.shape.responseMode,
         messagePrefix: agentEventListenerSchema.shape.messagePrefix,
         preparedContext: agentEventListenerSchema.shape.preparedContext,
+        when: agentEventListenerSchema.shape.when,
       })
       .strict(),
     response: desktopAgentEventListenerSchema,
@@ -2603,17 +2643,45 @@ export const ipcSchemas = {
           .optional(),
         preparedContext:
           agentEventListenerSchema.shape.preparedContext.optional(),
+        when: z
+          .union([agentEventListenerSchema.shape.when.unwrap(), z.null()])
+          .optional(),
       })
       .strict()
       .refine(
-        ({ enabled, responseMode, messagePrefix, preparedContext }) =>
+        ({ enabled, responseMode, messagePrefix, preparedContext, when }) =>
           enabled !== undefined ||
           responseMode !== undefined ||
           messagePrefix !== undefined ||
-          preparedContext !== undefined,
+          preparedContext !== undefined ||
+          when !== undefined,
         "At least one listener setting must be provided",
       ),
     response: desktopAgentEventListenerSchema,
+  },
+  "monitors:refresh": {
+    request: z.object({}).strict(),
+    response: desktopMonitorsStateSchema,
+  },
+  "monitors:arm": {
+    request: z
+      .object({
+        listenerIds: z.array(z.string().min(1)).min(1).max(8).optional(),
+      })
+      .strict(),
+    response: desktopMonitorsStateSchema,
+  },
+  "monitors:disarm": {
+    request: z
+      .object({
+        listenerIds: z.array(z.string().min(1)).min(1).max(8).optional(),
+      })
+      .strict(),
+    response: desktopMonitorsStateSchema,
+  },
+  "monitors:add": {
+    request: z.object({ trackReference: z.string().min(1) }).strict(),
+    response: desktopMonitorsStateSchema,
   },
   "event-history:search": {
     request: telemetryQuerySchema,
@@ -2953,7 +3021,11 @@ export interface DesktopApi {
       eventId: string,
       settings: Pick<
         AgentEventListener,
-        "enabled" | "responseMode" | "messagePrefix" | "preparedContext"
+        | "enabled"
+        | "responseMode"
+        | "messagePrefix"
+        | "preparedContext"
+        | "when"
       >,
     ): Promise<DesktopAgentEventListener>;
     unassignListener(
@@ -2967,10 +3039,17 @@ export interface DesktopApi {
         Pick<AgentEventListener, "enabled" | "responseMode"> & {
           messagePrefix: string | null;
           preparedContext: AgentEventListener["preparedContext"];
+          when: NonNullable<AgentEventListener["when"]> | null;
         }
       >,
     ): Promise<DesktopAgentEventListener>;
     subscribe(handler: (event: DesktopAppEvent) => void): () => void;
+  };
+  monitors: {
+    refresh(): Promise<DesktopMonitorsState>;
+    arm(listenerIds?: string[]): Promise<DesktopMonitorsState>;
+    disarm(listenerIds?: string[]): Promise<DesktopMonitorsState>;
+    add(trackReference: string): Promise<DesktopMonitorsState>;
   };
   eventHistory: {
     agent(query?: AgentHistoryQuery): Promise<AgentHistoryPage>;

@@ -1738,6 +1738,7 @@ describe("desktop components", () => {
     const state = workspaceState();
     state.events = {
       activeSessionId: "session",
+      monitors: { available: false, status: "off" as const, listeners: [] },
       events: liveEventStates(),
     };
     const editor = renderToStaticMarkup(

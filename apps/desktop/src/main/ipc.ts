@@ -355,12 +355,14 @@ export function createIpcHandlers(
       responseMode,
       messagePrefix,
       preparedContext,
+      when,
     }) =>
       service.assignLiveEventListener(agentInstanceId, eventId, {
         enabled,
         responseMode,
         ...(messagePrefix === undefined ? {} : { messagePrefix }),
         ...(preparedContext === undefined ? {} : { preparedContext }),
+        ...(when === undefined ? {} : { when }),
       }),
     "events:unassign-listener": async ({ agentInstanceId, eventId }) => ({
       removed: await service.unassignLiveEventListener(
@@ -375,13 +377,19 @@ export function createIpcHandlers(
       responseMode,
       messagePrefix,
       preparedContext,
+      when,
     }) =>
       service.updateLiveEventListener(agentInstanceId, eventId, {
         ...(enabled === undefined ? {} : { enabled }),
         ...(responseMode === undefined ? {} : { responseMode }),
         ...(messagePrefix === undefined ? {} : { messagePrefix }),
         ...(preparedContext === undefined ? {} : { preparedContext }),
+        ...(when === undefined ? {} : { when }),
       }),
+    "monitors:refresh": () => service.refreshMonitors(),
+    "monitors:arm": ({ listenerIds }) => service.armMonitors(listenerIds),
+    "monitors:disarm": ({ listenerIds }) => service.disarmMonitors(listenerIds),
+    "monitors:add": ({ trackReference }) => service.addMonitor(trackReference),
     "event-history:search": (request) => service.searchEventHistory(request),
     "event-history:agent": (request) => service.readAgentHistory(request),
     "event-history:trace": ({ traceId, cursor, limit, order }) =>

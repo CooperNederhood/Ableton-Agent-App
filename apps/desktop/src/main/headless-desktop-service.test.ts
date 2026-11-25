@@ -21,6 +21,7 @@ import type {
   AgentLiveEventListener,
   LiveSetSaveActionContext,
   LiveEventRuntime,
+  ListeningMonitors,
   LiveEventRuntimeEvent,
   LiveEventRuntimeState,
   SignalRuntime,
@@ -307,6 +308,7 @@ async function harness(
     };
     signals?: SignalRuntime;
     liveEvents?: LiveEventRuntime;
+    monitors?: ListeningMonitors;
     onAutoApprovedAgentIdsChange?: (
       agentInstanceIds: ReadonlySet<string>,
     ) => void;
@@ -6136,6 +6138,105 @@ describe("desktop adapter over the shared application", () => {
       assignments: [],
     });
     await service.stop();
+  });
+
+  it("arms every ready listener as the App and pushes monitor changes", async () => {
+    let notify: (() => void) | undefined;
+    const armed: { listenerIds: readonly string[]; agentId: string }[] = [];
+    let tracks: {
+      listenerId: string;
+      trackReference: string;
+      pending: boolean;
+      state: "armed";
+      periodBars: null;
+      patternVersion: number;
+      lastBar: null;
+      lastDistance: null;
+    }[] = [];
+    const view = () => ({
+      status: tracks.length === 0 ? ("off" as const) : ("armed" as const),
+      startBeat: null,
+      tracks,
+      episodes: [],
+      nextSequence: 0,
+    });
+    const listener = (listenerId: string, ready: boolean) => ({
+      listenerId,
+      instanceId: `${listenerId}-instance`,
+      trackReference: `${listenerId}-track`,
+      deviceReference: `${listenerId}-device`,
+      displayName: "Machine Listening",
+      capabilities: [],
+      ready,
+      limitations: [],
+    });
+    const monitors = {
+      registry: {
+        arm: async (
+          request: { listenerIds: readonly string[] },
+          context: { agentId: string },
+        ) => {
+          armed.push({
+            listenerIds: request.listenerIds,
+            agentId: context.agentId,
+          });
+          tracks = request.listenerIds.map((listenerId) => ({
+            listenerId,
+            trackReference: `${listenerId}-track`,
+            pending: false,
+            state: "armed" as const,
+            periodBars: null,
+            patternVersion: 0,
+            lastBar: null,
+            lastDistance: null,
+          }));
+          notify?.();
+          return view();
+        },
+        read: async () => view(),
+        disarm: async () => view(),
+        snapshot: view,
+        subscribe: (callback: () => void) => {
+          notify = callback;
+          return () => {
+            notify = undefined;
+          };
+        },
+        shutdown: async () => {},
+      },
+      discover: async () => ({
+        action: "inspect-listeners" as const,
+        listeners: [listener("keys", true), listener("bass", false)],
+        truncated: false,
+      }),
+      add: async () => ({}),
+    };
+    const { service, events } = await harness(
+      {},
+      {
+        monitors: monitors as never,
+      },
+    );
+    await service.start();
+    events.length = 0;
+
+    const state = await service.armMonitors();
+
+    expect(armed).toEqual([{ listenerIds: ["keys"], agentId: "app" }]);
+    expect(state.status).toBe("armed");
+    expect(
+      state.listeners.map(({ listenerId, armed }) => [listenerId, armed]),
+    ).toEqual([
+      ["keys", true],
+      ["bass", false],
+    ]);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "events.changed" &&
+          event.events.monitors.listeners.some(({ armed }) => armed),
+      ),
+    ).toBe(true);
   });
 
   it("manages Live events and explicitly attributed listeners across agents", async () => {

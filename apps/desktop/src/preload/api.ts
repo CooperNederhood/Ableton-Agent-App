@@ -364,6 +364,20 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
         return () => transport.removeListener(eventChannel, listener);
       },
     },
+    monitors: {
+      refresh: () => invoke("monitors:refresh", {}),
+      arm: (listenerIds) =>
+        invoke(
+          "monitors:arm",
+          listenerIds === undefined ? {} : { listenerIds },
+        ),
+      disarm: (listenerIds) =>
+        invoke(
+          "monitors:disarm",
+          listenerIds === undefined ? {} : { listenerIds },
+        ),
+      add: (trackReference) => invoke("monitors:add", { trackReference }),
+    },
     eventHistory: {
       agent: (query = {}) =>
         invoke(

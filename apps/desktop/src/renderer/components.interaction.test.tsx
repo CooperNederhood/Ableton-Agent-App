@@ -1553,6 +1553,7 @@ describe("desktop component interactions", () => {
     });
     const state = rendererState(false);
     state.events = {
+      monitors: { available: false, status: "off" as const, listeners: [] },
       events: [
         {
           definition: {

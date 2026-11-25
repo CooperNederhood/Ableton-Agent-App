@@ -206,7 +206,10 @@ export const initialState: DesktopState = {
     assignments: [],
     latest: [],
   },
-  events: { events: [] },
+  events: {
+    events: [],
+    monitors: { available: false, status: "off", listeners: [] },
+  },
   eventsLoad: { status: "loading" },
   eventHistory: {
     status: "idle",

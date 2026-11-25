@@ -1732,13 +1732,13 @@ small,
   gap: 4px;
 }
 
-.behavior-stack > label {
+.agent-editor-section .behavior-stack > label {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.behavior-stack > .behavior-sub-option {
+.agent-editor-section .behavior-stack > .behavior-sub-option {
   padding-left: 20px;
   color: var(--text-muted);
 }
